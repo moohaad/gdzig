@@ -139,6 +139,12 @@ pub const Version = extern struct {
 
 test {
     std.testing.refAllDecls(@This());
+    // Type-checks the generated surface; see that file for why the library
+    // build alone does not. Opt-in via `-Dsurface-audit` while the defects it
+    // reports are still being worked through.
+    if (@import("build_options").surface_audit) {
+        _ = @import("surface.zig");
+    }
 }
 
 const std = @import("std");

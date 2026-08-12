@@ -263,7 +263,10 @@ fn writeBuiltinOperator(w: *CodeWriter, builtin_name: []const u8, operator: *con
         try writeTypeAtField(w, &rhs.type, null, ctx);
         try w.writeAll("))");
     } else {
-        try w.writeAll(" null");
+        // Unary operator: there is no right operand, which the engine spells as
+        // the NIL variant type. The parameter is a GDExtensionVariantType, not a
+        // pointer, so `null` does not type-check here.
+        try w.writeAll(" @intFromEnum(Variant.Tag.nil)");
     }
     w.indent -= 1;
     try w.writeLine(

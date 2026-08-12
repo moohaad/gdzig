@@ -11,6 +11,10 @@ pub fn build(b: *Build) !void {
     const architecture = b.option([]const u8, "arch", "32") orelse "64";
     const godot_version = b.option([]const u8, "godot-version", "Download and use this Godot version (e.g. `latest` or `4.5`)");
     const godot_path = b.option([]const u8, "godot-path", "Path to a Godot executable");
+    // Off by default: the sweep currently reports a backlog of pre-existing
+    // defects in the generated bindings (see doc/godot-4.7-api-audit-plan.md),
+    // so enabling it unconditionally would fail every build until that clears.
+    const surface_audit = b.option(bool, "surface-audit", "Type-check every generated declaration (slow, currently failing)") orelse false;
 
     //
     // Steps
@@ -125,6 +129,7 @@ pub fn build(b: *Build) !void {
     const gdzig_options = b.addOptions();
     gdzig_options.addOption([]const u8, "architecture", architecture);
     gdzig_options.addOption([]const u8, "precision", precision);
+    gdzig_options.addOption(bool, "surface_audit", surface_audit);
 
     const gdzig_mod = b.addModule("gdzig", .{
         .root_source_file = gdzig_combined.path(b, "gdzig.zig"),

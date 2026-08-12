@@ -172,12 +172,91 @@ pass over bindgen's TODOs, since they mark known-unfinished surface.
 
 ## Suggested order
 
-1. **1.1 registration ladder** — biggest simplification, riskiest, do it while attention is on it
-2. **2.3 compile-only sweep** — cheapest broad defect net; would have caught the `Signal` bug
+1. ~~**1.1 registration ladder**~~ — done (`7a9d0fd`). `class.zig` 450 → 286 lines; the
+   4.1-4.3 callback wrappers and `PropertyListInstanceBinding` went with it, and the version
+   probe now refuses an older engine instead of misregistering. Verified against 4.7.1 and,
+   for the refusal path, a real 4.6.3 engine.
+2. ~~**2.3 compile-only sweep**~~ — done, and it found a backlog. See "Sweep findings" below.
 3. **2.1 differ as a tool** + **2.2 coverage measurement** — turns "unknown" into a ranked list
 4. **1.2 – 1.4** — mechanical cleanups, no urgency
 5. **2.4 / 2.5** — driven by what 2.2 ranks
 6. **1.5** — last, once 2.4 no longer needs the 4.6 binary
+
+---
+
+## Sweep findings (2.3)
+
+`src/surface.zig` references every declaration reachable from the public namespaces, forcing
+the compiler to analyse each one. Run it with:
+
+```sh
+zig build test -Dsurface-audit -Dgodot-path=<godot>
+```
+
+It is **opt-in**, because it currently fails. Default builds and CI are unaffected.
+
+### The premise, confirmed
+
+Zig only analyses referenced functions, so building the library proves the generated code
+parses, not that it type-checks. Verified directly: a `pub fn` with a deliberate type error,
+referenced by nothing, compiles clean under `zig build` and is caught only once something
+references it.
+
+Note this revises a claim made earlier in this plan. The `Signal`-shadowing defect would *not*
+have needed the sweep — parameter shadowing is a scope error caught at AstGen for any imported
+file, which is why a plain `zig build` found it. The sweep's value is the layer below that:
+type errors in signatures and bodies that nothing reaches.
+
+### Fixed
+
+**Unary operators passed `null` as a variant type.** `variant_get_ptr_operator_evaluator`
+takes the right operand's `GDExtensionVariantType` (a `c_uint`); for a unary operator that is
+`NIL`, not a null pointer. bindgen emitted `null`, so every unary operator on every builtin
+failed to compile when referenced — 41 errors. Now emits `@intFromEnum(Variant.Tag.nil)`.
+
+### Outstanding — 694 errors, dominated by one root cause
+
+**~604: flag-typed default arguments use the wrong backing width.** Generated as
+`@bitCast(@as(u64, 3))` for a flag whose representation is `u32`.
+
+`Context.flagRepr` resolves the width from `self.flags` and `self.classes`, falling back to
+`"u64"` on a miss. But flag defaults are computed inside `castClasses`, which runs *before*
+`castFlags` and populates `self.classes` incrementally. So:
+
+- global flags always miss — `self.flags` is still empty
+- qualified class flags (`TextServer.JustificationFlag`) resolve only when the owning class
+  sorts alphabetically earlier than the referencing one
+
+which is why `FileAccess.UnixPermissionFlags` resolves from some classes and not others, and
+why unqualified own-class references are fine. Emitted widths across the generated classes:
+909 × `u64` against 38 × `u32`.
+
+The fix is a two-pass restructure — resolve flag representations before any default value is
+built — not a change to `flagRepr` itself. Same family as the recent `place flag bits by
+value` and `alias duplicate-value enum/flag members` fixes.
+
+Remaining, unanalysed:
+
+| Count | Error |
+| --- | --- |
+| 62 | `opaque X has no member named Y` |
+| 8 | `struct X has no member named Y` |
+| 7 | `expected type X, found Y` |
+| 6 | `@ptrCast discards const qualifier` |
+| 2 | `unable to resolve comptime value` |
+| 2 | `evaluation exceeded 20000 backwards branches` |
+
+The last is a generated `@setEvalBranchQuota(20000)` that is simply too low under the sweep,
+not a defect.
+
+### Turning it on
+
+The sweep should gate CI once the backlog clears; until then it is a worklist. Order: fix the
+flag-width pass (clears ~87% of what remains), then triage the rest, then flip the default and
+drop the option.
+
+Measure build cost before flipping it — referencing the whole API is a large compilation unit,
+and if it is slow it belongs in its own CI job rather than in every local `zig build test`.
 
 ## Risks
 
