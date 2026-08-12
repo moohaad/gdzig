@@ -148,10 +148,10 @@ pub fn _enterTree(self: *ExampleNode) void {
         _ = itemList.addItem(name, .{});
     }
 
-    var timer = self.base.getTree().?.createTimer(1.0, .{}).?;
-    defer if (timer.unreference()) timer.destroy();
+    var timer: Gd(SceneTreeTimer) = .adopt(self.base.getTree().?.createTimer(1.0, .{}).?);
+    defer timer.deinit();
 
-    timer.connect(SceneTreeTimer.Timeout, .fromClosure(self, &onTimeout)) catch {};
+    timer.get().connect(SceneTreeTimer.Timeout, .fromClosure(self, &onTimeout)) catch {};
     sp.connect(HSplitContainer.Resized, .fromClosure(self, &onResized)) catch {};
     itemList.connect(ItemList.ItemSelected, .fromClosure(self, &onItemFocused)) catch {};
 
@@ -166,13 +166,13 @@ pub fn _enterTree(self: *ExampleNode) void {
 
     const vprt = self.base.getViewport().?;
 
-    const tex = vprt.getTexture().?;
-    defer if (tex.unreference()) tex.destroy();
+    var tex: Gd(ViewportTexture) = .adopt(vprt.getTexture().?);
+    defer tex.deinit();
 
-    const img = tex.getImage().?;
-    defer if (img.unreference()) img.destroy();
+    var img: Gd(Image) = .adopt(tex.get().getImage().?);
+    defer img.deinit();
 
-    const data = img.getData();
+    const data = img.get().getData();
     _ = data;
 }
 
@@ -207,7 +207,10 @@ const PanelContainer = godot.class.PanelContainer;
 const String = godot.builtin.String;
 const Variant = godot.builtin.Variant;
 const Vector3 = godot.builtin.Vector3;
+const Image = godot.class.Image;
 const SceneTreeTimer = godot.class.SceneTreeTimer;
+const ViewportTexture = godot.class.ViewportTexture;
+const Gd = godot.Gd;
 
 const GuiNode = @import("GuiNode.zig");
 const SignalNode = @import("SignalNode.zig");

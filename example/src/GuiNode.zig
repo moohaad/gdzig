@@ -60,10 +60,10 @@ pub fn _enterTree(self: *GuiNode) void {
     var res_name: String = .fromLatin1("res://textures/logo.png");
     defer res_name.deinit();
 
-    const texture = ResourceLoader.load(res_name, .{}).?;
-    defer if (texture.unreference()) texture.destroy();
+    var texture: Gd(Resource) = .adopt(ResourceLoader.load(res_name, .{}).?);
+    defer texture.deinit();
     self.sprite = Sprite2D.init();
-    self.sprite.setTexture(Texture2D.downcast(texture).?);
+    self.sprite.setTexture(Texture2D.downcast(texture.get()).?);
     self.sprite.setPosition(.initXY(400, 300));
     self.sprite.setScale(.initXY(0.6, 0.6));
     self.base.addChild(.upcast(self.sprite), .{});
@@ -93,7 +93,9 @@ const CheckBox = godot.class.CheckBox;
 const Control = godot.class.Control;
 const Engine = godot.class.Engine;
 const Object = godot.class.Object;
+const Resource = godot.class.Resource;
 const ResourceLoader = godot.class.ResourceLoader;
+const Gd = godot.Gd;
 const Sprite2D = godot.class.Sprite2d;
 const String = godot.builtin.String;
 const StringName = godot.builtin.StringName;

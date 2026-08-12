@@ -2,15 +2,15 @@
     .name = .godot,
     .version = "0.0.0-dev",
     .fingerprint = 0x74a61aa48e9841ab,
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.16.0",
 
     .dependencies = .{
         .bbcodez = .{
-            .url = "git+https://github.com/gdzig/bbcodez#5a4f5bd131552e7394ef26b01883370eb422eca4",
-            .hash = "bbcodez-0.0.1-dev-YlrOBo-iAQBWdgFSZ5eINgMNAZlmrHLQ35zKSZEEqgS2",
+            .url = "git+https://github.com/gdzig/bbcodez#7ca97c0738d274195bcb28ab5c789ee0579abbcf",
+            .hash = "bbcodez-0.0.1-dev-YlrOBmyhAQBdGQs5DI8s5xn5nlRg_KQP-aQfCa9eseZp",
         },
         .casez = .{
-            .url = "git+https://github.com/gdzig/casez#9732adbfd8c591ddd6e9c3feab016bf9af779d6c",
+            .url = "git+https://github.com/gdzig/casez#c5a826d3d7bbbb46b344f971d9caadc2595f521e",
             .hash = "casez-0.0.1-aTb4GruMAAB_mjFKqes-KoN2jNXSLpB856W-8ZL22krx",
         },
         .emsdk = .{
@@ -19,16 +19,16 @@
             .lazy = true,
         },
         .godot = .{
-            .url = "git+https://github.com/gdzig/godot-versions.git#4f787c5e8765906359911a64d4fb1c8b1ea6c061",
-            .hash = "godot-0.0.0-Nast2tZgBgC6uBE0ft9hVjtKn_BoDWqYo7mQ6BGGZWZf",
+            .url = "git+https://github.com/gdzig/godot-versions.git#cb41d4a9241102d312271304817f3484368b478e",
+            .hash = "godot-0.0.0-Nast2o0_BwCjd9Vm4k59-NSjvu22GweqqACqv6sIz1yu",
         },
         .oopz = .{
             .url = "git+https://github.com/gdzig/oopz#e37ece30bdafc185e88a4bb5d9869115c8d8503f",
             .hash = "oopz-0.0.0-pFJy_ddWAAABM-zKPi6ChgcCRYMOuWKbEFwEqsfNU-4U",
         },
         .temp = .{
-            .url = "git+https://github.com/abhinav/temp.zig#7f0a9697d3d46d06c4f84fc3bc5199b7779fab33",
-            .hash = "temp-0.3.0-Ogl1Ff5-AABRtiHj_zDFI0CZVU8ORLPko6iQiw63Znrz",
+            .url = "git+https://github.com/abhinav/temp.zig#b9ab01063f9b1ef9015b08c6cf62f681a946fafc",
+            .hash = "temp-0.4.0-Ogl1FVeIAAAz7NKVplohFzIpVJikGN3WMJzPBr7ZRzw6",
         },
     },
 

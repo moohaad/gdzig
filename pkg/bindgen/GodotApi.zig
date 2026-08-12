@@ -223,7 +223,15 @@ pub const Class = struct {
 
 pub const GlobalConstant = struct {
     name: []const u8,
-    value: []const u8,
+    /// A JSON number, not a string. Godot 4.6 and earlier always emitted an
+    /// empty `global_constants` array, so this was never exercised; 4.7 is the
+    /// first version to populate it (`UINT8_MAX`, `INT64_MIN`, ...).
+    ///
+    /// Observed values span the full `i64` range. A future constant that does
+    /// not fit, such as `UINT64_MAX`, would need a wider type here.
+    value: i64,
+    is_bitfield: bool = false,
+    description: ?[]const u8 = null,
 };
 
 pub const GlobalEnum = struct {
@@ -319,5 +327,5 @@ pub fn parseFromReader(arena: *ArenaAllocator, reader: *Reader) !Parsed(GodotApi
 const std = @import("std");
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Parsed = std.json.Parsed;
-const Reader = std.io.Reader;
+const Reader = std.Io.Reader;
 const JsonReader = std.json.Reader;

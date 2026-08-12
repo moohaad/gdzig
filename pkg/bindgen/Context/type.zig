@@ -145,11 +145,11 @@ pub const Type = union(enum) {
         self.* = .void;
     }
 
-    pub fn format(self: Type, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self) {
             .array => |elem| if (elem) |t| {
                 try writer.writeAll("[");
-                try t.format(fmt, options, writer);
+                try t.format(writer);
                 try writer.writeAll("]");
             },
             inline .int,
@@ -163,7 +163,7 @@ pub const Type = union(enum) {
                 try writer.writeAll("union(");
                 for (types, 0..) |t, i| {
                     if (i > 0) try writer.writeAll(", ");
-                    try t.format(fmt, options, writer);
+                    try t.format(writer);
                 }
                 try writer.writeAll(")");
             },
@@ -174,7 +174,7 @@ pub const Type = union(enum) {
             .variant => try writer.writeAll("variant"),
             .pointer => |t| {
                 try writer.writeAll("pointer(");
-                try t.format(fmt, options, writer);
+                try t.format(writer);
                 try writer.writeAll(")");
             },
         }

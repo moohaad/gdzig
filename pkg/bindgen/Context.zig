@@ -29,6 +29,8 @@ builtin_sizes: StringArrayHashMap(struct { size: usize, members: StringArrayHash
 classes: StringArrayHashMap(Class) = .empty,
 enums: StringArrayHashMap(Enum) = .empty,
 flags: StringArrayHashMap(Flag) = .empty,
+/// `@GlobalScope` constants. Empty before Godot 4.7.
+global_constants: StringArrayHashMap(Constant) = .empty,
 dispatch_table: DispatchTable = .empty,
 modules: StringArrayHashMap(Module) = .empty,
 
@@ -67,6 +69,7 @@ pub fn build(arena: *ArenaAllocator, api: GodotApi, config: Config) !Context {
     try self.castClasses();
     try self.castEnums();
     try self.castFlags();
+    try self.castGlobalConstants();
     try self.castModules();
 
     try self.collectImports();
@@ -214,7 +217,7 @@ fn parseSingletons(self: *Context) !void {
 
 fn parseGdExtensionHeaders(self: *Context) !void {
     var buf: [1024]u8 = undefined;
-    var gdextension_reader = self.config.gdextension_interface.reader(&buf);
+    var gdextension_reader = self.config.gdextension_interface.reader(self.config.io, &buf);
     var reader = &gdextension_reader.interface;
 
     const name_doc = "@name";
@@ -223,8 +226,7 @@ fn parseGdExtensionHeaders(self: *Context) !void {
     var fp_type: ?[]const u8 = null;
     const safe_ident_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
 
-    var doc_stream: std.ArrayListUnmanaged(u8) = .empty;
-    const doc_writer: std.ArrayListUnmanaged(u8).Writer = doc_stream.writer(self.allocator());
+    var doc_stream: std.ArrayList(u8) = .empty;
 
     var doc_start: ?usize = null;
     var doc_end: ?usize = null;
@@ -232,7 +234,7 @@ fn parseGdExtensionHeaders(self: *Context) !void {
     var doc_line_temp: [1024]u8 = undefined;
 
     while (true) {
-        const line: []const u8 = std.mem.trimRight(u8, (reader.takeDelimiterInclusive('\n') catch break), "\n");
+        const line: []const u8 = std.mem.trimEnd(u8, (reader.takeDelimiterInclusive('\n') catch break), "\n");
 
         const contains_name_doc = std.mem.indexOf(u8, line, name_doc) != null;
 
@@ -260,8 +262,8 @@ fn parseGdExtensionHeaders(self: *Context) !void {
                 }
 
                 if (!contains_name_doc and !(is_last_line and doc_line.len == 0)) {
-                    try doc_writer.writeAll(try self.allocator().dupe(u8, doc_line));
-                    try doc_writer.writeAll("\n");
+                    try doc_stream.appendSlice(self.allocator(), doc_line);
+                    try doc_stream.append(self.allocator(), '\n');
                 }
 
                 if (is_last_line) {
@@ -358,7 +360,7 @@ fn castBuiltins(self: *Context) !void {
         if (util.shouldSkipClass(api.name)) continue;
 
         var builtin: Builtin = try .fromApi(self.allocator(), api, self);
-        try builtin.loadMixinIfExists(self.allocator(), self.config.input);
+        try builtin.loadMixinIfExists(self.allocator(), self.config.io, self.config.input);
 
         try self.builtins.put(self.allocator(), builtin.name_api, builtin);
     }
@@ -379,6 +381,16 @@ fn castClass(self: *Context, class: GodotApi.Class) !void {
         }
     }
     try self.classes.put(self.allocator(), class.name, try .fromApi(self.allocator(), class, self));
+}
+
+fn castGlobalConstants(self: *Context) !void {
+    for (self.api.global_constants) |constant| {
+        try self.global_constants.put(
+            self.allocator(),
+            constant.name,
+            try .fromGlobal(self.allocator(), constant, self),
+        );
+    }
 }
 
 fn castEnums(self: *Context) !void {
@@ -654,7 +666,7 @@ fn parseSinceVersion(docs: ?[]const u8) ?[]const u8 {
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const StringHashMap = std.StringHashMapUnmanaged;
 const StringArrayHashMap = std.StringArrayHashMapUnmanaged;

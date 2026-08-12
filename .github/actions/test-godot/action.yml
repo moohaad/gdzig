@@ -1,9 +1,9 @@
 name: Test with Godot
-description: Run gdzig tests with a specific Godot version
+description: Run gdzig tests against a specific Godot version
 
 inputs:
   godot-version:
-    description: Godot version to test with
+    description: Full Godot version to test with, e.g. "4.7.1"
     required: true
   cache-key:
     description: Cache key for Zig build artifacts
@@ -15,8 +15,77 @@ runs:
     - name: Setup Zig
       uses: mlugg/setup-zig@v2
       with:
+        # Pinned rather than inferred: gdzig uses `std.Io`, which is 0.16-only.
+        version: 0.16.0
         cache-key: ${{ inputs.cache-key }}
+
+    - name: Cache Godot
+      id: cache-godot
+      uses: actions/cache@v4
+      with:
+        path: .godot-ci
+        key: godot-${{ runner.os }}-${{ inputs.godot-version }}
+
+    # Downloaded directly instead of via `-Dgodot-version`, which routes through
+    # the godot-versions FetchStep. That step is broken on Zig 0.16: it expects
+    # `zig fetch` to leave an extracted `p/<hash>/` directory, but 0.16 stores a
+    # `p/<hash>.tar.gz` tarball. Fetching here also lets the binary be cached.
+    - name: Download Godot
+      if: steps.cache-godot.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        v='${{ inputs.godot-version }}'
+        case '${{ runner.os }}' in
+          Linux)   asset="Godot_v${v}-stable_linux.x86_64.zip" ;;
+          macOS)   asset="Godot_v${v}-stable_macos.universal.zip" ;;
+          Windows) asset="Godot_v${v}-stable_win64.exe.zip" ;;
+          *) echo "unsupported runner OS: ${{ runner.os }}" >&2; exit 1 ;;
+        esac
+        url="https://github.com/godotengine/godot-builds/releases/download/${v}-stable/${asset}"
+        echo "Downloading $url"
+        curl -fsSL --retry 3 --retry-delay 5 -o godot.zip "$url"
+        mkdir -p .godot-ci
+        if command -v unzip >/dev/null 2>&1; then
+          unzip -q godot.zip -d .godot-ci
+        else
+          7z x -o.godot-ci godot.zip >/dev/null
+        fi
+        rm -f godot.zip
+
+    - name: Locate Godot binary
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Mirrors findGodotExecutable in the godot-versions dependency: match
+        # Godot_v* or Godot.*, skip the _console build, handle the macOS bundle.
+        if [ -d .godot-ci/Godot.app ]; then
+          bin=.godot-ci/Godot.app/Contents/MacOS/Godot
+        else
+          bin=$(find .godot-ci -maxdepth 2 -type f \( -name 'Godot_v*' -o -name 'Godot.*' \) \
+                ! -name '*_console*' | head -1)
+        fi
+        if [ -z "${bin:-}" ] || [ ! -f "$bin" ]; then
+          echo "no Godot binary found under .godot-ci" >&2
+          ls -laR .godot-ci >&2 || true
+          exit 1
+        fi
+        chmod +x "$bin"
+        # `-Dgodot-path` is resolved with `.cwd_relative` and does not accept a
+        # relative path here; it must be absolute.
+        abs="$(cd "$(dirname "$bin")" && pwd)/$(basename "$bin")"
+        # On Windows this shell is Git Bash, whose absolute paths look like
+        # /d/a/gdzig/... -- meaningless to a native Windows Zig. `cygpath -m`
+        # rewrites that to C:/... , the form `-Dgodot-path` expects.
+        if [ '${{ runner.os }}' = 'Windows' ]; then
+          abs="$(cygpath -m "$abs")"
+        fi
+        echo "GODOT_BIN=$abs" >> "$GITHUB_ENV"
+
+    - name: Report Godot version
+      shell: bash
+      run: '"$GODOT_BIN" --version'
 
     - name: Run tests
       shell: bash
-      run: zig build test -Dgodot-version=${{ inputs.godot-version }}
+      run: zig build test -Dgodot-path="$GODOT_BIN"

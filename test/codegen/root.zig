@@ -100,10 +100,24 @@ test "Bug B: i32 return under poisoned stack" {
     try testing.expectEqual(@as(i32, 0), node.getChildCount(.{}));
 }
 
+test "@GlobalScope constants are generated" {
+    try testing.expectEqual(@as(i64, 255), global.UINT8_MAX);
+    try testing.expectEqual(@as(i64, 65535), global.UINT16_MAX);
+    try testing.expectEqual(@as(i64, 4294967295), global.UINT32_MAX);
+
+    try testing.expectEqual(@as(i64, -128), global.INT8_MIN);
+    try testing.expectEqual(@as(i64, 127), global.INT8_MAX);
+
+    // The extremes are what would break first if the backing type ever narrowed.
+    try testing.expectEqual(std.math.minInt(i64), global.INT64_MIN);
+    try testing.expectEqual(std.math.maxInt(i64), global.INT64_MAX);
+}
+
 const std = @import("std");
 const testing = std.testing;
 
 const gdzig = @import("gdzig");
+const global = gdzig.global;
 const Array = gdzig.builtin.Array;
 const String = gdzig.builtin.String;
 const StringName = gdzig.builtin.StringName;

@@ -7,16 +7,16 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Quick test for PRs - only latest Godot on Linux
+  # Quick gate for PRs: the newest supported Godot, on Linux only.
   test-pr:
     name: Test Godot ${{ matrix.godot }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     if: github.event_name == 'pull_request'
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        godot: ["4.5"]
+        godot: ["4.7.1"]
 
     steps:
       - name: Checkout
@@ -27,29 +27,27 @@ jobs:
           godot-version: ${{ matrix.godot }}
           cache-key: ${{ matrix.os }}-godot-${{ matrix.godot }}
 
-  # Full matrix for push to master and manual dispatch
+  # gdzig targets Godot 4.7 only, so the matrix is one version across the three
+  # host platforms rather than a spread of versions on one.
   test-full:
     name: Test Godot ${{ matrix.godot }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     strategy:
+      fail-fast: false
       matrix:
-        # All Godot versions on Linux, latest on macOS/Windows
-        os: [ubuntu-latest]
-        godot: ["4.1", "4.2", "4.3", "4.4", "4.5"]
-        include:
-          # Add macOS and Windows for latest Godot only
-          - os: macos-latest
-            godot: "4.5"
-          # Temporarily disabled while we figure out hanging
-          - os: windows-latest
-            godot: "4.5"
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        godot: ["4.7.1"]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Windows previously hung here. The cause was very likely the test
+      # coordinator piping the child's stderr and never draining it, which
+      # deadlocks Godot as soon as a test makes it print. That is fixed -- the
+      # drain now runs on its own task -- so Windows gates again. If it hangs,
+      # look there first.
       - uses: ./.github/actions/test-godot
         with:
           godot-version: ${{ matrix.godot }}

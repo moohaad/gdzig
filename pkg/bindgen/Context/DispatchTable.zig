@@ -19,7 +19,7 @@ pub const Function = struct {
 };
 
 const std = @import("std");
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 
 const Context = @import("../Context.zig");
 const Imports = Context.Imports;

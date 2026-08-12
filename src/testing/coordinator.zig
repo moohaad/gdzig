@@ -22,15 +22,65 @@ const TestMapping = struct {
     local_index: u32,
 };
 
+/// Collects a spawned Godot's stderr on a task of its own.
+///
+/// `readResponse` blocks reading the child's stdout. If stderr were piped and
+/// nobody read it, the child would block the first time it wrote enough to fill
+/// that pipe, while we block waiting for stdout it can no longer produce -- a
+/// deadlock, and one these tests provoke readily, since several deliberately
+/// trigger engine errors.
+///
+/// The drain therefore has to make progress while this thread is blocked, which
+/// is `concurrent` rather than `async`: `async` only promises the task runs by
+/// the time it is awaited, and awaiting happens after the blocking read.
+const StderrCapture = struct {
+    buf: std.ArrayList(u8) = .empty,
+    task: ?Io.Future(void) = null,
+
+    fn start(self: *StderrCapture, io: Io, gpa: Allocator, file: Io.File) !void {
+        self.task = try io.concurrent(drain, .{ io, file, gpa, &self.buf });
+    }
+
+    /// Waits for the drain to finish, which happens when the child exits and
+    /// closes its end of the pipe. Idempotent.
+    ///
+    /// Must run before `Child.wait`, which closes the parent's handles as part
+    /// of cleaning up and would pull the file out from under the drain.
+    fn finish(self: *StderrCapture, io: Io) void {
+        if (self.task) |*task| {
+            task.await(io);
+            self.task = null;
+        }
+    }
+
+    fn deinit(self: *StderrCapture, gpa: Allocator) void {
+        self.buf.deinit(gpa);
+    }
+
+    fn drain(io: Io, file: Io.File, gpa: Allocator, out: *std.ArrayList(u8)) void {
+        var buf: [4096]u8 = undefined;
+        while (true) {
+            // Ends on error.EndOfStream when the child closes the pipe. A zero
+            // read is not end-of-stream and is retried.
+            const n = file.readStreaming(io, &.{&buf}) catch return;
+            if (n == 0) continue;
+            out.appendSlice(gpa, buf[0..n]) catch return;
+        }
+    }
+};
+
 /// State for the test runner
 const Runner = struct {
     allocator: Allocator,
+    io: Io,
+    /// Parent environment, inherited by each spawned Godot process.
+    environ: std.process.Environ,
     server: ZigServer,
-    test_mappings: std.ArrayListUnmanaged(TestMapping),
-    string_bytes: std.ArrayListUnmanaged(u8),
-    test_name_indices: std.ArrayListUnmanaged(u32),
+    test_mappings: std.ArrayList(TestMapping),
+    string_bytes: std.ArrayList(u8),
+    test_name_indices: std.ArrayList(u32),
 
-    fn init(allocator: Allocator, in: *Io.Reader, out: *Io.Writer) !Runner {
+    fn init(allocator: Allocator, io: Io, environ: std.process.Environ, in: *Io.Reader, out: *Io.Writer) !Runner {
         const server = try ZigServer.init(.{
             .in = in,
             .out = out,
@@ -39,6 +89,8 @@ const Runner = struct {
 
         return .{
             .allocator = allocator,
+            .io = io,
+            .environ = environ,
             .server = server,
             .test_mappings = .empty,
             .string_bytes = .empty,
@@ -97,20 +149,29 @@ const Runner = struct {
         });
     }
 
+    /// Collects the stderr drain and reaps the child, in that order. Safe to
+    /// call more than once, so an explicit call can precede the `defer`.
+    fn reap(self: *Runner, child: *std.process.Child, stderr: *StderrCapture) void {
+        stderr.finish(self.io);
+        // `wait` asserts the child has not already been reaped.
+        if (child.id != null) _ = child.wait(self.io) catch {};
+    }
+
     fn collectFolderMetadata(self: *Runner, folder: []const u8, folder_idx: u32) !void {
         const folder_name = std.fs.path.basename(folder);
 
-        // Spawn Godot with stdin/stdout piped
+        // Spawn Godot with stdin/stdout/stderr piped
         var child = try self.spawnGodot(folder);
-        defer {
-            _ = child.wait() catch {};
-        }
+        var child_stderr: StderrCapture = .{};
+        defer child_stderr.deinit(self.allocator);
+        try child_stderr.start(self.io, self.allocator, child.stderr.?);
+        defer self.reap(&child, &child_stderr);
 
         // Send query_metadata command
         try self.sendCommand(&child, .query_metadata);
 
         // Read response from stdout, filtering out Godot noise
-        var godot_output: std.ArrayListUnmanaged(u8) = .empty;
+        var godot_output: std.ArrayList(u8) = .empty;
         defer godot_output.deinit(self.allocator);
 
         const response = try self.readResponse(&child, &godot_output);
@@ -143,8 +204,14 @@ const Runner = struct {
                 .result => return error.UnexpectedResponse,
             }
         } else {
+            // Metadata collection failed. Reap first so the drain has finished
+            // and its buffer can be reported alongside the stdout we captured.
+            self.reap(&child, &child_stderr);
             if (godot_output.items.len > 0) {
                 std.debug.print("Godot output:\n{s}\n", .{godot_output.items});
+            }
+            if (child_stderr.buf.items.len > 0) {
+                std.debug.print("Godot stderr:\n{s}\n", .{child_stderr.buf.items});
             }
             return error.NoResponse;
         }
@@ -154,10 +221,20 @@ const Runner = struct {
     }
 
     fn handleRunTest(self: *Runner, global_index: u32) !void {
+        // The build runner tracks which test is in flight via `test_started`, and
+        // asserts that the index in `test_results` matches it, so it must precede
+        // every result -- including the out-of-range failure below.
+        //
+        // Send it before spawning Godot, not after: until it arrives the runner
+        // holds us to a 60s "failed to respond" deadline, and only an in-flight
+        // test lifts that. Spawning a headless Godot can exceed 60s when several
+        // test binaries run concurrently.
+        try self.server.serveStringMessage(.test_started, &.{});
+
         if (global_index >= self.test_mappings.items.len) {
             try self.server.serveTestResults(.{
                 .index = global_index,
-                .flags = .{ .fail = true, .skip = false, .leak = false, .fuzz = false },
+                .flags = .{ .status = .fail, .fuzz = false, .log_err_count = 0, .leak_count = 0 },
             });
             return;
         }
@@ -167,15 +244,16 @@ const Runner = struct {
 
         // Spawn Godot
         var child = try self.spawnGodot(folder);
-        defer {
-            _ = child.wait() catch {};
-        }
+        var child_stderr: StderrCapture = .{};
+        defer child_stderr.deinit(self.allocator);
+        try child_stderr.start(self.io, self.allocator, child.stderr.?);
+        defer self.reap(&child, &child_stderr);
 
         // Send run_test command
         try self.sendCommand(&child, .{ .run_test = mapping.local_index });
 
         // Read response, collecting Godot output
-        var godot_output: std.ArrayListUnmanaged(u8) = .empty;
+        var godot_output: std.ArrayList(u8) = .empty;
         defer godot_output.deinit(self.allocator);
 
         var failed = true;
@@ -194,35 +272,45 @@ const Runner = struct {
             }
         }
 
-        // Send exit command
         self.sendCommand(&child, .exit) catch {};
 
-        // Wait for child to exit
-        _ = child.wait() catch {};
+        // Reap here rather than leaving it to the `defer`: the child's stderr is
+        // only complete once the drain has finished, and it is wanted below.
+        // `reap` is idempotent, so the `defer` remains correct for early exits.
+        self.reap(&child, &child_stderr);
 
-        // If test failed, print Godot's output to stderr so user sees stack trace
-        if (failed and godot_output.items.len > 0) {
-            std.fs.File.stderr().writeAll(godot_output.items) catch {};
+        // On failure, surface what Godot said. The build runner captures this
+        // process's stderr per-test and prints it when a test fails, so it
+        // reaches the user attributed to the right test -- and stays hidden
+        // when the test passes, which is why the engine errors these tests
+        // deliberately provoke no longer clutter a green run.
+        if (failed) {
+            const err = Io.File.stderr();
+            if (godot_output.items.len > 0) {
+                err.writeStreamingAll(self.io, godot_output.items) catch {};
+            }
+            if (child_stderr.buf.items.len > 0) {
+                err.writeStreamingAll(self.io, child_stderr.buf.items) catch {};
+            }
         }
 
         // Send result to build system
         try self.server.serveTestResults(.{
             .index = global_index,
             .flags = .{
-                .fail = failed,
-                .skip = false,
-                .leak = false,
+                .status = if (failed) .fail else .pass,
                 .fuzz = false,
+                .log_err_count = 0,
+                .leak_count = 0,
             },
         });
     }
 
     /// Send a command to the child process stdin
     fn sendCommand(self: *Runner, child: *std.process.Child, cmd: protocol.Command) !void {
-        _ = self;
         const stdin = child.stdin orelse return error.NoStdin;
         var buf: [4096]u8 = undefined;
-        var writer = std.fs.File.Writer.initStreaming(stdin, &buf);
+        var writer = stdin.writerStreaming(self.io, &buf);
         try protocol.writeCommand(&writer.interface, cmd);
         try writer.interface.flush();
     }
@@ -231,9 +319,9 @@ const Runner = struct {
     /// Non-IPC lines are collected in godot_output for error display.
     /// Uses direct read() to avoid Windows pipe issues with pread/overlapped I/O.
     /// See: https://github.com/ziglang/zig/issues/25291
-    fn readResponse(self: *Runner, child: *std.process.Child, godot_output: *std.ArrayListUnmanaged(u8)) !?protocol.Response {
+    fn readResponse(self: *Runner, child: *std.process.Child, godot_output: *std.ArrayList(u8)) !?protocol.Response {
         const stdout = child.stdout orelse return null;
-        var line_buf: std.ArrayListUnmanaged(u8) = .empty;
+        var line_buf: std.ArrayList(u8) = .empty;
         defer line_buf.deinit(self.allocator);
 
         var read_buf: [4096]u8 = undefined;
@@ -246,7 +334,7 @@ const Runner = struct {
             while (true) {
                 // Refill buffer if empty
                 if (buf_start >= buf_end) {
-                    const n = stdout.read(&read_buf) catch return null;
+                    const n = stdout.readStreaming(self.io, &.{&read_buf}) catch return null;
                     if (n == 0) return null; // EOF
                     buf_start = 0;
                     buf_end = n;
@@ -276,37 +364,34 @@ const Runner = struct {
 
     fn spawnGodot(self: *Runner, folder: []const u8) !std.process.Child {
         // Copy existing environment and add test mode flag
-        var env_map = std.process.getEnvMap(self.allocator) catch return error.EnvironmentError;
+        var env_map = self.environ.createMap(self.allocator) catch return error.EnvironmentError;
         defer env_map.deinit();
 
         try env_map.put("GDZIG_TEST_MODE", "1");
 
-        var child = std.process.Child.init(
-            &.{ options.godot_exe, "--headless", "--path", folder, "--quit-after", "60" },
-            self.allocator,
-        );
-        child.env_map = &env_map;
-        child.stdin_behavior = .Pipe;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
-
-        try child.spawn();
-        return child;
+        return try std.process.spawn(self.io, .{
+            .argv = &.{ options.godot_exe, "--headless", "--path", folder, "--quit-after", "60" },
+            .environ_map = &env_map,
+            .stdin = .pipe,
+            .stdout = .pipe,
+            // Piped, and drained by a `StderrCapture` the caller starts right
+            // after this returns. Piping without that drain deadlocks the child.
+            .stderr = .pipe,
+        });
     }
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
     var stdin_buf: [4096]u8 = undefined;
     var stdout_buf: [4096]u8 = undefined;
 
-    var stdin_reader = std.fs.File.Reader.initStreaming(std.fs.File.stdin(), &stdin_buf);
-    var stdout_writer = std.fs.File.Writer.initStreaming(std.fs.File.stdout(), &stdout_buf);
+    var stdin_reader = Io.File.stdin().readerStreaming(io, &stdin_buf);
+    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buf);
 
-    var runner = try Runner.init(allocator, &stdin_reader.interface, &stdout_writer.interface);
+    var runner = try Runner.init(allocator, io, init.minimal.environ, &stdin_reader.interface, &stdout_writer.interface);
     defer runner.deinit();
 
     try runner.run();

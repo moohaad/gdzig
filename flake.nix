@@ -3,7 +3,7 @@
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     zig.url = "github:mitchellh/zig-overlay";
     zig.inputs.nixpkgs.follows = "nixpkgs";
-    zls.url = "github:zigtools/zls?ref=0.15.1";
+    zls.url = "github:zigtools/zls?ref=0.16.0";
     zls.inputs.nixpkgs.follows = "nixpkgs";
     zls.inputs.zig-overlay.follows = "zig";
   };
@@ -36,7 +36,7 @@
         system:
         let
           pkgs = nixpkgsFor.${system};
-          zigPinned = zig.packages.${system}."0.15.2";
+          zigPinned = zig.packages.${system}."0.16.0";
           zlsPinned = zls.packages.${system}.zls.overrideAttrs (prev: {
             buildInputs = [ zigPinned ];
           });

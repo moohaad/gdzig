@@ -12,6 +12,7 @@ const options = @import("options");
 const protocol = @import("protocol.zig");
 
 const Os = gdzig.class.Os;
+const String = gdzig.builtin.String;
 
 // Export the GDExtension entrypoint
 comptime {
@@ -50,12 +51,12 @@ fn exit(_: ?*anyopaque, _: gdzig.c.GDExtensionInitializationLevel) callconv(.c) 
 
 /// Run the test server. Reads commands from stdin, writes responses to stdout.
 fn run() void {
-    // Check if we should run (env var signals test mode)
-    const test_mode = std.process.getEnvVarOwned(gdzig.engine_allocator, "GDZIG_TEST_MODE") catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => return,
-        else => return,
-    };
-    defer gdzig.engine_allocator.free(test_mode);
+    // Check if we should run (env var signals test mode). Godot's `OS` singleton
+    // is used rather than `std.process`, because as a shared library we have no
+    // `main` to receive the process environment from.
+    var test_mode: String = .fromLatin1("GDZIG_TEST_MODE");
+    defer test_mode.deinit();
+    if (!Os.hasEnvironment(test_mode)) return;
 
     runImpl() catch {};
 }
@@ -63,16 +64,17 @@ fn run() void {
 fn runImpl() !void {
     const allocator = gdzig.engine_allocator;
 
-    // Get stdin and stdout with buffering
-    const stdin_file = std.fs.File.stdin();
-    const stdout_file = std.fs.File.stdout();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
+    // Get stdin and stdout with buffering
     var stdin_buf: [4096]u8 = undefined;
     var stdout_buf: [4096]u8 = undefined;
-    var stdin = std.fs.File.Reader.initStreaming(stdin_file, &stdin_buf);
-    var stdout = std.fs.File.Writer.initStreaming(stdout_file, &stdout_buf);
+    var stdin = std.Io.File.stdin().readerStreaming(io, &stdin_buf);
+    var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
 
-    var line_buf: std.ArrayListUnmanaged(u8) = .empty;
+    var line_buf: std.ArrayList(u8) = .empty;
     defer line_buf.deinit(allocator);
 
     // Message loop - read commands from stdin, write responses to stdout
@@ -149,7 +151,7 @@ fn runSingleTest(test_fn: std.builtin.TestFn) SingleTestResult {
         return .{ .passed = true, .message = null };
     } else |err| {
         if (@errorReturnTrace()) |trace| {
-            std.debug.dumpStackTrace(trace.*);
+            std.debug.dumpErrorReturnTrace(trace);
         }
         std.debug.print("test failed with error.{s}\n", .{@errorName(err)});
         return .{ .passed = false, .message = null };

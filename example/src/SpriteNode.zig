@@ -2,6 +2,7 @@ const SpriteNode = @This();
 
 allocator: Allocator,
 base: *Control,
+prng: std.Random.DefaultPrng = undefined,
 rng: std.Random = undefined,
 sprites: ArrayList(Sprite) = .empty,
 
@@ -46,14 +47,16 @@ pub fn randfRange(self: SpriteNode, comptime T: type, min: T, max: T) T {
 pub fn _ready(self: *SpriteNode) void {
     if (Engine.isEditorHint()) return;
 
-    var prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp()));
-    self.rng = prng.random();
+    // `prng` must live in the node, not on the stack: `random()` hands out a
+    // pointer to it that `randfRange` dereferences long after `_ready` returns.
+    self.prng = .init(Time.getTicksUsec());
+    self.rng = self.prng.random();
 
     var logo_path: String = .fromLatin1("res://textures/logo.png");
     defer logo_path.deinit();
 
-    const tex = ResourceLoader.load(logo_path, .{}).?;
-    defer if (tex.unreference()) tex.destroy();
+    var tex: Gd(Resource) = .adopt(ResourceLoader.load(logo_path, .{}).?);
+    defer tex.deinit();
 
     const sz = self.base.getParentAreaSize();
 
@@ -66,7 +69,7 @@ pub fn _ready(self: *SpriteNode) void {
             .size = .zero,
             .gd_sprite = Sprite2D.init(),
         };
-        spr.gd_sprite.setTexture(Texture2D.downcast(tex).?);
+        spr.gd_sprite.setTexture(Texture2D.downcast(tex.get()).?);
         spr.gd_sprite.setRotation(self.randfRange(f32, 0, std.math.pi));
         spr.gd_sprite.setScale(spr.scale);
         spr.size = spr.gd_sprite.getRect().size;
@@ -113,8 +116,11 @@ const Control = godot.class.Control;
 const Engine = godot.class.Engine;
 const Object = godot.class.Object;
 const ResourceLoader = godot.class.ResourceLoader;
+const Time = godot.class.Time;
 const Sprite2D = godot.class.Sprite2d;
+const Resource = godot.class.Resource;
 const Texture2D = godot.class.Texture2d;
+const Gd = godot.Gd;
 const Vector2 = godot.builtin.Vector2;
 const Rect2 = godot.builtin.Rect2;
 const String = godot.builtin.String;

@@ -130,20 +130,21 @@ pub fn fromApi(allocator: Allocator, api: GodotApi.Builtin, ctx: *const Context)
     return self;
 }
 
-pub fn loadMixinIfExists(self: *Builtin, allocator: Allocator, input_dir: std.fs.Dir) !void {
+pub fn loadMixinIfExists(self: *Builtin, allocator: Allocator, io: std.Io, input_dir: std.Io.Dir) !void {
     const mixin_file_path = try std.fmt.allocPrint(allocator, "builtin/{s}.mixin.zig", .{self.name});
     defer allocator.free(mixin_file_path);
 
-    const file = input_dir.openFile(mixin_file_path, .{}) catch |err| {
+    const file = input_dir.openFile(io, mixin_file_path, .{}) catch |err| {
         if (err == error.FileNotFound) return;
         std.log.err("Failed to open mixin file '{s}': {}", .{ mixin_file_path, err });
         return err;
     };
+    defer file.close(io);
 
     var buf: [4096]u8 = undefined;
-    var file_reader = file.reader(&buf);
+    var file_reader = file.reader(io, &buf);
 
-    const contents = try allocator.allocSentinel(u8, @intCast(try file.getEndPos()), 0);
+    const contents = try allocator.allocSentinel(u8, @intCast((try file.stat(io)).size), 0);
     try file_reader.interface.readSliceAll(contents);
 
     // find the @mixin start/stop markers and only parse that section
@@ -235,7 +236,7 @@ pub fn deinit(self: *Builtin, allocator: Allocator) void {
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const StringArrayHashMap = std.StringArrayHashMapUnmanaged;
 
 const Ast = std.zig.Ast;

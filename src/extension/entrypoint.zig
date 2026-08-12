@@ -23,6 +23,20 @@ fn entrypoint(
 ) callconv(.c) gdzig.c.GDExtensionBool {
     gdzig.raw = .init(get_proc_address.?, library.?);
     gdzig.raw.getGodotVersion(@ptrCast(&gdzig.version));
+
+    // Refuse an unsupported engine rather than misregistering against it. gdzig
+    // registers classes through the 4.4+ entry point and its bindings are
+    // generated from a 4.7 API dump; on an older engine that surfaces as
+    // confusing engine-side breakage well after load.
+    if (gdzig.version.lt(gdzig.Version.minimum_supported)) {
+        std.log.err("gdzig requires Godot {d}.{d} or newer, but this engine is {s}", .{
+            gdzig.Version.minimum_supported.major,
+            gdzig.Version.minimum_supported.minor,
+            gdzig.version.string,
+        });
+        return 0;
+    }
+
     extension.register(&registry);
 
     r_initialization.* = .{
@@ -44,7 +58,6 @@ fn exit(_: ?*anyopaque, level: gdzig.c.GDExtensionInitializationLevel) callconv(
     registry.exit(@enumFromInt(level));
     if (level == @intFromEnum(options.minimum_initialization_level)) {
         if (@hasDecl(extension, "unregister")) extension.unregister(&registry);
-        gdzig.extension.PropertyListInstanceBinding.cleanup();
         gdzig.extension.DestroyInstanceBinding.cleanup();
         registry.deinit();
     }

@@ -77,6 +77,28 @@ pub fn fromClass(allocator: Allocator, api: GodotApi.Class.Constant, ctx: *const
     return self;
 }
 
+/// A constant from `@GlobalScope`, listed in the API's `global_constants`.
+///
+/// Godot emitted an empty `global_constants` array until 4.7, which is the first
+/// version to populate it (`UINT8_MAX`, `INT64_MIN`, ...).
+pub fn fromGlobal(allocator: Allocator, api: GodotApi.GlobalConstant, ctx: *const Context) !Constant {
+    var self: Constant = .{};
+    errdefer self.deinit(allocator);
+
+    self.name = try casez.allocConvert(allocator, gdzig_case.constant, api.name);
+    self.name_api = try allocator.dupe(u8, api.name);
+    // Every global constant Godot currently emits is a plain signed integer;
+    // `is_bitfield` is false throughout. Should that change, the backing type
+    // has to widen with it.
+    self.type = try .from(allocator, "int", false, ctx);
+    self.value = try std.fmt.allocPrint(allocator, "{d}", .{api.value});
+    self.doc = if (api.description) |desc| try docs.convertDocsToMarkdown(allocator, desc, ctx, .{
+        .verbosity = ctx.config.verbosity,
+    }) else null;
+
+    return self;
+}
+
 pub fn fromMixin(allocator: Allocator, ast: Ast, index: NodeIndex) !?Constant {
     const var_decl = ast.fullVarDecl(index) orelse return null;
     const node = ast.nodes.get(@intFromEnum(index));
@@ -139,7 +161,7 @@ fn buildTupleFromArray(array: anytype, comptime len: usize) BuildTupleFromArray(
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
 const NodeIndex = Ast.Node.Index;
 const build_options = @import("build_options");

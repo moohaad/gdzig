@@ -111,9 +111,13 @@ pub fn disconnect(self: *Self, comptime S: type, callable: Callable) void {
 }
 
 /// Emits a signal. Guarantees no allocations when calling across the FFI. Passing Transform2D, AABB, Basis, Transform3D, or Projection is a compile error; use the Alloc variant.
-pub fn emit(self: *Self, comptime Signal: type, signal: AssertNonAllocating(Signal)) EmitError!void {
-    const signal_name: StringName = .fromSignal(Signal);
-    const fields = @typeInfo(Signal).@"struct".fields;
+///
+/// The signal type parameter is named `S`, not `Signal`, to match `connect` and
+/// to avoid shadowing the `Signal` builtin, which classes import whenever their
+/// API mentions it (`Tween.tweenAwait` in Godot 4.7+).
+pub fn emit(self: *Self, comptime S: type, signal: AssertNonAllocating(S)) EmitError!void {
+    const signal_name: StringName = .fromSignal(S);
+    const fields = @typeInfo(S).@"struct".fields;
     var args: [fields.len]Variant = undefined;
     inline for (fields, 0..) |field, i| {
         args[i] = Variant.init(field.type, @field(signal, field.name));
@@ -123,9 +127,9 @@ pub fn emit(self: *Self, comptime Signal: type, signal: AssertNonAllocating(Sign
 }
 
 /// Emits a signal. Will necessarily allocate when calling across the FFI with Transform2d, Aabb, Basis, Transform3d, or Projection.
-pub fn emitAlloc(self: *Self, comptime Signal: type, signal: Signal) EmitError!void {
-    const signal_name: StringName = .fromSignal(Signal);
-    const fields = @typeInfo(Signal).@"struct".fields;
+pub fn emitAlloc(self: *Self, comptime S: type, signal: S) EmitError!void {
+    const signal_name: StringName = .fromSignal(S);
+    const fields = @typeInfo(S).@"struct".fields;
     var args: [fields.len]Variant = undefined;
     inline for (fields, 0..) |field, i| {
         args[i] = Variant.init(field.type, @field(signal, field.name));
@@ -150,16 +154,16 @@ fn emitImpl(self: *Self, signal_name: StringName, args: anytype) EmitError!void 
     }
 }
 
-/// Returns Signal if no fields allocate, otherwise generates a compile error.
-fn AssertNonAllocating(comptime Signal: type) type {
-    const fields = @typeInfo(Signal).@"struct".fields;
+/// Returns `S` if no fields allocate, otherwise generates a compile error.
+fn AssertNonAllocating(comptime S: type) type {
+    const fields = @typeInfo(S).@"struct".fields;
     inline for (fields) |field| {
         if (allocatesAsVariant(field.type)) {
             @compileError("Signal field '" ++ field.name ++ "' has type " ++ @typeName(field.type) ++
                 " which allocates when wrapped in Variant. Use emitAlloc instead.");
         }
     }
-    return Signal;
+    return S;
 }
 
 const allocatesAsVariant = Variant.Tag.allocatesForType;

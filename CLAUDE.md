@@ -5,19 +5,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ### Build Commands
-- `zig build` - Build the gdzig library and bindgen executable
-- `zig build bindgen` - Build only the gdzig_bindgen executable
-- `zig build generated` - Run bindgen to generate builtin/class code from Godot API
-- `zig build docs` - Generate and install documentation to zig-out/docs
-- `zig build test` - Run all tests (both bindgen and module tests)
+The build defines exactly four steps; run `zig build -h` to confirm.
+- `zig build` - Build the library and bindgen, run bindgen, and install the generated
+  bindings (to `src/`), the bindgen executable, the docs (to `zig-out/docs`), and the
+  Godot headers (to `zig-out/vendor`)
+- `zig build check` - Check the build without installing artifacts
+- `zig build test` - Run unit tests plus the Godot integration tests under `test/`
+- `zig build uninstall` - Remove installed artifacts
 
 ### Build Options
-- `-Dgodot=<path>` - Path to Godot binary (default: "godot")
+- `-Dgodot-path=<path>` - Path to a Godot executable
+- `-Dgodot-version=<version>` - Download and use this Godot version (e.g. `latest` or `4.7`)
 - `-Dprecision=<float|double>` - Floating point precision (default: "float")
 - `-Darch=<32|64>` - Architecture bits (default: "64")
-- `-Dheaders=<GENERATED|VENDORED|DEPENDENCY|path>` - Source for Godot headers (default: GENERATED)
 - `-Dtarget=<target>` - Cross-compilation target
 - `-Doptimize=<Debug|ReleaseSafe|ReleaseFast|ReleaseSmall>` - Optimization mode
+
+Prefer `-Dgodot-path` while the `godot-versions` dependency's `FetchStep` remains broken on
+Zig 0.16 (it expects `zig fetch` to leave an extracted `p/<hash>/` directory, but 0.16 stores
+a `p/<hash>.tar.gz` tarball). Without it, any build that has to download Godot fails with
+"failed to open fetched directory".
 
 ### Example Project Commands (from example/ directory)
 - `zig build run` - Build example and run with Godot
@@ -75,7 +82,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Type System
 
-- Uses Zig 0.15.1 features including new Reader/Writer interfaces
+- Uses Zig 0.16 features, including the `std.Io` interface (`std.Io.Dir`/`std.Io.File`/`Reader`/`Writer`)
 - Builtin types map to Zig equivalents based on precision setting (float/double)
 - Classes use oopz dependency for OOP-style inheritance
 - Supports both 32-bit and 64-bit architectures
@@ -98,7 +105,9 @@ Extensions define an entry point using `gdzig.entrypoint()` or `gdzig.entrypoint
 
 ## Current Status
 
-- Migrating to Zig 0.15.1 with updated Reader/Writer interfaces
-- Active development on branch `zig-0.15.1`
+- Migrated to Zig 0.16. File I/O goes through `std.Io`, so an `Io` instance must be threaded
+  to every file/dir/process call. In bindgen it is carried on `Config.io` (reach it via
+  `ctx.config.io`); in the test coordinator it comes from `std.process.Init`; the test harness
+  builds its own `std.Io.Threaded` because, as a shared library, it has no `main`.
 - Main branch for PRs: `master`
-- To see the generated code: run `zig build generated`. The generated code will be in the `gdzig/` folder.
+- To see the generated code: run `zig build`. The generated code is installed into the `src/` folder.

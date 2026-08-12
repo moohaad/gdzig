@@ -120,9 +120,9 @@ pub fn fromApi(allocator: Allocator, api: GodotApi.Class, ctx: *const Context) !
             inherited.self = switch (inherited.self) {
                 .static => .static,
                 .singleton => .singleton,
-                .constant => |_| .{ .constant = self.name },
-                .mutable => |_| .{ .mutable = self.name },
-                .value => |_| .{ .value = self.name },
+                .constant => .{ .constant = self.name },
+                .mutable => .{ .mutable = self.name },
+                .value => .{ .value = self.name },
             };
 
             // Convert the function to a singleton function if we are a singleton and the parent is not
@@ -250,7 +250,7 @@ pub fn hasCollision(self: *const Class, name: []const u8) bool {
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const StringArrayHashMap = std.StringArrayHashMapUnmanaged;
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 
 const casez = @import("casez");
 const common = @import("common");

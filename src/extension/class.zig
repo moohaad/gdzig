@@ -4,55 +4,21 @@ pub fn registerClass(comptime T: type, info: ClassInfo4(ClassUserdataOf(T))) voi
     const callbacks = comptime makeClassCallbacks(T);
     const Userdata = ClassUserdataOf(T);
 
-    if (gdzig.version.gte(.@"4.4")) {
-        classdb.registerClass4(T, Userdata, void, &class_name, &base_name, if (Userdata != void) .{
-            .userdata = info.userdata,
-            .is_virtual = info.is_virtual,
-            .is_abstract = info.is_abstract,
-            .is_exposed = info.is_exposed,
-            .is_runtime = info.is_runtime,
-        } else .{
-            .is_virtual = info.is_virtual,
-            .is_abstract = info.is_abstract,
-            .is_exposed = info.is_exposed,
-            .is_runtime = info.is_runtime,
-        }, callbacks.v4);
-    } else if (gdzig.version.gte(.@"4.3")) {
-        classdb.registerClass3(T, Userdata, void, &class_name, &base_name, if (Userdata != void) .{
-            .userdata = info.userdata,
-            .is_virtual = info.is_virtual,
-            .is_abstract = info.is_abstract,
-            .is_exposed = info.is_exposed,
-            .is_runtime = info.is_runtime,
-        } else .{
-            .is_virtual = info.is_virtual,
-            .is_abstract = info.is_abstract,
-            .is_exposed = info.is_exposed,
-            .is_runtime = info.is_runtime,
-        }, callbacks.v3);
-    } else if (gdzig.version.gte(.@"4.2")) {
-        classdb.registerClass2(T, Userdata, void, &class_name, &base_name, if (Userdata != void) .{
-            .userdata = info.userdata,
-            .is_virtual = info.is_virtual,
-            .is_abstract = info.is_abstract,
-            .is_exposed = info.is_exposed,
-        } else .{
-            .is_virtual = info.is_virtual,
-            .is_abstract = info.is_abstract,
-            .is_exposed = info.is_exposed,
-        }, callbacks.v2);
-    } else if (gdzig.version.gte(.@"4.1")) {
-        classdb.registerClass1(T, Userdata, &class_name, &base_name, if (Userdata != void) .{
-            .userdata = info.userdata,
-            .is_virtual = info.is_virtual,
-            .is_abstract = info.is_abstract,
-        } else .{
-            .is_virtual = info.is_virtual,
-            .is_abstract = info.is_abstract,
-        }, callbacks.v1);
-    } else {
-        @panic("Unsupported Godot version");
-    }
+    // gdzig targets Godot 4.7, so only the newest registration entry point is
+    // reachable. `registerClass1` through `registerClass3` remain available in
+    // `ClassDb.mixin.zig` as bindings to the corresponding engine functions.
+    classdb.registerClass4(T, Userdata, void, &class_name, &base_name, if (Userdata != void) .{
+        .userdata = info.userdata,
+        .is_virtual = info.is_virtual,
+        .is_abstract = info.is_abstract,
+        .is_exposed = info.is_exposed,
+        .is_runtime = info.is_runtime,
+    } else .{
+        .is_virtual = info.is_virtual,
+        .is_abstract = info.is_abstract,
+        .is_exposed = info.is_exposed,
+        .is_runtime = info.is_runtime,
+    }, callbacks);
 }
 
 /// Extracts the `ClassUserdata` type from a type `T` by inspecting its `create` function.
@@ -68,35 +34,6 @@ pub fn ClassUserdataOf(comptime T: type) type {
     };
 }
 
-/// This instance binding is only used in Godot 4.1 through 4.3; versions 4.4+
-/// properly store and pass around the list lengths. Allocations are backed by a
-/// memory pool and cleaned up at extension deinitialization.
-pub const PropertyListInstanceBinding = struct {
-    len: usize = 0,
-
-    var gpa: GeneralPurposeAllocator = .init;
-    const allocator = gpa.allocator();
-    var pool: MemoryPool(PropertyListInstanceBinding) = .init(allocator);
-
-    pub const callbacks: c.GDExtensionInstanceBindingCallbacks = .{
-        .create_callback = &create,
-        .free_callback = &free,
-    };
-
-    fn create(_: ?*anyopaque, _: ?*anyopaque) callconv(.c) ?*anyopaque {
-        return @ptrCast(pool.create() catch return null);
-    }
-
-    fn free(_: ?*anyopaque, _: ?*anyopaque, binding: ?*anyopaque) callconv(.c) void {
-        if (binding) |self| pool.destroy(@ptrCast(@alignCast(self)));
-    }
-
-    pub fn cleanup() void {
-        pool.deinit();
-        assert(gpa.deinit() == .ok);
-    }
-};
-
 /// Tracks destruction state to prevent double-free.
 pub const DestroyInstanceBinding = struct {
     user_destroying: bool = false,
@@ -104,7 +41,7 @@ pub const DestroyInstanceBinding = struct {
 
     var gpa: GeneralPurposeAllocator = .init;
     const allocator = gpa.allocator();
-    var pool: MemoryPool(PropertyListInstanceBinding) = .init(allocator);
+    var pool: MemoryPool(DestroyInstanceBinding) = .empty;
 
     pub const callbacks: c.GDExtensionInstanceBindingCallbacks = .{
         .create_callback = &create,
@@ -112,7 +49,7 @@ pub const DestroyInstanceBinding = struct {
     };
 
     fn create(_: ?*anyopaque, _: ?*anyopaque) callconv(.c) ?*anyopaque {
-        return @ptrCast(pool.create() catch return null);
+        return @ptrCast(pool.create(allocator) catch return null);
     }
 
     fn free(_: ?*anyopaque, _: ?*anyopaque, binding: ?*anyopaque) callconv(.c) void {
@@ -125,17 +62,12 @@ pub const DestroyInstanceBinding = struct {
     }
 
     pub fn cleanup() void {
-        pool.deinit();
+        pool.deinit(allocator);
         assert(gpa.deinit() == .ok);
     }
 };
 
-fn makeClassCallbacks(comptime T: type) struct {
-    v1: classdb.ClassCallbacks1(T, ClassUserdataOf(T)),
-    v2: classdb.ClassCallbacks2(T, ClassUserdataOf(T), void),
-    v3: classdb.ClassCallbacks3(T, ClassUserdataOf(T), void),
-    v4: classdb.ClassCallbacks4(T, ClassUserdataOf(T), void),
-} {
+fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdataOf(T), void) {
     comptime {
         if (!@hasDecl(T, "create")) {
             @compileError("Type '" ++ @typeName(T) ++ "' must have a 'create' function");
@@ -148,22 +80,6 @@ fn makeClassCallbacks(comptime T: type) struct {
     const Userdata = ClassUserdataOf(T);
 
     const Callbacks = struct {
-        /// Wraps `create` to bind the instance.
-        ///
-        /// @since 4.1
-        /// @until 4.4
-        fn create1(userdata: Userdata) anyerror!*T {
-            return create2Impl(userdata, false);
-        }
-
-        /// Wraps `create` to bind the instance (no userdata version).
-        ///
-        /// @since 4.1
-        /// @until 4.4
-        fn create1NoUserdata() anyerror!*T {
-            return create2Impl({}, false);
-        }
-
         /// Wraps `create` to bind the instance and send the POSTINITIALIZE notification.
         ///
         /// @since 4.4
@@ -228,35 +144,6 @@ fn makeClassCallbacks(comptime T: type) struct {
             }
         }
 
-        /// Wraps `_notification` to best-effort synthesize a "reversed" parameter.
-        ///
-        /// @since 4.1
-        /// @until 4.2
-        fn notification1(instance: *T, what: i32) void {
-            // This is a best-effort synthesization of "reversed" for Godot v4.1 and v4.2;
-            // it does not cover the unlikely edge case where users are sending notifications
-            // that are reversed unexpectedly.
-            const reversed = switch (what) {
-                gdzig.class.Object.NOTIFICATION_PREDELETE,
-                gdzig.class.Node.NOTIFICATION_EXIT_TREE,
-                gdzig.class.CanvasItem.NOTIFICATION_EXIT_CANVAS,
-                gdzig.class.Node3d.NOTIFICATION_EXIT_WORLD,
-                gdzig.class.Control.NOTIFICATION_FOCUS_EXIT,
-                => true,
-                else => false,
-            };
-            T._notification(instance, what, reversed);
-        }
-
-        fn getVirtual(userdata: Userdata, name: *const StringName) ?*const classdb.CallVirtual(T) {
-            _ = userdata;
-            return getVirtualImpl(name);
-        }
-
-        fn getVirtualNoUserdata(name: *const StringName) ?*const classdb.CallVirtual(T) {
-            return getVirtualImpl(name);
-        }
-
         fn getVirtualImpl(name: *const StringName) ?*const classdb.CallVirtual(T) {
             const UserVTable = comptime UserClassVTable(T);
             var buf: [256]u8 = undefined;
@@ -276,118 +163,28 @@ fn makeClassCallbacks(comptime T: type) struct {
             return getVirtualImpl(name);
         }
 
-        /// Wraps `_getPropertyList` to store the returned list length in a `PropertyListMeta` instance binding.
-        ///
-        /// @since 4.1
-        /// @until 4.3
-        fn getPropertyList1(self: *T) std.mem.Allocator.Error![]const classdb.PropertyInfo {
-            const list = try T._getPropertyList(self);
-            errdefer destroyPropertyList1(self, list.ptr);
-
-            const obj = Object.upcast(self);
-            const raw_ptr = gdzig.raw.objectGetInstanceBinding(obj, @ptrCast(@constCast(&PropertyListInstanceBinding.callbacks)), &PropertyListInstanceBinding.callbacks);
-            const ptr: *PropertyListInstanceBinding = @ptrCast(@alignCast(raw_ptr orelse return error.OutOfMemory));
-            ptr.len = list.len;
-
-            return list;
-        }
-
-        /// Wraps `_destroyPropertyList` to fetch the list length from a `PropertyListMeta` instance binding.
-        ///
-        /// @since 4.1
-        /// @until 4.3
-        fn destroyPropertyList1(self: *T, list: [*]const classdb.PropertyInfo) void {
-            const obj = Object.upcast(self);
-            const raw_ptr = gdzig.raw.objectGetInstanceBinding(obj, @ptrCast(@constCast(&PropertyListInstanceBinding.callbacks)), &PropertyListInstanceBinding.callbacks);
-            const ptr: *PropertyListInstanceBinding = @ptrCast(@alignCast(raw_ptr orelse @panic("Failed to get property list metadata")));
-            T._destroyPropertyList(self, list[0..ptr.len]);
-        }
     };
 
     return .{
-        .v1 = .{
-            .create = if (Userdata != void) Callbacks.create1 else Callbacks.create1NoUserdata,
-            .destroy = if (Userdata != void) Callbacks.destroy else Callbacks.destroyNoUserdata,
+        .create = if (Userdata != void) Callbacks.create2 else Callbacks.create2NoUserdata,
+        .destroy = if (Userdata != void) Callbacks.destroy else Callbacks.destroyNoUserdata,
+        .recreate = if (@hasDecl(T, "recreate")) T.recreate else null,
 
-            .get_virtual = if (Userdata != void) Callbacks.getVirtual else Callbacks.getVirtualNoUserdata,
+        .get_virtual = if (Userdata != void) Callbacks.getVirtual2 else Callbacks.getVirtual2NoUserdata,
+        // .get_virtual_call_data - not yet supported
+        // .call_virtual_with_data - not yet supported
 
-            .set = if (@hasDecl(T, "_set")) T._set else null,
-            .get = if (@hasDecl(T, "_get")) T._get else null,
-            .get_property_list = if (@hasDecl(T, "_getPropertyList")) Callbacks.getPropertyList1 else null,
-            .destroy_property_list = if (@hasDecl(T, "_destroyPropertyList")) Callbacks.destroyPropertyList1 else null,
-            .property_can_revert = if (@hasDecl(T, "_propertyCanRevert")) T._propertyCanRevert else null,
-            .property_get_revert = if (@hasDecl(T, "_propertyGetRevert")) T._propertyGetRevert else null,
-            .notification = if (@hasDecl(T, "_notification")) Callbacks.notification1 else null,
-            .to_string = if (@hasDecl(T, "_toString")) T._toString else null,
-            .reference = if (@hasDecl(T, "_reference")) T._reference else null,
-            .unreference = if (@hasDecl(T, "_unreference")) T._unreference else null,
-            .get_rid = if (@hasDecl(T, "_getRid")) T._getRid else null,
-        },
-        .v2 = .{
-            .create = if (Userdata != void) Callbacks.create1 else Callbacks.create1NoUserdata,
-            .destroy = if (Userdata != void) Callbacks.destroy else Callbacks.destroyNoUserdata,
-            .recreate = if (@hasDecl(T, "recreate")) T.recreate else null,
-
-            .get_virtual = if (Userdata != void) Callbacks.getVirtual else Callbacks.getVirtualNoUserdata,
-            // .get_virtual_call_data - not yet supported
-            // .call_virtual_with_data - not yet supported
-
-            .set = if (@hasDecl(T, "_set")) T._set else null,
-            .get = if (@hasDecl(T, "_get")) T._get else null,
-            .get_property_list = if (@hasDecl(T, "_getPropertyList")) Callbacks.getPropertyList1 else null,
-            .destroy_property_list = if (@hasDecl(T, "_destroyPropertyList")) Callbacks.destroyPropertyList1 else null,
-            .property_can_revert = if (@hasDecl(T, "_propertyCanRevert")) T._propertyCanRevert else null,
-            .property_get_revert = if (@hasDecl(T, "_propertyGetRevert")) T._propertyGetRevert else null,
-            .validate_property = if (@hasDecl(T, "_validateProperty")) T._validateProperty else null,
-            .notification = if (@hasDecl(T, "_notification")) T._notification else null,
-            .to_string = if (@hasDecl(T, "_toString")) T._toString else null,
-            .reference = if (@hasDecl(T, "_reference")) T._reference else null,
-            .unreference = if (@hasDecl(T, "_unreference")) T._unreference else null,
-            .get_rid = if (@hasDecl(T, "_getRid")) T._getRid else null,
-        },
-        .v3 = .{
-            .create = if (Userdata != void) Callbacks.create1 else Callbacks.create1NoUserdata,
-            .destroy = if (Userdata != void) Callbacks.destroy else Callbacks.destroyNoUserdata,
-            .recreate = if (@hasDecl(T, "recreate")) T.recreate else null,
-
-            .get_virtual = if (Userdata != void) Callbacks.getVirtual else Callbacks.getVirtualNoUserdata,
-            // .get_virtual_call_data - not yet supported
-            // .call_virtual_with_data - not yet supported
-
-            .set = if (@hasDecl(T, "_set")) T._set else null,
-            .get = if (@hasDecl(T, "_get")) T._get else null,
-            .get_property_list = if (@hasDecl(T, "_getPropertyList")) T._getPropertyList else null,
-            .destroy_property_list = if (@hasDecl(T, "_destroyPropertyList")) T._destroyPropertyList else null,
-            .property_can_revert = if (@hasDecl(T, "_propertyCanRevert")) T._propertyCanRevert else null,
-            .property_get_revert = if (@hasDecl(T, "_propertyGetRevert")) T._propertyGetRevert else null,
-            .validate_property = if (@hasDecl(T, "_validateProperty")) T._validateProperty else null,
-            .notification = if (@hasDecl(T, "_notification")) T._notification else null,
-            .to_string = if (@hasDecl(T, "_toString")) T._toString else null,
-            .reference = if (@hasDecl(T, "_reference")) T._reference else null,
-            .unreference = if (@hasDecl(T, "_unreference")) T._unreference else null,
-            .get_rid = if (@hasDecl(T, "_getRid")) T._getRid else null,
-        },
-        .v4 = .{
-            .create = if (Userdata != void) Callbacks.create2 else Callbacks.create2NoUserdata,
-            .destroy = if (Userdata != void) Callbacks.destroy else Callbacks.destroyNoUserdata,
-            .recreate = if (@hasDecl(T, "recreate")) T.recreate else null,
-
-            .get_virtual = if (Userdata != void) Callbacks.getVirtual2 else Callbacks.getVirtual2NoUserdata,
-            // .get_virtual_call_data - not yet supported
-            // .call_virtual_with_data - not yet supported
-
-            .set = if (@hasDecl(T, "_set")) T._set else null,
-            .get = if (@hasDecl(T, "_get")) T._get else null,
-            .get_property_list = if (@hasDecl(T, "_getPropertyList")) T._getPropertyList else null,
-            .destroy_property_list = if (@hasDecl(T, "_destroyPropertyList")) T._destroyPropertyList else null,
-            .property_can_revert = if (@hasDecl(T, "_propertyCanRevert")) T._propertyCanRevert else null,
-            .property_get_revert = if (@hasDecl(T, "_propertyGetRevert")) T._propertyGetRevert else null,
-            .validate_property = if (@hasDecl(T, "_validateProperty")) T._validateProperty else null,
-            .notification = if (@hasDecl(T, "_notification")) T._notification else null,
-            .to_string = if (@hasDecl(T, "_toString")) T._toString else null,
-            .reference = if (@hasDecl(T, "_reference")) T._reference else null,
-            .unreference = if (@hasDecl(T, "_unreference")) T._unreference else null,
-        },
+        .set = if (@hasDecl(T, "_set")) T._set else null,
+        .get = if (@hasDecl(T, "_get")) T._get else null,
+        .get_property_list = if (@hasDecl(T, "_getPropertyList")) T._getPropertyList else null,
+        .destroy_property_list = if (@hasDecl(T, "_destroyPropertyList")) T._destroyPropertyList else null,
+        .property_can_revert = if (@hasDecl(T, "_propertyCanRevert")) T._propertyCanRevert else null,
+        .property_get_revert = if (@hasDecl(T, "_propertyGetRevert")) T._propertyGetRevert else null,
+        .validate_property = if (@hasDecl(T, "_validateProperty")) T._validateProperty else null,
+        .notification = if (@hasDecl(T, "_notification")) T._notification else null,
+        .to_string = if (@hasDecl(T, "_toString")) T._toString else null,
+        .reference = if (@hasDecl(T, "_reference")) T._reference else null,
+        .unreference = if (@hasDecl(T, "_unreference")) T._unreference else null,
     };
 }
 

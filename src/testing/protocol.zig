@@ -115,7 +115,7 @@ pub fn parseResponse(allocator: std.mem.Allocator, line: []const u8) !?Response 
         const tests_val = root.get("tests") orelse return null;
         if (tests_val != .array) return null;
 
-        var tests: std.ArrayListUnmanaged([]const u8) = .empty;
+        var tests: std.ArrayList([]const u8) = .empty;
         errdefer {
             for (tests.items) |t| allocator.free(t);
             tests.deinit(allocator);

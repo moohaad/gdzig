@@ -67,6 +67,74 @@ test "variant reference counting" {
     object.destroy();
 }
 
+test "Gd.adopt takes over the existing reference without adding one" {
+    const resource = Resource.init();
+    try testing.expectEqual(@as(i32, 1), resource.getReferenceCount());
+
+    var handle: Gd(Resource) = .adopt(resource);
+    try testing.expectEqual(@as(i32, 1), resource.getReferenceCount());
+    try testing.expectEqual(resource, handle.get());
+
+    // Releases the reference adopted above; the object is freed here.
+    handle.deinit();
+}
+
+test "Gd.borrow adds a reference, leaving the original owner intact" {
+    const resource = Resource.init();
+    defer {
+        if (!resource.unreference()) @panic("resource still has external references");
+        resource.destroy();
+    }
+    try testing.expectEqual(@as(i32, 1), resource.getReferenceCount());
+
+    var handle: Gd(Resource) = .borrow(resource);
+    try testing.expectEqual(@as(i32, 2), resource.getReferenceCount());
+
+    handle.deinit();
+    try testing.expectEqual(@as(i32, 1), resource.getReferenceCount());
+}
+
+test "Gd.clone yields an independently releasable handle" {
+    const resource = Resource.init();
+
+    var first: Gd(Resource) = .adopt(resource);
+    var second = first.clone();
+    try testing.expectEqual(@as(i32, 2), resource.getReferenceCount());
+
+    first.deinit();
+    try testing.expectEqual(@as(i32, 1), resource.getReferenceCount());
+
+    // Last handle standing; frees the object.
+    second.deinit();
+}
+
+test "Gd.release hands ownership back to the caller" {
+    const resource = Resource.init();
+
+    var handle: Gd(Resource) = .adopt(resource);
+    const raw = handle.release();
+    try testing.expectEqual(resource, raw);
+
+    // `release` did not touch the refcount, so the caller still owes exactly
+    // the one reference that `adopt` took over.
+    try testing.expectEqual(@as(i32, 1), raw.getReferenceCount());
+    try testing.expect(raw.unreference());
+    raw.destroy();
+}
+
+test "Gd.upcast preserves the reference across the type change" {
+    const resource = Resource.init();
+
+    var derived: Gd(Resource) = .adopt(resource);
+    var base = derived.upcast(RefCounted);
+
+    // Ownership moved to `base`; no reference was gained or lost.
+    try testing.expectEqual(@as(i32, 1), resource.getReferenceCount());
+    try testing.expectEqual(RefCounted.upcast(resource), base.get());
+
+    base.deinit();
+}
+
 const RefReturnNode = struct {
     base: *Node,
     resource: *Resource,
@@ -97,6 +165,7 @@ const testing = std.testing;
 
 const gdzig = @import("gdzig");
 const general = gdzig.general;
+const Gd = gdzig.Gd;
 const allocator = gdzig.testing.allocator;
 const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;

@@ -37,7 +37,7 @@ pub fn fromGlobalEnum(allocator: Allocator, class_name: ?[]const u8, api: GodotA
     // position so each field lands at exactly @ctz(its value).
     var default: i64 = 0;
 
-    var bit_values: std.ArrayListUnmanaged(GodotApi.GlobalEnum.Value) = .empty;
+    var bit_values: std.ArrayList(GodotApi.GlobalEnum.Value) = .empty;
     defer bit_values.deinit(allocator);
 
     for (api.values) |value| {

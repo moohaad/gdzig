@@ -25,6 +25,7 @@ pub const math = @import("math.zig");
 pub const random = @import("random.zig");
 pub const extension = @import("extension.zig");
 pub const testing = @import("testing.zig");
+pub const Gd = @import("gd.zig").Gd;
 
 const DispatchTable = @import("DispatchTable.zig");
 
@@ -69,6 +70,12 @@ pub const Version = extern struct {
     pub const @"4.2" = parse("4.2");
     pub const @"4.3" = parse("4.3");
     pub const @"4.4" = parse("4.4");
+    pub const @"4.7" = parse("4.7");
+
+    /// The oldest engine gdzig supports. Class registration targets the 4.4+
+    /// entry point and the generated bindings come from a 4.7 API dump, so an
+    /// older engine would misregister rather than fail cleanly.
+    pub const minimum_supported = @"4.7";
 
     var current: Version = undefined;
 

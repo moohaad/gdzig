@@ -523,7 +523,7 @@ pub const Parameter = struct {
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const StaticStringMap = std.StaticStringMap;
 const StringArrayHashMap = std.StringArrayHashMapUnmanaged;
 const testing = std.testing;

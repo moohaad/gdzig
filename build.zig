@@ -1,4 +1,4 @@
-const latest_version = "4.6";
+const latest_version = "4.7";
 
 pub fn build(b: *Build) !void {
     //
@@ -159,11 +159,12 @@ pub fn build(b: *Build) !void {
         tests_gdzig_run = b.addRunArtifact(tests_gdzig);
         tests_common_run = b.addRunArtifact(tests_common);
 
-        var tests_dir = try std.fs.cwd().openDir(b.path("test").getPath2(b, null), .{ .iterate = true });
-        defer tests_dir.close();
+        const io = b.graph.io;
+        var tests_dir = try b.build_root.handle.openDir(io, "test", .{ .iterate = true });
+        defer tests_dir.close(io);
 
         var iter = tests_dir.iterate();
-        while (iter.next() catch null) |entry| {
+        while (iter.next(io) catch null) |entry| {
             if (entry.kind != .directory) continue;
 
             const test_mod = b.createModule(.{
