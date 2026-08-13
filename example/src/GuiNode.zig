@@ -60,7 +60,7 @@ pub fn _enterTree(self: *GuiNode) void {
     var res_name: String = .fromLatin1("res://textures/logo.png");
     defer res_name.deinit();
 
-    var texture: Gd(Resource) = .adopt(ResourceLoader.load(res_name, .{}).?);
+    var texture = ResourceLoader.load(res_name, .{}).?;
     defer texture.deinit();
     self.sprite = Sprite2D.init();
     self.sprite.setTexture(Texture2D.downcast(texture.get()).?);
@@ -95,7 +95,6 @@ const Engine = godot.class.Engine;
 const Object = godot.class.Object;
 const Resource = godot.class.Resource;
 const ResourceLoader = godot.class.ResourceLoader;
-const Gd = godot.Gd;
 const Sprite2D = godot.class.Sprite2d;
 const String = godot.builtin.String;
 const StringName = godot.builtin.StringName;

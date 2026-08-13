@@ -135,6 +135,36 @@ test "Gd.upcast preserves the reference across the type change" {
     base.deinit();
 }
 
+test "a generated method returning a refcounted class hands back an owned reference" {
+    const resource = Resource.init();
+    defer {
+        if (!resource.unreference()) @panic("resource still has external references");
+        resource.destroy();
+    }
+
+    // `duplicate` is generated as `?Gd(Resource)`. The engine already took the
+    // reference on our behalf, so the handle adopts it rather than taking a
+    // second one -- a count of 1 here is what says `adopt` and not `borrow` is
+    // the right conversion. A 2 would mean we over-referenced and the object
+    // can never be freed; a 0 would mean the pointer was borrowed and adopting
+    // it frees an object we do not own.
+    var copy = resource.duplicate(.{}).?;
+    try testing.expectEqual(@as(i32, 1), copy.get().getReferenceCount());
+
+    // Sole owner, so this is the release that frees it.
+    copy.deinit();
+}
+
+test "an absent refcounted return is null rather than a handle to nothing" {
+    // A fresh MeshInstance3D has no mesh, so the engine writes a null object
+    // pointer. The optional has to absorb that: adopting null would hand back a
+    // handle whose `deinit` dereferences it.
+    const instance = MeshInstance3d.init();
+    defer instance.destroy();
+
+    try testing.expectEqual(@as(?Gd(Mesh), null), instance.getMesh());
+}
+
 const RefReturnNode = struct {
     base: *Node,
     resource: *Resource,
@@ -167,6 +197,8 @@ const gdzig = @import("gdzig");
 const general = gdzig.general;
 const Gd = gdzig.Gd;
 const allocator = gdzig.testing.allocator;
+const Mesh = gdzig.class.Mesh;
+const MeshInstance3d = gdzig.class.MeshInstance3d;
 const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;
 const RefCounted = gdzig.class.RefCounted;

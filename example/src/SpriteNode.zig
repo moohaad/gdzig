@@ -55,7 +55,7 @@ pub fn _ready(self: *SpriteNode) void {
     var logo_path: String = .fromLatin1("res://textures/logo.png");
     defer logo_path.deinit();
 
-    var tex: Gd(Resource) = .adopt(ResourceLoader.load(logo_path, .{}).?);
+    var tex = ResourceLoader.load(logo_path, .{}).?;
     defer tex.deinit();
 
     const sz = self.base.getParentAreaSize();
@@ -120,7 +120,6 @@ const Time = godot.class.Time;
 const Sprite2D = godot.class.Sprite2d;
 const Resource = godot.class.Resource;
 const Texture2D = godot.class.Texture2d;
-const Gd = godot.Gd;
 const Vector2 = godot.builtin.Vector2;
 const Rect2 = godot.builtin.Rect2;
 const String = godot.builtin.String;

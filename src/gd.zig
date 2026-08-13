@@ -3,13 +3,25 @@
 //! `Gd(T)` pairs a `*T` with the reference it holds, so the
 //! `if (obj.unreference()) obj.destroy()` dance lives in one place instead of at
 //! every call site. Ownership also becomes visible in signatures: a `Gd(T)`
-//! parameter owns a reference, a plain `*T` borrows one.
+//! owns a reference, a plain `*T` borrows one.
+//!
+//! The generated bindings follow that convention, which mirrors what the engine
+//! itself does across the ptrcall boundary:
+//!
+//! * A method **returning** a refcounted class returns `?Gd(T)`. Godot hands
+//!   back a `Ref<T>` whose count it has already incremented for us, so the
+//!   handle adopts that reference and the caller owes a `deinit`.
+//! * A method **taking** a refcounted class takes `*T`. Godot takes
+//!   `const Ref<T>&`, which borrows; the caller keeps ownership.
 //!
 //! ```zig
-//! var tex: Gd(Texture2D) = .adopt(ResourceLoader.load(path, .{}).?);
+//! var tex = ResourceLoader.load(path, .{}).?;
 //! defer tex.deinit();
 //! tex.get().someMethod();
 //! ```
+//!
+//! Constructors are the exception: `T.init()` still returns `*T`, even for a
+//! refcounted `T`. Wrap one with `Gd(T).adopt` if you want a handle.
 //!
 //! ## What this does not do
 //!

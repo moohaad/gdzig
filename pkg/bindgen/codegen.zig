@@ -1439,11 +1439,22 @@ fn writeValue(w: *CodeWriter, value: Context.Value, ctx: *const Context) !void {
 
 fn writeFunctionFooter(w: *CodeWriter, function: *const Context.Function, class: ?*const Context.Class, ctx: *const Context) !void {
     switch (function.return_type) {
-        // Class functions need to cast an object pointer
-        .class => {
-            try w.writeLine(
-                \\return @ptrCast(result);
-            );
+        // Class functions need to cast an object pointer. A refcounted one comes
+        // back with the reference already taken on our behalf, so the handle
+        // adopts it rather than taking a second.
+        .class => |api_name| {
+            if (ctx.isRefCounted(api_name)) {
+                // `_ptr`, not `ptr`: classes carry a `ptr` mixin method that a
+                // bare capture would shadow.
+                try w.writeAll("return if (result) |_ptr| ");
+                try w.writeAll("Gd(");
+                try writeClassName(w, api_name, class, ctx);
+                try w.writeLine(").adopt(@ptrCast(_ptr)) else null;");
+            } else {
+                try w.writeLine(
+                    \\return @ptrCast(result);
+                );
+            }
         },
 
         // Variant return types can always be returned directly, even in a vararg function.
@@ -1544,6 +1555,7 @@ fn writeImports(w: *CodeWriter, imports: *const Context.Imports, class: ?*const 
         \\
         \\const gdzig = @import("gdzig");
         \\const raw = &gdzig.raw;
+        \\const Gd = gdzig.Gd;
     );
 
     // Write sorted imports (builtins, classes, globals all together under gdzig)
@@ -1940,16 +1952,33 @@ fn writeTypeAtField(w: *CodeWriter, @"type": *const Context.Type, class: ?*const
     }
 }
 
+/// Writes the name a class is referred to by from inside `class`: the short
+/// alias normally, or the fully qualified path when the alias would collide
+/// with a member of the enclosing class and so was never emitted.
+fn writeClassName(w: *CodeWriter, api_name: []const u8, class: ?*const Context.Class, ctx: *const Context) !void {
+    const name = if (ctx.classes.get(api_name)) |c| c.name else api_name;
+    if (class) |cl| if (cl.hasCollision(name)) {
+        try w.print("gdzig.class.{0s}", .{name});
+        return;
+    };
+    try w.writeAll(name);
+}
+
 fn writeTypeAtReturn(w: *CodeWriter, @"type": *const Context.Type, class: ?*const Context.Class, ctx: *const Context) !void {
     switch (@"type".*) {
         .array => try w.writeAll("Array"),
         .class => |api_name| {
-            const name = if (ctx.classes.get(api_name)) |c| c.name else api_name;
-            if (class) |cl| if (cl.hasCollision(name)) {
-                try w.print("?*gdzig.class.{0s}", .{name});
-                return;
-            };
-            try w.print("?*{0s}", .{name});
+            // A refcounted return arrives with the count already incremented, so
+            // the caller owns it; say so in the signature with an owning handle.
+            // Everything else is a plain borrowed pointer.
+            if (ctx.isRefCounted(api_name)) {
+                try w.writeAll("?Gd(");
+                try writeClassName(w, api_name, class, ctx);
+                try w.writeAll(")");
+            } else {
+                try w.writeAll("?*");
+                try writeClassName(w, api_name, class, ctx);
+            }
         },
         .node_path => try w.writeAll("NodePath"),
         .pointer => |child| {
