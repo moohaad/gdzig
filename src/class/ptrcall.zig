@@ -172,3 +172,23 @@ fn writeIntSlot(comptime Int: type, p_ret: *anyopaque, value: anytype) void {
         @as(*i64, @ptrCast(@alignCast(p_ret))).* = @intCast(value);
     }
 }
+
+test "a standard ptrcall object argument is one dereference away" {
+    // Not real objects: this is pointer marshalling and nothing dereferences
+    // the value, so a live engine is not needed.
+    const object: *gdzig.class.Node = @ptrFromInt(0xDEAD_0000);
+    const resource: *gdzig.class.Resource = @ptrFromInt(0xBEEF_0000);
+
+    // Encoded the way the generated outgoing calls do it, which is what the
+    // engine hands back on the way in: `args[0] = @ptrCast(&p_node)`.
+    const node_slot: *gdzig.class.Node = object;
+    const res_slot: *gdzig.class.Resource = resource;
+
+    // Refcounted or not, a standard ptrcall passes `T**`. Returning the slot
+    // address instead -- which is what the non-refcounted path used to do --
+    // hands the callee a pointer to the caller's local variable.
+    try std.testing.expectEqual(object, readArg(*gdzig.class.Node, @ptrCast(&node_slot)));
+    try std.testing.expectEqual(resource, readArg(*gdzig.class.Resource, @ptrCast(&res_slot)));
+
+    try std.testing.expect(@intFromPtr(&node_slot) != @intFromPtr(object));
+}

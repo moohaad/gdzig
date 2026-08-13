@@ -6,7 +6,6 @@ const common = @import("common");
 const godot_case = common.godot_case;
 
 const gdzig = @import("gdzig");
-const class = gdzig.class;
 const ptrcall = @import("../class/ptrcall.zig");
 const classdb = gdzig.class.ClassDb;
 const MethodFlags = gdzig.global.MethodFlags;
@@ -122,15 +121,13 @@ pub fn MethodConfig(comptime Class: type) type {
                     }
                 }
 
+                /// A standard ptrcall hands every object argument over as
+                /// `T**`, refcounted or not -- the `Ref<T>*` form is specific to
+                /// virtuals, which go through `ptrcall.readVirtualArg` instead.
+                /// `readArg` dereferences, which is the same thing the generated
+                /// outgoing calls encode: `args[0] = @ptrCast(&p_node)`.
                 fn ptrToArg(comptime ArgType: type, p_arg: *const anyopaque) ArgType {
-                    if (comptime class.isRefCountedPtr(ArgType) and class.isOpaqueClassPtr(ArgType)) {
-                        const obj = gdzig.raw.refGetObject(@ptrCast(p_arg));
-                        return @ptrCast(obj.?);
-                    } else if (comptime class.isOpaqueClassPtr(ArgType)) {
-                        return @ptrCast(@constCast(p_arg));
-                    } else {
-                        return ptrcall.readArg(ArgType, p_arg);
-                    }
+                    return ptrcall.readArg(ArgType, p_arg);
                 }
             };
 
