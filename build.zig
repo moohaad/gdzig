@@ -22,6 +22,7 @@ pub fn build(b: *Build) !void {
 
     const check_step = b.step("check", "Check the build without installing artifacts");
     const test_step = b.step("test", "Run unit tests");
+    const audit_step = b.step("audit", "Build the extension_api.json auditing tool");
 
     //
     // Dependencies
@@ -115,6 +116,16 @@ pub fn build(b: *Build) !void {
         .precision = precision,
         .architecture = architecture,
     });
+
+    //
+    // API audit tool
+    //
+
+    const apiaudit_exe = apiaudit.build(b, .{
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    audit_step.dependOn(&b.addInstallArtifact(apiaudit_exe, .{}).step);
 
     //
     // Library
@@ -248,6 +259,7 @@ pub const Extension = api.Extension;
 pub const ExtensionOptions = api.ExtensionOptions;
 pub const TestOptions = api.TestOptions;
 pub const InitializationLevel = api.InitializationLevel;
+const apiaudit = @import("build/apiaudit.zig");
 const bindgen = @import("build/bindgen.zig");
 const common = @import("build/common.zig");
 const gdextension = @import("build/gdextension.zig");

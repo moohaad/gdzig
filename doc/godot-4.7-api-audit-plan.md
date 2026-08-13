@@ -177,7 +177,7 @@ pass over bindgen's TODOs, since they mark known-unfinished surface.
    probe now refuses an older engine instead of misregistering. Verified against 4.7.1 and,
    for the refusal path, a real 4.6.3 engine.
 2. ~~**2.3 compile-only sweep**~~ — done, and it found a backlog. See "Sweep findings" below.
-3. **2.1 differ as a tool** + **2.2 coverage measurement** — turns "unknown" into a ranked list
+3. ~~**2.1 differ as a tool** + **2.2 coverage measurement**~~ — done. See "Audit tool" below.
 4. **1.2 – 1.4** — mechanical cleanups, no urgency
 5. **2.4 / 2.5** — driven by what 2.2 ranks
 6. **1.5** — last, once 2.4 no longer needs the 4.6 binary
@@ -318,6 +318,63 @@ cold-cache measurement should revisit it: if the cost is small, this belongs on 
 
 Measure build cost before flipping it — referencing the whole API is a large compilation unit,
 and if it is slow it belongs in its own CI job rather than in every local `zig build test`.
+
+---
+
+## Audit tool (2.1 + 2.2)
+
+`zig build audit` builds `gdzig-api-audit`, which reads the API dump dynamically rather than
+through `GodotApi` -- deliberately, since a typed parse can only see fields the model already
+knows about, and the interesting changes are the ones it does not.
+
+### `diff <old.json> <new.json>`
+
+Profiles the shape of both dumps and reports where they disagree. Run against 4.6.3 and 4.7 it
+independently reproduces the finding that took several wrong turns by hand:
+
+```
+old: Godot Engine v4.6.3.stable.official  (with docs)
+new: Godot Engine v4.7.stable.official  (with docs)
+
+global_constants.description:  old = <absent>  new = string
+global_constants.is_bitfield:  old = <absent>  new = bool
+global_constants.name:         old = <absent>  new = string
+global_constants.value:        old = <absent>  new = number
+```
+
+Both guards from the plan are implemented and refuse with an explanation rather than a
+misleading empty result: comparing a dump against itself, and comparing dumps taken with
+different `--dump-extension-api-with-docs` settings. Array kinds carry their element type, so
+a field that changes from list-of-string to list-of-object is not reported as unchanged.
+
+### `coverage <extension_api.json> <test-dir>...`
+
+Against 4.7 and `test/`:
+
+| category | touched | total | percent |
+| --- | ---: | ---: | ---: |
+| classes | 7 | 1036 | 0.7% |
+| class methods | 24 | 11300 | 0.2% |
+| builtins | 5 | 38 | 13.2% |
+| builtin methods | 13 | 421 | 3.1% |
+| utility functions | 3 | 114 | 2.6% |
+
+The sweep proves all 11300 class methods *type-check*; this says 24 of them have ever *run*.
+Both numbers are worth having, and the gap between them is the point: marshalling bugs only
+appear when a call actually crosses the FFI boundary, and that is where every such bug in this
+codebase has been found.
+
+Matching is textual and the rule differs by category, which matters when reading the numbers:
+
+- **Types** count when the name appears as a standalone identifier. Requiring a call would
+  report nearly every type as untouched, because Zig's decl literals mean a type is usually
+  named only in the annotation -- `var a: Array = .init()` never writes `Array.init`. This
+  also counts an unused import, so type figures are an upper bound.
+- **Methods** count only when followed by `(`. Exact, except that two same-named methods on
+  different types are indistinguishable.
+
+`Variant` is absent from the builtin list because the API does not classify it as a builtin
+class; it is handled specially by hand-written code.
 
 ## Risks
 

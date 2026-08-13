@@ -11,6 +11,12 @@ The build defines exactly four steps; run `zig build -h` to confirm.
   Godot headers (to `zig-out/vendor`)
 - `zig build check` - Check the build without installing artifacts
 - `zig build test` - Run unit tests plus the Godot integration tests under `test/`
+- `zig build test -Dsurface-audit` - Additionally type-check every generated declaration.
+  Zig only analyses referenced functions, so the plain build proves the bindings parse, not
+  that they compile; CI runs this as its own step
+- `zig build audit` - Build `gdzig-api-audit`, which diffs two `extension_api.json` dumps
+  (`diff old.json new.json`) or reports how much of the generated surface the tests exercise
+  (`coverage extension_api.json test`)
 - `zig build uninstall` - Remove installed artifacts
 
 ### Build Options
