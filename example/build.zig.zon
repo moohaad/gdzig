@@ -6,10 +6,6 @@
         .gdzig = .{
             .path = "../",
         },
-        .godot = .{
-            .url = "git+https://github.com/gdzig/godot-versions.git#cb41d4a9241102d312271304817f3484368b478e",
-            .hash = "godot-0.0.0-Nast2o0_BwCjd9Vm4k59-NSjvu22GweqqACqv6sIz1yu",
-        },
     },
     .paths = .{
         "build.zig",

@@ -67,4 +67,3 @@ const std = @import("std");
 const Build = std.Build;
 
 const gdzig = @import("gdzig");
-const godot = @import("godot");

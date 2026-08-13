@@ -26,10 +26,10 @@ runs:
         path: .godot-ci
         key: godot-${{ runner.os }}-${{ inputs.godot-version }}
 
-    # Downloaded directly instead of via `-Dgodot-version`, which routes through
-    # the godot-versions FetchStep. That step is broken on Zig 0.16: it expects
-    # `zig fetch` to leave an extracted `p/<hash>/` directory, but 0.16 stores a
-    # `p/<hash>.tar.gz` tarball. Fetching here also lets the binary be cached.
+    # Downloaded here rather than via `-Dgodot-version`, even though that now
+    # works: this pins the exact build per platform and caches it under CI's own
+    # key, and it keeps the test run independent of the downloader in
+    # `build/godot/`, which is itself part of what is being tested.
     - name: Download Godot
       if: steps.cache-godot.outputs.cache-hit != 'true'
       shell: bash

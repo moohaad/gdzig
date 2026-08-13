@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ### Build Commands
-The build defines exactly four steps; run `zig build -h` to confirm.
+Run `zig build -h` to confirm the available steps.
 - `zig build` - Build the library and bindgen, run bindgen, and install the generated
   bindings (to `src/`), the bindgen executable, the docs (to `zig-out/docs`), and the
   Godot headers (to `zig-out/vendor`)
@@ -17,6 +17,19 @@ The build defines exactly four steps; run `zig build -h` to confirm.
 - `zig build audit` - Build `gdzig-api-audit`, which diffs two `extension_api.json` dumps
   (`diff old.json new.json`) or reports how much of the generated surface the tests exercise
   (`coverage extension_api.json test`)
+- `zig build uninstall` - Remove installed artifacts
+
+### Build Options
+- `-Dgodot-path=<path>` - Path to a Godot executable
+- `-Dgodot-version=<version>` - Download and use this Godot version (e.g. `latest` or `4.7`)
+- `-Dprecision=<float|double>` - Floating point precision (default: "float")
+- `-Darch=<32|64>` - Architecture bits (default: "64")
+- `-Dtarget=<target>` - Cross-compilation target
+- `-Doptimize=<Debug|ReleaseSafe|ReleaseFast|ReleaseSmall>` - Optimization mode
+
+With neither option, the build downloads `latest_version` (see `build.zig`). The downloader
+lives in `build/godot/`, vendored from `gdzig/godot-versions` because two Zig 0.16 breakages
+left it non-functional; see that directory's README for the local changes.
 
 ### Auditing a new Godot release
 
@@ -36,20 +49,6 @@ since the schema is unchanged).
 
 Then rebuild against the new engine and run `zig build test -Dsurface-audit`. Every defect
 that blocked 4.7 was a code path nothing had walked before, not a missing binding.
-- `zig build uninstall` - Remove installed artifacts
-
-### Build Options
-- `-Dgodot-path=<path>` - Path to a Godot executable
-- `-Dgodot-version=<version>` - Download and use this Godot version (e.g. `latest` or `4.7`)
-- `-Dprecision=<float|double>` - Floating point precision (default: "float")
-- `-Darch=<32|64>` - Architecture bits (default: "64")
-- `-Dtarget=<target>` - Cross-compilation target
-- `-Doptimize=<Debug|ReleaseSafe|ReleaseFast|ReleaseSmall>` - Optimization mode
-
-Prefer `-Dgodot-path` while the `godot-versions` dependency's `FetchStep` remains broken on
-Zig 0.16 (it expects `zig fetch` to leave an extracted `p/<hash>/` directory, but 0.16 stores
-a `p/<hash>.tar.gz` tarball). Without it, any build that has to download Godot fails with
-"failed to open fetched directory".
 
 ### Example Project Commands (from example/ directory)
 - `zig build run` - Build example and run with Godot

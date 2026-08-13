@@ -18,10 +18,6 @@
             .hash = "N-V-__8AADn0DwBtrxa-qJrkru1KtGp4EA9dRIuW2x70KtFc",
             .lazy = true,
         },
-        .godot = .{
-            .url = "git+https://github.com/gdzig/godot-versions.git#cb41d4a9241102d312271304817f3484368b478e",
-            .hash = "godot-0.0.0-Nast2o0_BwCjd9Vm4k59-NSjvu22GweqqACqv6sIz1yu",
-        },
         .oopz = .{
             .url = "git+https://github.com/gdzig/oopz#e37ece30bdafc185e88a4bb5d9869115c8d8503f",
             .hash = "oopz-0.0.0-pFJy_ddWAAABM-zKPi6ChgcCRYMOuWKbEFwEqsfNU-4U",

@@ -20,16 +20,17 @@ expected until a stable version is released. Issue reports, feature requests, an
 
 See the [example](example/) folder for reference.
 
-Point the build at a Godot binary:
-
 ```sh
-zig build -Dgodot-path=/absolute/path/to/godot
+zig build
 ```
 
-The path must be absolute. `-Dgodot-path` is currently required: without it the build
-downloads Godot itself, and that path is broken on Zig 0.16 — the `godot-versions`
-dependency expects `zig fetch` to leave an extracted `p/<hash>/` directory, but 0.16 stores
-a `p/<hash>.tar.gz` tarball, so the build fails with "failed to open fetched directory".
+That downloads a matching Godot automatically. To build against a specific version or an
+engine you already have:
+
+```sh
+zig build -Dgodot-version=4.7
+zig build -Dgodot-path=/absolute/path/to/godot   # must be absolute
+```
 
 ## Code Sample:
 

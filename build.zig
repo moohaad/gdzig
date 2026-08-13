@@ -250,7 +250,8 @@ fn getGodotVersion(b: *Build, p: Build.LazyPath) []const u8 {
 const std = @import("std");
 const Build = std.Build;
 
-const godot = @import("godot");
+// Vendored rather than a package dependency; see build/godot/README.md.
+const godot = @import("build/godot/build.zig");
 
 const api = @import("build/api.zig");
 pub const addExtension = api.addExtension;
