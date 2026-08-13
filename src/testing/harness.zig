@@ -28,7 +28,9 @@ fn entrypoint(
     r_initialization: *gdzig.c.GDExtensionInitialization,
 ) callconv(.c) gdzig.c.GDExtensionBool {
     gdzig.raw = .init(get_proc_address.?, library.?);
-    gdzig.raw.getGodotVersion(@ptrCast(&gdzig.version));
+    // Superseded `get_godot_version`, deprecated in 4.5. Absent only on engines
+    // older than gdzig supports, which the test harness never runs against.
+    if (gdzig.raw.getGodotVersion2) |getVersion| getVersion(@ptrCast(&gdzig.version));
 
     r_initialization.* = .{
         .minimum_initialization_level = @intFromEnum(options.minimum_initialization_level),

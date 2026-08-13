@@ -22,7 +22,18 @@ fn entrypoint(
     r_initialization: *gdzig.c.GDExtensionInitialization,
 ) callconv(.c) gdzig.c.GDExtensionBool {
     gdzig.raw = .init(get_proc_address.?, library.?);
-    gdzig.raw.getGodotVersion(@ptrCast(&gdzig.version));
+
+    // `get_godot_version2` supersedes `get_godot_version`, deprecated in 4.5.
+    // Its absence means an engine older than 4.5, which is already below the
+    // supported floor, so it doubles as the first half of the version check.
+    const getVersion = gdzig.raw.getGodotVersion2 orelse {
+        std.log.err("gdzig requires Godot {d}.{d} or newer, but this engine predates 'get_godot_version2'", .{
+            gdzig.Version.minimum_supported.major,
+            gdzig.Version.minimum_supported.minor,
+        });
+        return 0;
+    };
+    getVersion(@ptrCast(&gdzig.version));
 
     // Refuse an unsupported engine rather than misregistering against it. gdzig
     // registers classes through the 4.4+ entry point and its bindings are

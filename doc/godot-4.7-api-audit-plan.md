@@ -48,32 +48,43 @@ real consumer, the runtime version probe in `entrypoint.zig` and `harness.zig` m
 compatibility assertion: refuse to initialise against an engine older than 4.7 with a clear
 message, instead of silently misbehaving.
 
-### 1.2 Adopt `get_godot_version2`
+### 1.2 ~~Adopt `get_godot_version2`~~ — done
 
-`src/DispatchTable.zig:6` documents `get_godot_version` as "Deprecated in Godot 4.5. Use
-`get_godot_version2` instead", and line 1849 still binds the deprecated one. On a 4.7-only
-target there is no reason to keep the old entry point.
+The field set does **not** match, contrary to the guess above. `GDExtensionGodotVersion2` is a
+superset: it adds `hex`, `status`, `build`, `hash` and `timestamp` ahead of `string`, so the
+layout differs at every offset past `patch`.
 
-Low risk, but it touches the version struct layout — confirm the field set matches.
+`gdzig.Version` now mirrors v2 and both entrypoints call `get_godot_version2`. Its absence is
+itself the first half of the version check: only an engine older than 4.5 lacks it, which is
+already below the supported floor.
 
-### 1.3 Unconditional feature docs
+Verified on a real 4.6.3 engine, which exercises the changed offsets -- the refusal message
+prints the version string correctly, and that field sits at a different offset in v2.
 
-`Registry.zig` annotates options with minimum versions: `is_runtime` "Requires Godot 4.3+",
-`icon_path` "Requires Godot 4.4+", indexed properties "Requires Godot 4.2+". All are
-unconditionally available on 4.7; the notes now mislead more than they inform. Delete them, or
-restate as history if the provenance is worth keeping.
+### 1.3 ~~Unconditional feature docs~~ — done
 
-### 1.4 Bindgen compatibility branches
+Removed. `is_runtime`, `icon_path` and the indexed-property `index` are unconditionally
+available on 4.7, so the minimum-version notes only misled.
 
-Two known spots:
+### 1.4 ~~Bindgen compatibility branches~~ — investigated, both left as they are
 
-- `codegen.zig:1554` — "required (4.1) functions are non-nullable, optional (4.2+) are
-  nullable" in the dispatch-table writer.
-- `Function.zig:99` — `"required"`, "Introduced in 4.6. ignore for now".
+Both turned out to be correct as written; only the comments needed fixing, since each read as
+unfinished work.
 
-The second is the interesting one: 4.7 emits a `required` field that bindgen discards. Decide
-whether it should inform nullability instead of being ignored — potentially replacing the
-version-based rule at `codegen.zig:1554` with the engine's own declaration.
+**Dispatch-table nullability must stay version-based.** Of 179 interface functions, 136 are
+`@since 4.1` and non-nullable; the other 43 are nullable. Targeting 4.7 makes all 179
+available, so collapsing the distinction looks free -- and is not. `DispatchTable.init`
+resolves non-nullable entries with `.?`, and it runs *before* the entrypoint can read the
+version. Marking everything required turns "loaded into an engine older than 4.7" from the
+clear diagnostic verified in 1.1 into a panic inside `init`, before anything can say why. The
+4.1 subset is exactly the set safe to assume while still being able to report the problem.
+
+**The `required` meta carries no information for codegen.** These are two unrelated notions
+that share a name: this one is `"meta": "required"` on object arguments, added in 4.6 and
+appearing 112 times, marking arguments that must not be null. gdzig already emits every object
+argument as a non-optional pointer -- `Area2D.overlaps_body(p_body: *Node)` with the meta is
+identical to `Node.is_ancestor_of(p_node: *Node)` without it -- so the annotation adds nothing
+the signature does not already enforce.
 
 ### 1.5 Retire the multi-version test binary
 

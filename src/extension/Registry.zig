@@ -127,9 +127,9 @@ pub fn Class(comptime T: type) type {
             is_abstract: bool = false,
             /// Class is visible in editor and accessible from scripts.
             is_exposed: bool = true,
-            /// Class is created at runtime (not saved to disk). Requires Godot 4.3+.
+            /// Class is created at runtime (not saved to disk).
             is_runtime: bool = false,
-            /// Custom icon path for the editor. Requires Godot 4.4+.
+            /// Custom icon path for the editor.
             icon_path: ?*const String = null,
 
             pub const auto: CreateOptions = .{};
@@ -153,9 +153,9 @@ pub fn Class(comptime T: type) type {
         is_abstract: bool,
         /// Class is visible in editor and accessible from scripts.
         is_exposed: bool,
-        /// Class is created at runtime (not saved to disk). Requires Godot 4.3+.
+        /// Class is created at runtime (not saved to disk).
         is_runtime: bool,
-        /// Custom icon path for the editor. Requires Godot 4.4+.
+        /// Custom icon path for the editor.
         icon_path: ?*const String,
 
         pub fn init(registry: *Registry, userdata: class_mod.ClassUserdataOf(T), options: CreateOptions) Self {
@@ -530,7 +530,7 @@ pub fn Property(comptime T: type, comptime name: [:0]const u8) type {
             hint_string: String = .empty,
             /// Usage flags.
             usage: PropertyUsageFlags = .property_usage_default,
-            /// Index for indexed properties. Requires Godot 4.2+.
+            /// Index for indexed properties.
             index: ?i64 = null,
 
             pub const auto: CreateOptions = .{};

@@ -1555,7 +1555,16 @@ fn writeDispatchTable(ctx: *Context) !void {
         \\
     );
 
-    // Write struct fields - required (4.1) functions are non-nullable, optional (4.2+) are nullable
+    // Functions present since 4.1 are non-nullable; everything newer is
+    // nullable. Targeting 4.7 only, every one of these is in fact available, so
+    // it is tempting to make them all non-nullable and drop the unwrapping.
+    //
+    // Don't. `DispatchTable.init` resolves the non-nullable ones with `.?`, and
+    // it runs before the entrypoint can compare versions. Marking everything
+    // required turns "loaded into an engine older than 4.7" from a clear
+    // diagnostic into a panic inside init, before anything can report why.
+    // The 4.1 subset is the set that is safe to assume while still being able
+    // to talk about it.
     for (ctx.dispatch_table.functions.items) |function| {
         try writeDocBlock(&w, function.docs);
         if (function.isRequired()) {

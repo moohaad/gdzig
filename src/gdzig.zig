@@ -60,10 +60,26 @@ pub const PropertyError = error{
     IndexOutOfBounds,
 };
 
+/// Mirrors `GDExtensionGodotVersion2`, which `get_godot_version2` fills in.
+///
+/// The layout must match the C struct exactly: the engine writes into it
+/// through a pointer cast. The older `GDExtensionGodotVersion` carried only
+/// major/minor/patch/string; the rest of these fields arrived with
+/// `get_godot_version2` in Godot 4.5, which deprecated the original.
 pub const Version = extern struct {
     major: u32,
     minor: u32,
     patch: u32,
+    /// Version packed as `(major << 16) | (minor << 8) | patch`.
+    hex: u32 = 0,
+    /// Release status, e.g. "stable" or "beta3".
+    status: [*:0]const u8 = "",
+    /// Distribution-specific build identifier, e.g. "official".
+    build: [*:0]const u8 = "",
+    /// Full git commit hash, or empty when unavailable.
+    hash: [*:0]const u8 = "",
+    /// Commit timestamp, or 0 when unavailable.
+    timestamp: u64 = 0,
     string: [*:0]const u8 = "",
 
     pub const @"4.1" = parse("4.1");

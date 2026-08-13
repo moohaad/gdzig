@@ -94,9 +94,13 @@ const operator_enum_names = StaticStringMap([]const u8).initComptime(.{
     .{ "in", "in" },
 });
 
-/// Set of type meta values to ignore.
+/// Type meta values that carry no information for codegen.
 const ignored_meta_values = std.StaticStringMap(void).initComptime(.{
-    .{ "required", {} }, // Introduced in 4.6. ignore for now
+    // Godot 4.6 added `"meta": "required"` to object arguments that must not be
+    // null. gdzig already emits every object argument as a non-optional pointer
+    // (`*Node`, not `?*Node`), so the annotation says nothing the generated
+    // signature does not already enforce. Ignored deliberately, not pending.
+    .{ "required", {} },
 });
 
 pub fn fromBuiltinOperator(allocator: Allocator, builtin_name: []const u8, api: GodotApi.Builtin.Operator, ctx: *const Context) !Function {
