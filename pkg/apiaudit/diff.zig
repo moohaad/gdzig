@@ -127,6 +127,107 @@ pub fn run(arena: Allocator, io: Io, out: *Io.Writer, old_path: []const u8, new_
     } else {
         try out.print("\n{d} field(s) differ.\n", .{differences});
     }
+
+    try reportAdditions(arena, out, old_doc.value, new_doc.value);
+}
+
+/// Enumerates what the newer dump gained. The shape diff above answers "did the
+/// schema change"; this answers "what is there now that was not before", which
+/// is the list worth walking to decide whether gdzig models each item and
+/// whether anything exercises it.
+fn reportAdditions(arena: Allocator, out: *Io.Writer, old_doc: Json, new_doc: Json) !void {
+    try out.writeAll("\n== additions ==\n");
+
+    // Top-level collections keyed by "name".
+    for ([_][]const u8{ "classes", "builtin_classes", "utility_functions", "singletons", "native_structures", "global_enums", "global_constants" }) |section| {
+        var added: std.ArrayList([]const u8) = .empty;
+        const old_names = try namesOf(arena, old_doc, section);
+        const new_names = try namesOf(arena, new_doc, section);
+        for (new_names.keys()) |name| {
+            if (!old_names.contains(name)) try added.append(arena, name);
+        }
+        try printList(out, section, added.items, 20);
+    }
+
+    // Members of collections that exist in both, which is where most real
+    // change lives: a new method on an existing class does not show up above.
+    for ([_]struct { section: []const u8, member: []const u8 }{
+        .{ .section = "classes", .member = "methods" },
+        .{ .section = "classes", .member = "signals" },
+        .{ .section = "classes", .member = "properties" },
+        .{ .section = "classes", .member = "enums" },
+        .{ .section = "builtin_classes", .member = "methods" },
+    }) |pair| {
+        var added: std.ArrayList([]const u8) = .empty;
+        try collectMemberAdditions(arena, old_doc, new_doc, pair.section, pair.member, &added);
+        const label = try std.fmt.allocPrint(arena, "{s}.{s} (on existing types)", .{ pair.section, pair.member });
+        try printList(out, label, added.items, 20);
+    }
+}
+
+fn namesOf(arena: Allocator, doc: Json, section: []const u8) !std.StringArrayHashMapUnmanaged(void) {
+    var out: std.StringArrayHashMapUnmanaged(void) = .empty;
+    const list = doc.object.get(section) orelse return out;
+    for (list.array.items) |item| {
+        const obj = switch (item) {
+            .object => |o| o,
+            else => continue,
+        };
+        const name = obj.get("name") orelse continue;
+        if (name == .string) try out.put(arena, name.string, {});
+    }
+    return out;
+}
+
+fn collectMemberAdditions(
+    arena: Allocator,
+    old_doc: Json,
+    new_doc: Json,
+    section: []const u8,
+    member: []const u8,
+    added: *std.ArrayList([]const u8),
+) !void {
+    const old_list = old_doc.object.get(section) orelse return;
+    const new_list = new_doc.object.get(section) orelse return;
+
+    var old_by_name: std.StringArrayHashMapUnmanaged(Json) = .empty;
+    for (old_list.array.items) |item| {
+        const name = item.object.get("name") orelse continue;
+        try old_by_name.put(arena, name.string, item);
+    }
+
+    for (new_list.array.items) |item| {
+        const type_name = (item.object.get("name") orelse continue).string;
+        const old_item = old_by_name.get(type_name) orelse continue; // new type, already listed
+        const new_members = item.object.get(member) orelse continue;
+
+        var old_members: std.StringArrayHashMapUnmanaged(void) = .empty;
+        if (old_item.object.get(member)) |list| {
+            for (list.array.items) |m| {
+                const n = m.object.get("name") orelse continue;
+                try old_members.put(arena, n.string, {});
+            }
+        }
+
+        for (new_members.array.items) |m| {
+            const n = m.object.get("name") orelse continue;
+            if (!old_members.contains(n.string)) {
+                try added.append(arena, try std.fmt.allocPrint(arena, "{s}.{s}", .{ type_name, n.string }));
+            }
+        }
+    }
+}
+
+fn printList(out: *Io.Writer, label: []const u8, items: []const []const u8, limit: usize) !void {
+    if (items.len == 0) return;
+    try out.print("\n{s}: {d}\n", .{ label, items.len });
+    for (items, 0..) |item, i| {
+        if (i == limit) {
+            try out.print("    ... and {d} more\n", .{items.len - limit});
+            break;
+        }
+        try out.print("    {s}\n", .{item});
+    }
 }
 
 const Identity = struct {

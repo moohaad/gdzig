@@ -157,14 +157,42 @@ _ = &ArrayMesh.addSurfaceFromArrays; // "don't execute - needs valid surface dat
 
 Generalise that from one hand-picked method to all of them.
 
-### 2.4 Categorise what 4.7 added
+### 2.4 ~~Categorise what 4.7 added~~ — done
 
-With the differ from 2.1, enumerate 4.7's additions against 4.6 — new classes, new methods,
-new enum values, changed signatures — and for each ask whether gdzig models it and whether
-anything exercises it. `global_constants` was one such addition; the question is what else came
-with it that nothing has looked at.
+`diff` gained an additions section, which enumerates what the newer dump gained rather than
+how its schema changed. A new method on an existing class is invisible to a shape diff -- the
+`classes.methods` field looked identical in both -- so this is a separate pass over the same
+inputs.
 
-This is the only part requiring the 4.6 binary, hence 1.5's ordering.
+What 4.7 added over 4.6.3, and whether gdzig models it:
+
+| addition | count | modelled |
+| --- | ---: | --- |
+| classes | 13 | yes, all generated |
+| singletons | 2 | yes, as static methods, same as `Engine` |
+| global constants | 11 | yes, implemented earlier in this plan |
+| methods on existing classes | 286 | yes |
+| enums on existing classes | 17 | yes |
+| signals on existing classes | 8 | yes, as signal structs |
+| builtin methods | 1 | yes (`Basis.is_orthonormal`) |
+| properties on existing classes | 71 | **no declaration**, reachable via accessors |
+
+Spot-checked rather than assumed: `AccessibilityServer`, `AreaLight3D`, `AwaitTweener`,
+`BlitMaterial`, `DrawableTexture2D` and `VirtualJoystick` all have generated files;
+`AnimationNodeBlendSpace1D.setBlendPointName` and `CSGShape3D.setAutosmooth` are present;
+`AnimationNode.NodeUpdated` and `Control.MaximumSizeChanged` are generated signal structs;
+`AnimationNodeBlendSpace1D.SyncMode` and `CanvasItem.OversamplingWithScale` are generated
+enums; `AccessibilityServer.isSupported()` is static, matching how `Engine.isEditorHint()` is
+emitted.
+
+The only gap is properties, and it is the already-known `codegen.zig` TODO rather than
+anything 4.7-specific. It is also milder than it sounds: no `sync_mode` declaration is emitted,
+but `setSyncMode` / `getSyncMode` are, so the property is reachable -- an ergonomics gap, not a
+capability one.
+
+Because bindgen generates from the API wholesale, a new engine version is largely absorbed for
+free. The defects that actually blocked 4.7 were not missing bindings but untravelled code
+paths, which is the case for keeping the surface sweep gating in CI.
 
 ### 2.5 Close the gaps worth closing
 
