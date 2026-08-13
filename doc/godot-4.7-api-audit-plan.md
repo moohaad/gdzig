@@ -214,26 +214,30 @@ takes the right operand's `GDExtensionVariantType` (a `c_uint`); for a unary ope
 `NIL`, not a null pointer. bindgen emitted `null`, so every unary operator on every builtin
 failed to compile when referenced — 41 errors. Now emits `@intFromEnum(Variant.Tag.nil)`.
 
-### Outstanding — 694 errors, dominated by one root cause
+**Flag-typed default arguments used the wrong backing width** — 604 errors, now fixed.
+Generated as `@bitCast(@as(u64, 3))` for a flag whose representation is `u32`.
 
-**~604: flag-typed default arguments use the wrong backing width.** Generated as
-`@bitCast(@as(u64, 3))` for a flag whose representation is `u32`.
-
-`Context.flagRepr` resolves the width from `self.flags` and `self.classes`, falling back to
+`Context.flagRepr` resolved the width from `self.flags` and `self.classes`, falling back to
 `"u64"` on a miss. But flag defaults are computed inside `castClasses`, which runs *before*
 `castFlags` and populates `self.classes` incrementally. So:
 
-- global flags always miss — `self.flags` is still empty
-- qualified class flags (`TextServer.JustificationFlag`) resolve only when the owning class
-  sorts alphabetically earlier than the referencing one
+- global flags always missed — `self.flags` was still empty
+- qualified class flags (`TextServer.JustificationFlag`) resolved only when the owning class
+  sorted alphabetically earlier than the referencing one
 
-which is why `FileAccess.UnixPermissionFlags` resolves from some classes and not others, and
-why unqualified own-class references are fine. Emitted widths across the generated classes:
-909 × `u64` against 38 × `u32`.
+which is why `FileAccess.UnixPermissionFlags` resolved from some classes and not others, and
+why unqualified own-class references were fine.
 
-The fix is a two-pass restructure — resolve flag representations before any default value is
-built — not a change to `flagRepr` itself. Same family as the recent `place flag bits by
-value` and `alias duplicate-value enum/flag members` fixes.
+Fixed by recording every bitfield's width up front, in `collectFlagRepresentations`, before
+any cast pass runs. The rule itself moved to `Flag.representationOf`, which `fromGlobalEnum`
+now also calls, so the early pass and the built `Flag` cannot disagree. `flagRepr` reads only
+that table and warns on a miss rather than silently assuming `u64`.
+
+Emitted widths went from 909 × `u64` / 38 × `u32` to **932 × `u32` / 15 × `u64`**. The
+remaining `u64`s are all `RenderingServer.ArrayFormat`, whose highest bit is 35 — genuinely
+64-bit, and generated as `packed struct(u64)`.
+
+### Outstanding — 90 errors
 
 Remaining, unanalysed:
 
@@ -251,9 +255,9 @@ not a defect.
 
 ### Turning it on
 
-The sweep should gate CI once the backlog clears; until then it is a worklist. Order: fix the
-flag-width pass (clears ~87% of what remains), then triage the rest, then flip the default and
-drop the option.
+The sweep should gate CI once the backlog clears; until then it is a worklist. The flag-width
+pass is done, taking it from 694 to 90. What is left is triage of the 90, then flipping the
+default and dropping the option.
 
 Measure build cost before flipping it — referencing the whole API is a large compilation unit,
 and if it is slow it belongs in its own CI job rather than in every local `zig build test`.

@@ -21,6 +21,28 @@ pub const Representation = enum {
     }
 };
 
+/// The backing width a bitfield needs, derived from its values alone.
+///
+/// Separated from `fromGlobalEnum` so the width can be known before any `Flag`
+/// is built: default arguments are emitted while classes are still being
+/// constructed, long before the owning flag exists. Both paths call this, so
+/// they cannot disagree.
+pub fn representationOf(api: GodotApi.GlobalEnum) Representation {
+    // Mirrors the layout loop below, which advances the bit cursor to
+    // `@ctz(value)` for each distinct power-of-two member and then past it, so
+    // the final cursor is `@ctz(highest) + 1`.
+    var highest: ?u7 = null;
+    for (api.values) |value| {
+        if (std.mem.endsWith(u8, value.name, "_DEFAULT")) continue;
+        if (value.value <= 0 or !std.math.isPowerOfTwo(value.value)) continue;
+
+        const pos: u7 = @ctz(@as(u64, @intCast(value.value)));
+        if (highest == null or pos > highest.?) highest = pos;
+    }
+    const position: u8 = if (highest) |h| @as(u8, h) + 1 else 0;
+    return if (position > 32) .u64 else .u32;
+}
+
 pub fn fromGlobalEnum(allocator: Allocator, class_name: ?[]const u8, api: GodotApi.GlobalEnum, ctx: *const Context) !Flag {
     var self: Flag = .{};
     errdefer self.deinit(allocator);
@@ -94,9 +116,7 @@ pub fn fromGlobalEnum(allocator: Allocator, class_name: ?[]const u8, api: GodotA
         position += 1;
     }
 
-    if (position > 32) {
-        self.representation = .u64;
-    }
+    self.representation = representationOf(api);
 
     self.padding = switch (self.representation) {
         .u32 => 32 - position,

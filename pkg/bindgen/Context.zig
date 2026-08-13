@@ -29,6 +29,13 @@ builtin_sizes: StringArrayHashMap(struct { size: usize, members: StringArrayHash
 classes: StringArrayHashMap(Class) = .empty,
 enums: StringArrayHashMap(Enum) = .empty,
 flags: StringArrayHashMap(Flag) = .empty,
+/// Backing width of every bitfield, keyed exactly as it appears after
+/// `bitfield::` in the API: a global bitfield's bare name, or `Class.Flag`.
+///
+/// Populated before anything else is cast, because flag-typed default
+/// arguments are emitted while classes are still being built -- far too early
+/// to consult `flags` or `classes`.
+flag_reprs: StringHashMap(Flag.Representation) = .empty,
 /// `@GlobalScope` constants. Empty before Godot 4.7.
 global_constants: StringArrayHashMap(Constant) = .empty,
 dispatch_table: DispatchTable = .empty,
@@ -57,6 +64,7 @@ pub fn build(arena: *ArenaAllocator, api: GodotApi, config: Config) !Context {
         .config = config,
     };
 
+    try self.collectFlagRepresentations();
     try self.buildSymbolLookupTable();
 
     try self.parseGdExtensionHeaders();
@@ -405,14 +413,39 @@ fn castEnums(self: *Context) !void {
     }
 }
 
-/// Resolves the backing type name ("u32" or "u64") for a flag, searching
-/// global flags first, then class-level flags for qualified names like "Mesh.ArrayFormat".
-pub fn flagRepr(self: *const Context, flag_name: []const u8) []const u8 {
-    if (self.flags.get(flag_name)) |f| return f.representation.name();
-    if (std.mem.indexOfScalar(u8, flag_name, '.')) |dot| {
-        if (self.classes.get(flag_name[0..dot])) |class|
-            if (class.flags.get(flag_name[dot + 1 ..])) |f| return f.representation.name();
+/// Records the backing width of every bitfield in the API, global and
+/// class-level alike.
+///
+/// This runs before the cast passes. `flagRepr` used to resolve widths out of
+/// `flags` and `classes`, but the callers that need it most -- flag-typed
+/// default arguments -- run inside `castClasses`, before `castFlags` has filled
+/// `flags` at all and while `classes` is still being appended to. Every global
+/// flag therefore missed, and a class flag resolved only when its owner
+/// happened to sort earlier than the class referencing it, silently falling
+/// back to `u64` otherwise.
+fn collectFlagRepresentations(self: *Context) !void {
+    for (self.api.global_enums) |@"enum"| {
+        if (!@"enum".is_bitfield) continue;
+        try self.flag_reprs.put(self.allocator(), @"enum".name, Flag.representationOf(@"enum"));
     }
+
+    for (self.api.classes) |class| {
+        for (class.enums orelse &.{}) |@"enum"| {
+            if (!@"enum".is_bitfield) continue;
+            const key = try std.fmt.allocPrint(self.allocator(), "{s}.{s}", .{ class.name, @"enum".name });
+            try self.flag_reprs.put(self.allocator(), key, Flag.representationOf(@"enum"));
+        }
+    }
+}
+
+/// Resolves the backing type name ("u32" or "u64") for a flag, named as it
+/// appears after `bitfield::` in the API.
+pub fn flagRepr(self: *const Context, flag_name: []const u8) []const u8 {
+    if (self.flag_reprs.get(flag_name)) |repr| return repr.name();
+
+    // Every bitfield in the API is recorded up front, so a miss means an
+    // unrecognised name rather than a not-yet-built flag.
+    std.log.warn("unknown flag '{s}', assuming u64", .{flag_name});
     return "u64";
 }
 
