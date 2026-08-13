@@ -148,6 +148,21 @@ pub fn fromApi(allocator: Allocator, api: GodotApi.Class, ctx: *const Context) !
         try self.properties.put(allocator, property.name, try Property.fromClass(allocator, self.name, property, self.is_singleton, ctx));
     }
 
+    // Inherited properties, flattened the same way methods are, and for the same
+    // reason: the class that declares a property is often abstract. All 54 of
+    // `BaseMaterial3D`'s indexed properties would otherwise be unreachable from
+    // `StandardMaterial3D`, which is the one you can actually construct. The
+    // parent is already flattened by the time we get here, so one level suffices.
+    //
+    // Own declarations win, so a subclass that redeclares a property keeps its
+    // own index.
+    if (self.getBasePtr(ctx)) |base| {
+        for (base.properties.keys(), base.properties.values()) |name, *property| {
+            if (self.properties.contains(name)) continue;
+            try self.properties.put(allocator, name, property.*);
+        }
+    }
+
     // Signals
     var signals = try getAllSignalsIncludingInherits(ctx.rawAllocator(), api, ctx);
     defer signals.deinit(ctx.rawAllocator());

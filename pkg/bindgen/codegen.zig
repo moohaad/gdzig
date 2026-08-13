@@ -440,12 +440,10 @@ fn writeClass(w: *CodeWriter, class: *const Context.Class, ctx: *const Context) 
         }
     }
 
-    // TODO: write properties and signals
-
     // Properties
-    // for (class.properties.values()) |*property| {
-    //     try writeClassProperty(w, class.name, property);
-    // }
+    for (class.properties.values()) |*property| {
+        try writeClassProperty(w, class, property, ctx);
+    }
 
     // Virtual dispatch
     try writeClassVirtualDispatch(w, class, ctx);
@@ -852,6 +850,123 @@ fn writeClassVirtualDispatch(w: *CodeWriter, class: *const Context.Class, ctx: *
     // Note: Virtual method implementations are not generated here.
     // The VTable uses comptime reflection on the user's type to find and wrap
     // the method implementations, so we only need to list the method names.
+}
+
+/// Emits named accessors for an *indexed* property, so the magic constant its
+/// accessor takes is spelled out: `AreaLight3d.area_range` is `getParam(4)`, and
+/// until now nothing in the Zig API said that 4 meant `.param_area_range`, nor
+/// stopped you passing 5.
+///
+/// Only indexed properties get this. The 3,729 without an index already have
+/// `getSyncMode`/`setSyncMode` generated from their accessor methods, so a
+/// property declaration would be naming sugar over an identical call, and would
+/// put ~4,000 more names into classes that collide often enough to need
+/// `hasCollision`.
+fn writeClassProperty(w: *CodeWriter, class: *const Context.Class, property: *const Context.Property, ctx: *const Context) !void {
+    const index = property.index orelse return;
+
+    // `AudioStreamPlaylist.stream_0` through `stream_63` are 64 properties over
+    // one `getListStream(index)`. Generating an accessor apiece is noise, and
+    // `getListStream(37)` already reads better than `getStream37()`. The filter
+    // is the numeric suffix, not the sharing: `BaseMaterial3D.get_flag` backs 25
+    // distinctly named properties and every one of them is worth an accessor.
+    if (hasNumericSuffix(property.name_api)) return;
+
+    const getter = class.functions.getPtr(property.getter.name_api) orelse return;
+    if (getter.skip or getter.mode != .final) return;
+
+    const getter_name = try accessorName(class, ctx, "get", property.name_api) orelse return;
+
+    const getter_params = getter.parameters.values();
+    if (getter_params.len != 1) return;
+    const getter_index = enumMemberOf(&getter_params[0].type, @intCast(index), ctx) orelse return;
+
+    try w.printLine("/// The `{0s}` property: `{1s}` with its index fixed to `.{2s}`.", .{
+        property.name_api, getter.name, getter_index,
+    });
+    try w.print("pub fn {0s}(self: *const {1s}) ", .{ getter_name, class.name });
+    try writeTypeAtReturn(w, &getter.return_type, class, ctx);
+    try w.writeLine(" {");
+    w.indent += 1;
+    try w.printLine("return self.{0s}(.{1s});", .{ getter.name, getter_index });
+    w.indent -= 1;
+    try w.writeLine("}");
+    try w.writeLine("");
+
+    // Not every indexed property has a usable setter: the four `Control.anchor_*`
+    // properties name `_set_anchor`, which is private and never generated.
+    const setter_stub = property.setter orelse return;
+    const setter = class.functions.getPtr(setter_stub.name_api) orelse return;
+    if (setter.skip or setter.mode != .final) return;
+
+    const setter_name = try accessorName(class, ctx, "set", property.name_api) orelse return;
+
+    // Resolved from the setter's own parameter rather than reused from the
+    // getter's, so a class whose two accessors disagree cannot silently get the
+    // wrong constant.
+    const setter_params = setter.parameters.values();
+    if (setter_params.len != 2) return;
+    const setter_index = enumMemberOf(&setter_params[0].type, @intCast(index), ctx) orelse return;
+
+    try w.printLine("/// The `{0s}` property: `{1s}` with its index fixed to `.{2s}`.", .{
+        property.name_api, setter.name, setter_index,
+    });
+    try w.print("pub fn {0s}(self: *{1s}, p_value: ", .{ setter_name, class.name });
+    try writeTypeAtParameter(w, &setter_params[1].type, class, ctx);
+    try w.writeLine(") void {");
+    w.indent += 1;
+    try w.printLine("self.{0s}(.{1s}, p_value);", .{ setter.name, setter_index });
+    w.indent -= 1;
+    try w.writeLine("}");
+    try w.writeLine("");
+}
+
+/// `("get", "area_range")` -> `"getAreaRange"`, via the same conversion the
+/// accessor methods themselves go through, so the two cannot drift apart.
+///
+/// Null when the class already has a method by that API name, in which case the
+/// real method wins and no forwarder is emitted. No class in 4.7 hits this, but
+/// the check is keyed on the API name rather than the converted one because
+/// `class.functions` is: comparing a camelCase name against that map is a
+/// mistake this codebase has made several times, and it fails silently.
+fn accessorName(class: *const Context.Class, ctx: *const Context, comptime prefix: []const u8, name_api: []const u8) !?[]const u8 {
+    const arena = ctx.arena.allocator();
+    const joined = try std.fmt.allocPrint(arena, prefix ++ "_{s}", .{name_api});
+    if (class.functions.contains(joined)) return null;
+    return try casez.allocConvert(arena, gdzig_case.method, joined);
+}
+
+/// True for a name ending in `_` followed by digits, e.g. `stream_63`.
+fn hasNumericSuffix(name: []const u8) bool {
+    var i = name.len;
+    while (i > 0 and std.ascii.isDigit(name[i - 1])) i -= 1;
+    return i < name.len and i > 0 and name[i - 1] == '_';
+}
+
+/// The member name of `type` whose value is `value`, for use as a `.member`
+/// literal. Null when the type is not an enum or has no such member.
+fn enumMemberOf(@"type": *const Context.Type, value: i64, ctx: *const Context) ?[]const u8 {
+    const api_name = switch (@"type".*) {
+        .@"enum" => |name| name,
+        else => return null,
+    };
+
+    const resolved: *const Context.Enum = blk: {
+        if (std.mem.indexOfScalar(u8, api_name, '.')) |dot| {
+            // Qualified, e.g. `Light3D.Param`. The owner may be an ancestor of
+            // the class declaring the property, which the prefix names directly.
+            const owner = ctx.classes.getPtr(api_name[0..dot]) orelse return null;
+            break :blk owner.enums.getPtr(api_name[dot + 1 ..]) orelse return null;
+        }
+        break :blk ctx.enums.getPtr(api_name) orelse return null;
+    };
+
+    // First match wins. Godot aliases several names onto one value, and
+    // `writeEnum` emits only the first as a tag; the rest become alias decls.
+    for (resolved.values.values()) |member| {
+        if (member.value == value) return member.name;
+    }
+    return null;
 }
 
 fn writeConstant(w: *CodeWriter, constant: *const Context.Constant, class: ?*const Context.Class, ctx: *const Context) !void {
@@ -2125,6 +2240,10 @@ fn writeTypeAtOptionalParameterField(w: *CodeWriter, @"type": *const Context.Typ
 }
 
 const std = @import("std");
+
+const casez = @import("casez");
+const common = @import("common");
+const gdzig_case = common.gdzig_case;
 
 const CodeWriter = @import("CodeWriter.zig");
 const Context = @import("Context.zig");

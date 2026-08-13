@@ -138,7 +138,7 @@ worklist tracks reality rather than a snapshot.
 
 ---
 
-## 2. Indexed properties
+## 2. Indexed properties — done
 
 ### Scope
 
@@ -175,29 +175,56 @@ Worst offenders, one accessor backing many properties:
 `BaseMaterial3D.get_flag` is the interesting counterexample: 25 properties, all distinctly
 named, all worth accessors. So the filter is the numeric suffix, not the sharing.
 
-### Steps
+### Steps — ✅ all done
 
-**2.1 Write `writeClassProperty`.** For each indexed property with a non-numeric name, emit a
-getter, and a setter when one exists, that supply the index:
+**2.1 `writeClassProperty`** in `codegen.zig`, plus **2.3** enabling the loop. Every named
+indexed property gets a getter, and a setter where a public one exists:
 
 ```zig
-pub fn getAreaRange(self: *const AreaLight3d) f64 {
-    return self.getParam(@enumFromInt(4));
+/// The `omni_range` property: `getParam` with its index fixed to `.param_range`.
+pub fn getOmniRange(self: *const OmniLight3d) f64 {
+    return self.getParam(.param_range);
 }
 ```
 
-Prefer the enum member over the bare integer where the accessor's index parameter is an enum
-type — that is the entire point of the exercise, and `Context.Property` already carries
-`index`, `getter` and `setter`.
+The enum member, not `@enumFromInt(4)` — that was the point of the exercise. All 358 index
+arguments turned out to be enum-typed with a member matching the index, so the fallback never
+fires. Where Godot aliases several names onto one value the first-declared one is used, because
+`writeEnum` emits only that one as a tag.
 
-**2.2 Skip the numeric-suffix cases**, and say so in a comment so the omission reads as a
-decision rather than an oversight.
+**2.2 Numeric-suffix properties skipped**, with the reasoning in the source rather than left to
+look like an oversight.
 
-**2.3 Enable the loop** at `codegen.zig`, whose commented-out body is already written against
-this function.
+**2.4 Tests** in `test/indexed_properties/root.zig`, five of them. The round-trips deliberately
+set *several* properties sharing one accessor to different values: a wrong constant would make
+two properties alias, so writing one would silently change the other, and a single-property
+round-trip would not notice.
 
-**2.4 Test one of each.** A round-trip on a named indexed property, plus one on a shared
-accessor like `BaseMaterial3D`, is enough — this is codegen, so the cases are uniform.
+### Two things the plan above had wrong
+
+**Properties are not inherited, and that mattered more than the property count suggested.**
+`Class.zig` collected only a class's own properties, while methods have always been flattened
+into every subclass. `BaseMaterial3D` declares 54 indexed properties and is **abstract**;
+`StandardMaterial3D`, the one you can construct, declares none. Generating from own properties
+alone put those 54 accessors on a type nobody instantiates. Flattening properties the same way
+methods are takes the output from 712 accessors across 26 classes to **2,920 across 119**.
+
+**`AreaLight3D.area_range` is `PARAM_RANGE`, not `PARAM_AREA_RANGE`.** There is no such member;
+index 4 of `Light3D.Param` is `PARAM_RANGE`. The generated code is right and the example in the
+draft was not.
+
+### What is emitted
+
+| | count |
+| --- | ---: |
+| indexed properties, named | 358 |
+| … with a public setter | 354 |
+| generated getters (after flattening) | 1,612 |
+| generated setters (after flattening) | 1,308 |
+| classes touched | 119 |
+
+The four without a setter are `Control.anchor_left/top/right/bottom`, which name the private
+`_set_anchor`; they get a getter only, and a test asserts `setAnchorLeft` does *not* exist.
 
 ### Non-goal
 
@@ -275,7 +302,10 @@ a refcounted field is `RefReturnNode` in `test/leaks`, which now exercises exact
 1. ~~**3. decide `Gd(T)`**~~ — done; adopted, returns and constructors
 2. ~~**1.1 shape reporting**~~ — done; `gdzig-api-audit shapes`
 3. ~~**1.2–1.4 shape tests**~~ — done; 85.2% of the method surface
-4. **2. indexed properties** — bounded, and the design questions are already answered
+4. ~~**2. indexed properties**~~ — done; 2,920 named accessors
 
-`Gd(T)` went first so that 2 would not have to be revisited: an indexed getter forwards to its
-accessor, so one whose accessor returns a refcounted class now returns `?Gd(T)` for free.
+`Gd(T)` went first so that 2 would not have to be revisited, and that paid off exactly as
+expected: `StandardMaterial3d.getAlbedoTexture()` forwards to `getTexture(.texture_albedo)` and
+returns `?Gd(Texture2d)` with no extra work in the property codegen.
+
+Everything in this plan is now done.
