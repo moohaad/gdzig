@@ -86,12 +86,15 @@ argument as a non-optional pointer -- `Area2D.overlaps_body(p_body: *Node)` with
 identical to `Node.is_ancestor_of(p_node: *Node)` without it -- so the annotation adds nothing
 the signature does not already enforce.
 
-### 1.5 Retire the multi-version test binary
+### 1.5 ~~Retire the multi-version test binary~~ — done
 
-`tools/godot/godot.exe` (4.6.3) exists only for the cross-version comparisons that found the
-4.7 defects. With 4.6 unsupported it stops being a fixture and becomes a stale binary — remove
-it and its `.gitignore` entry once Part 2's comparison work is finished, since that work still
-wants it.
+Removed, along with its `.gitignore` entry, now that 2.4 -- its last consumer -- is done.
+Nothing in the build, CI or tests referenced it; CI downloads and caches its own engine.
+
+What replaces it is documentation rather than a binary. `CLAUDE.md` now describes the
+audit workflow for a new Godot release: dump from each engine with matching flags, diff, then
+rebuild and run the surface sweep. A future comparison wants a dump of the *then-current*
+version, not this 4.6 one, so keeping 172 MB around bought nothing.
 
 ---
 
@@ -232,7 +235,9 @@ The rest are minor: name normalisation in `Constant`/`Property`/`Signal`, doc li
 3. ~~**2.1 differ as a tool** + **2.2 coverage measurement**~~ — done. See "Audit tool" below.
 4. **1.2 – 1.4** — mechanical cleanups, no urgency
 5. **2.4 / 2.5** — driven by what 2.2 ranks
-6. **1.5** — last, once 2.4 no longer needs the 4.6 binary
+6. ~~**1.5**~~ — done, last as planned
+
+Every item in this plan is now complete.
 
 ---
 

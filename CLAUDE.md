@@ -17,6 +17,25 @@ The build defines exactly four steps; run `zig build -h` to confirm.
 - `zig build audit` - Build `gdzig-api-audit`, which diffs two `extension_api.json` dumps
   (`diff old.json new.json`) or reports how much of the generated surface the tests exercise
   (`coverage extension_api.json test`)
+
+### Auditing a new Godot release
+
+Produce a dump from each engine and diff them. Both must be dumped with the same flags, and
+the tool refuses if they are not, or if the two dumps turn out to be the same version:
+
+```sh
+mkdir -p /tmp/old /tmp/new
+cd /tmp/old && /path/to/godot-current --headless --dump-extension-api-with-docs
+cd /tmp/new && /path/to/godot-new     --headless --dump-extension-api-with-docs
+zig build audit && ./zig-out/bin/gdzig-api-audit diff /tmp/old/extension_api.json /tmp/new/extension_api.json
+```
+
+The report has two halves: shape changes (a field whose value kind differs, which is what
+broke 4.7) and additions (new classes, methods, enums, signals — invisible to a shape diff,
+since the schema is unchanged).
+
+Then rebuild against the new engine and run `zig build test -Dsurface-audit`. Every defect
+that blocked 4.7 was a code path nothing had walked before, not a missing binding.
 - `zig build uninstall` - Remove installed artifacts
 
 ### Build Options

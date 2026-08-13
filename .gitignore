@@ -30,8 +30,6 @@ src/math.zig
 src/random.zig
 .claude/settings.local.json
 
-# Local Godot binary used via -Dgodot-path
-tools/godot/
 
 # Godot binary downloaded by CI
 .godot-ci/
