@@ -97,3 +97,32 @@ runs:
     - name: Type-check the generated surface
       shell: bash
       run: zig build test -Dgodot-path="$GODOT_BIN" -Dsurface-audit
+
+    # The two steps above cannot see a marshalling path that nothing calls: a
+    # new shape still type-checks, and still passes every test that does not
+    # exercise it. This is the step that notices.
+    #
+    # The two thresholds do different jobs and are deliberately set differently:
+    #
+    #   --min-coverage guards our own tests going backwards. One point of
+    #   headroom under the 85% the plan targets, so ordinary engine churn does
+    #   not fail the build -- a floor that trips on every upgrade just teaches
+    #   people to lower it. Deleting test/shapes would drop this to ~22%.
+    #
+    #   --max-uncovered guards new engine surface, which is the precise thing a
+    #   Godot upgrade brings and which the percentage can hide: a big new
+    #   uncovered shape moves the total by a fraction of a point. The largest
+    #   currently-uncovered shape is 56 methods, so 100 fires only on something
+    #   genuinely new and large. When it does, the fix is a test, not a bigger
+    #   number.
+    - name: Audit marshalling-shape coverage
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Dumped from the engine under test rather than read out of
+        # zig-out/vendor, which none of the steps above produce.
+        "$GODOT_BIN" --headless --dump-extension-api
+        zig build audit -Dgodot-path="$GODOT_BIN"
+        ./zig-out/bin/gdzig-api-audit shapes \
+          --min-coverage=84 --max-uncovered=100 \
+          extension_api.json test

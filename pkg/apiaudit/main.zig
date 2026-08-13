@@ -34,7 +34,7 @@ const shapes = @import("shapes.zig");
 const usage =
     \\usage: api-audit diff <old.json> <new.json>
     \\       api-audit coverage <extension_api.json> <test-dir>...
-    \\       api-audit shapes <extension_api.json> [test-dir]...
+    \\       api-audit shapes [--min-coverage=<pct>] [--max-uncovered=<n>] <extension_api.json> [test-dir]...
     \\
 ;
 
@@ -69,7 +69,7 @@ pub fn main(init: std.process.Init) !void {
         } else if (std.mem.eql(u8, command, "coverage")) {
             break :blk coverage.run(arena, io, out, args[2], args[3..]);
         } else if (std.mem.eql(u8, command, "shapes")) {
-            break :blk shapes.run(arena, io, out, args[2], args[3..]);
+            break :blk shapes.run(arena, io, out, args[2..]);
         } else {
             try out.print("unknown command '{s}'\n\n{s}", .{ command, usage });
             try out.flush();
@@ -81,7 +81,7 @@ pub fn main(init: std.process.Init) !void {
     // has already been printed. Reporting it as an unhandled error would bury
     // that message under a stack trace.
     result catch |err| switch (err) {
-        error.SameVersion, error.MismatchedDumpFlags, error.NoSources => {
+        error.SameVersion, error.MismatchedDumpFlags, error.NoSources, error.BadArgument, error.ThresholdNotMet => {
             try out.flush();
             std.process.exit(1);
         },

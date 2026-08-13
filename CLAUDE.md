@@ -18,11 +18,17 @@ Run `zig build -h` to confirm the available steps.
   - `diff old.json new.json` - how the shape of the API changed between two dumps
   - `coverage extension_api.json test` - how much of the generated surface the tests exercise,
     by category
-  - `shapes extension_api.json [test-dir...]` - groups class methods by marshalling shape,
-    ranks the shapes by method count, and marks which the tests exercise. This is the
-    actionable form of `coverage`: 16,822 methods is not a worklist, ~780 shapes is, and the
-    top 50 reach 85% of the method surface. Run it after a Godot upgrade to see whether a new
-    shape appeared that nothing covers
+  - `shapes [--min-coverage=<pct>] [--max-uncovered=<n>] extension_api.json [test-dir...]` -
+    groups class methods by marshalling shape, ranks the shapes by method count, and marks
+    which the tests exercise. This is the actionable form of `coverage`: 16,822 methods is not
+    a worklist, ~780 shapes is, and the top 50 reach 85% of the method surface. Run it after a
+    Godot upgrade to see whether a new shape appeared that nothing covers.
+
+    The two flags turn it into a gate and are what CI runs (`--min-coverage=84
+    --max-uncovered=100`). They guard different things: `--min-coverage` catches our own tests
+    regressing, `--max-uncovered` catches a large new engine shape, which can appear while the
+    percentage barely moves. Both fail with exit 1; when `--max-uncovered` fires the fix is a
+    test, not a bigger number
 - `zig build uninstall` - Remove installed artifacts
 
 ### Build Options

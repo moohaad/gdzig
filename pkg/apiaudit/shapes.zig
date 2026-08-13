@@ -63,9 +63,53 @@ const Shape = struct {
     ambiguous: bool = false,
 };
 
-pub fn run(arena: Allocator, io: Io, out: *Io.Writer, api_path: []const u8, test_dirs: []const [:0]const u8) !void {
+/// Thresholds that turn the report into a gate. Both are off unless asked for,
+/// and they guard different regressions: `min_coverage` catches our own tests
+/// going backwards, `max_uncovered` catches a new Godot version bringing in a
+/// large shape nothing covers -- which can happen while the percentage barely
+/// moves, so neither substitutes for the other.
+const Thresholds = struct {
+    min_coverage: ?f64 = null,
+    max_uncovered: ?usize = null,
+};
+
+pub fn run(arena: Allocator, io: Io, out: *Io.Writer, args: []const [:0]const u8) !void {
     const main = @import("main.zig");
     const coverage = @import("coverage.zig");
+
+    var thresholds: Thresholds = .{};
+    var positional: std.ArrayList([:0]const u8) = .empty;
+    for (args) |arg| {
+        if (option(arg, "--min-coverage=")) |value| {
+            thresholds.min_coverage = std.fmt.parseFloat(f64, value) catch {
+                try out.print("--min-coverage expects a percentage, got '{s}'\n", .{value});
+                return error.BadArgument;
+            };
+        } else if (option(arg, "--max-uncovered=")) |value| {
+            thresholds.max_uncovered = std.fmt.parseInt(usize, value, 10) catch {
+                try out.print("--max-uncovered expects a method count, got '{s}'\n", .{value});
+                return error.BadArgument;
+            };
+        } else if (std.mem.startsWith(u8, arg, "--")) {
+            try out.print("unknown option '{s}'\n", .{arg});
+            return error.BadArgument;
+        } else {
+            try positional.append(arena, arg);
+        }
+    }
+
+    if (positional.items.len == 0) {
+        try out.writeAll("shapes needs an extension_api.json\n");
+        return error.BadArgument;
+    }
+    const api_path = positional.items[0];
+    const test_dirs = positional.items[1..];
+
+    if (test_dirs.len == 0 and (thresholds.min_coverage != null or thresholds.max_uncovered != null)) {
+        try out.writeAll("thresholds need at least one test directory to measure against\n");
+        return error.BadArgument;
+    }
+
     const doc = try std.json.parseFromSlice(Json, arena, try main.readFile(arena, io, api_path), .{});
 
     var shapes: std.StringArrayHashMapUnmanaged(Shape) = .empty;
@@ -125,6 +169,54 @@ pub fn run(arena: Allocator, io: Io, out: *Io.Writer, api_path: []const u8, test
     try writeCurve(out, ranked, methods);
     if (test_dirs.len > 0) try writeCoverage(out, ranked, methods);
     try writeWorklist(out, ranked, methods, test_dirs.len > 0);
+    try enforce(out, ranked, methods, thresholds);
+}
+
+/// Applies whichever thresholds were asked for. Both are reported before either
+/// fails, so one CI run tells you everything that is wrong rather than the first
+/// thing.
+fn enforce(out: *Io.Writer, ranked: []const *Shape, methods: usize, thresholds: Thresholds) !void {
+    var failed = false;
+
+    if (thresholds.min_coverage) |floor| {
+        var covered: usize = 0;
+        for (ranked) |shape| {
+            if (shape.exercised) covered += shape.count;
+        }
+        const actual = pct(covered, methods);
+        if (actual < floor) {
+            try out.print("\nFAIL: shape coverage is {d:.1}%, below the required {d:.1}%\n", .{ actual, floor });
+            failed = true;
+        } else {
+            try out.print("\nok: shape coverage {d:.1}% >= {d:.1}%\n", .{ actual, floor });
+        }
+    }
+
+    if (thresholds.max_uncovered) |limit| {
+        // `ranked` is sorted by method count, so the first uncovered entry is
+        // the largest one.
+        for (ranked) |shape| {
+            if (shape.exercised) continue;
+            if (shape.count > limit) {
+                try out.print("FAIL: `{s}` covers {d} methods and nothing exercises it (limit {d}).\n", .{
+                    shape.text, shape.count, limit,
+                });
+                try out.print("      Example: {s}\n", .{shape.example});
+                failed = true;
+            } else {
+                try out.print("ok: largest uncovered shape is {d} methods <= {d}\n", .{ shape.count, limit });
+            }
+            break;
+        }
+    }
+
+    if (failed) return error.ThresholdNotMet;
+}
+
+/// The value part of `--name=value`, or null if `arg` is not that option.
+fn option(arg: []const u8, comptime name: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, arg, name)) return null;
+    return arg[name.len..];
 }
 
 /// How much of the method surface the top N shapes account for. This is the
