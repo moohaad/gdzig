@@ -92,6 +92,17 @@ pub fn run(arena: Allocator, io: Io, out: *Io.Writer, api_path: []const u8, test
         try out.print("\n{s} exercised at all:\n", .{cat.label});
         try listTouched(out, cat, 16);
     }
+
+    // Counting method names understates the position badly and gives nothing to
+    // act on: no one is going to write 16,822 tests. `shapes` groups those
+    // methods by the code path they actually walk, which is both a truer number
+    // and a worklist.
+    try out.writeAll(
+        \\
+        \\Per-method counts are the wrong unit for deciding what to test next;
+        \\try `shapes` for coverage by marshalling path.
+        \\
+    );
 }
 
 fn collect(

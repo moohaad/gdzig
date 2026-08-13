@@ -87,26 +87,47 @@ from `Translation.getName`, so a called name only marks a shape when it occurs i
 ambiguous hits are counted as uncovered and reported separately. Over-reporting would silently
 drop untested shapes off the worklist, which is the one error worth avoiding here.
 
-Current state: **16 of 784 shapes exercised, 3,712 of 16,822 methods (22.1%)**, with 15 more
-shapes (25.5%) reached only ambiguously. The largest uncovered shapes are
-`object/builtin <- ()` (1,409 methods) and `void <- (object/builtin)` (1,400).
+The state when this landed, before 1.2: **16 of 784 shapes exercised, 3,712 of 16,822 methods
+(22.1%)**, with 15 more shapes (25.5%) reached only ambiguously, and the two largest uncovered
+shapes being `object/builtin <- ()` (1,409 methods) and `void <- (object/builtin)` (1,400).
 
-**1.2 Cover the top shapes.** Work down the ranked list, one test per shape, picking whichever
-real method exercises it most cheaply. Round-trip where possible — set a value, read it back,
-assert equality — since that catches marshalling in both directions, which is how the
-sub-8-byte ptrcall bug manifested.
+**1.2 Cover the top shapes.** ✅ **Done** — `test/shapes/root.zig`, 31 tests.
 
-Stop at a stated threshold. 50 shapes for 85% is a reasonable first target; the next 50 buy
-under 6% and cost the same.
+Worked down the ranked list, round-tripping wherever the API allowed it. **62 of 784 shapes
+exercised, 14,325 of 16,822 methods (85.2%)**, up from 16 shapes and 22.1%. The largest
+uncovered shape fell from 1,409 methods to 56.
 
-**1.3 Poison the stack.** `test/codegen/root.zig` already has `poisonStack()`, written for
-exactly the bug class where a narrow return leaves adjacent bytes intact and the test passes by
-luck. Shape tests for scalar and enum returns should use it, or they will not catch a
-recurrence.
+Two things worth knowing for the next pass:
 
-**1.4 Report the number.** Once shapes are tracked, the coverage report should lead with shape
-coverage rather than method coverage. "24 of 11,300 methods" is technically true and useless;
-"38 of 459 shapes, covering 71% of methods" is actionable.
+*Pick methods whose name is unique to their shape.* The audit attributes a call only when the
+name occurs in exactly one shape, so `AStar2D.getPointWeightScale` earns nothing —
+`AStarGrid2D.getPointWeightScale` takes a `Vector2i` and sits in a different shape. Four tests
+in the first draft exercised their shape at runtime but could not be credited, and were
+rewritten against unambiguous methods. This is the conservative rule working: it would rather
+under-report than let an untested shape drop off the list.
+
+*Check the class constructs under `--headless` before building a test around it.*
+`CodeEdit.init()` and `RigidBody2D.init()` both segfault there, on construction alone, before
+any binding is involved. Substitutes exist for most shapes; where one does not, say so.
+
+**Deliberately uncovered:** `void <- (object/builtin, object/builtin?)`, 49 methods. Only eight
+classes have that shape — EditorNode3DGizmo, NavigationMeshGenerator, OpenXRPlaneTracker,
+PhysicalBone3D, RigidBody2D, RigidBody3D, TileSetAtlasSource, Window — and every one needs an
+editor, a physics space, or a display server. Reaching it means running the suite against a
+real display server, which is a harness change rather than another test.
+
+The next 50 shapes buy about 6% and cost the same as the first 50, so 85% is where this stops
+until something makes the case for more.
+
+**1.3 Poison the stack.** ✅ **Done** — eight of the shape tests call `poisonStack()` before
+the read-back, covering every scalar and enum return among them. Without it a narrow return
+leaves the adjacent bytes intact and the test passes by luck, which is exactly how the
+sub-8-byte bug survived.
+
+**1.4 Report the number.** ✅ **Done** — `shapes` reports it, and `coverage` now closes by
+pointing at `shapes`, since a per-method count is the wrong unit for deciding what to test
+next. "24 of 11,300 methods" is technically true and useless; "62 of 784 shapes, covering
+85.2% of methods" is actionable.
 
 ### Risk
 
@@ -253,7 +274,7 @@ a refcounted field is `RefReturnNode` in `test/leaks`, which now exercises exact
 
 1. ~~**3. decide `Gd(T)`**~~ — done; adopted, returns and constructors
 2. ~~**1.1 shape reporting**~~ — done; `gdzig-api-audit shapes`
-3. **1.2–1.4 shape tests** — the highest-value engineering here, and now a ranked worklist
+3. ~~**1.2–1.4 shape tests**~~ — done; 85.2% of the method surface
 4. **2. indexed properties** — bounded, and the design questions are already answered
 
 `Gd(T)` went first so that 2 would not have to be revisited: an indexed getter forwards to its
