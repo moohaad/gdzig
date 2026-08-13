@@ -16,6 +16,9 @@
 //!   objects are freed with `destroy`, not released.
 //! * A method **taking** a refcounted class takes `*T`. Godot takes
 //!   `const Ref<T>&`, which borrows; the caller keeps ownership.
+//! * A **virtual you override** may return either. `*T` lends the engine an
+//!   object you go on owning; `Gd(T)` hands yours over, which is what a virtual
+//!   like `_instantiate_playback` that creates its result wants.
 //!
 //! ```zig
 //! var tex = ResourceLoader.load(path, .{}).?;
@@ -71,6 +74,12 @@ pub fn Gd(comptime T: type) type {
 
     return struct {
         const Self = @This();
+
+        /// The type this handle owns a reference to. Lets code that has to tell
+        /// an owning handle from a borrowed pointer -- the virtual-return
+        /// marshalling, for one -- recognise `Gd(T)` exactly, rather than by
+        /// guessing from its shape.
+        pub const Owns = T;
 
         ptr: *T,
         released: if (track_release) bool else void = if (track_release) false else {},

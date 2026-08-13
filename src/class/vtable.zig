@@ -49,7 +49,7 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                                     method(instance);
                                 } else {
                                     const result = method(instance);
-                                    ptrcall.writeReturn(ReturnType, p_ret, result);
+                                    ptrcall.writeVirtualReturn(ReturnType, p_ret, result);
                                 }
                             }
                         };
@@ -63,13 +63,13 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                                 args[0] = instance;
                                 inline for (1..param_count) |j| {
                                     const Arg = fn_info.params[j].type.?;
-                                    args[j] = ptrcall.readArg(Arg, p_args[j - 1]);
+                                    args[j] = ptrcall.readVirtualArg(Arg, p_args[j - 1]);
                                 }
                                 if (ReturnType == void) {
                                     @call(.always_inline, method, args);
                                 } else {
                                     const result = @call(.always_inline, method, args);
-                                    ptrcall.writeReturn(ReturnType, p_ret, result);
+                                    ptrcall.writeVirtualReturn(ReturnType, p_ret, result);
                                 }
                             }
                         };

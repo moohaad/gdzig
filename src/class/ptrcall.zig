@@ -24,6 +24,9 @@
 /// call sites need a widened slot in the first place.
 const std = @import("std");
 
+const gdzig = @import("gdzig");
+const class = gdzig.class;
+
 /// Reads a single ptrcall argument slot as `T`, applying the width conventions described
 /// above. `raw_p_arg` accepts both the optional `GDExtensionConstTypePtr` the engine hands us
 /// directly and the already-unwrapped `*const anyopaque` that higher-level callers may have
@@ -65,6 +68,82 @@ pub fn writeReturn(comptime T: type, raw_p_ret: ?*anyopaque, value: T) void {
             writeIntSlot(Backing, p_ret, @as(Backing, @bitCast(value)));
         },
         else => @as(*T, @ptrCast(@alignCast(p_ret))).* = value,
+    }
+}
+
+/// Reads an argument for a **virtual** ptrcall.
+///
+/// The mirror of `writeVirtualReturn`: a refcounted argument arrives as a
+/// `Ref<T>*`, so the object has to be fetched with `ref_get_object` rather than
+/// read as a plain `T**`. The reference belongs to the caller for the duration
+/// of the call, so this hands back a borrowed `*T` and takes nothing.
+pub fn readVirtualArg(comptime T: type, raw_p_arg: ?*const anyopaque) T {
+    if (comptime class.isRefCountedPtr(T)) {
+        return @ptrCast(gdzig.raw.refGetObject(@ptrCast(@constCast(raw_p_arg))).?);
+    }
+    if (comptime @typeInfo(T) == .optional and class.isRefCountedPtr(@typeInfo(T).optional.child)) {
+        const obj = gdzig.raw.refGetObject(@ptrCast(@constCast(raw_p_arg)));
+        return if (obj) |o| @ptrCast(o) else null;
+    }
+    return readArg(T, raw_p_arg);
+}
+
+/// Writes a return value for a **virtual** ptrcall.
+///
+/// Identical to `writeReturn` apart from refcounted objects, which Godot treats
+/// differently in a virtual than in a standard ptrcall: the return slot is a
+/// `Ref<T>*` rather than a `T**`, and it has to be populated through
+/// `ref_set_object` so the engine takes its own reference. Writing the bare
+/// pointer -- which is what `writeReturn` does, and what this used to do --
+/// leaves the engine holding a `Ref` for a count nobody incremented, so the
+/// object is freed the first time either side releases it.
+///
+/// See godot-cpp#954 for the upstream inconsistency; `readVirtualArg` is the
+/// mirror of this on the way in.
+///
+/// Both ownership conventions are accepted, matching the rest of the API:
+/// returning `*T` lends the engine an object you keep, and returning `Gd(T)`
+/// hands yours over.
+pub fn writeVirtualReturn(comptime T: type, raw_p_ret: ?*anyopaque, value: T) void {
+    if (comptime @typeInfo(T) == .optional and isRefCounted(@typeInfo(T).optional.child)) {
+        if (value) |present| {
+            setRef(@typeInfo(T).optional.child, raw_p_ret, present);
+        } else {
+            gdzig.raw.refSetObject(@ptrCast(raw_p_ret), null);
+        }
+        return;
+    }
+    if (comptime isRefCounted(T)) {
+        setRef(T, raw_p_ret, value);
+        return;
+    }
+    writeReturn(T, raw_p_ret, value);
+}
+
+/// Whether `T` carries a reference-counted object, as either a borrowed `*R` or
+/// an owning `Gd(R)`.
+fn isRefCounted(comptime T: type) bool {
+    if (comptime isOwningHandle(T)) return true;
+    return comptime class.isRefCountedPtr(T);
+}
+
+/// Exact test for `Gd(R)`: it declares the type it owns, so this cannot be
+/// fooled by an unrelated struct that happens to hold a `ptr` field.
+fn isOwningHandle(comptime T: type) bool {
+    if (@typeInfo(T) != .@"struct") return false;
+    if (!@hasDecl(T, "Owns")) return false;
+    return T == gdzig.Gd(T.Owns);
+}
+
+fn setRef(comptime T: type, raw_p_ret: ?*anyopaque, value: T) void {
+    if (comptime isOwningHandle(T)) {
+        var owned = value;
+        // `ref_set_object` takes the engine's own reference, so ours is now
+        // surplus and releasing it completes the hand-over.
+        gdzig.raw.refSetObject(@ptrCast(raw_p_ret), @ptrCast(owned.get()));
+        owned.deinit();
+    } else {
+        gdzig.raw.refSetObject(@ptrCast(raw_p_ret), @ptrCast(value));
     }
 }
 
