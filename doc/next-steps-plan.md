@@ -29,47 +29,75 @@ The useful observation is that **marshalling bugs cluster by signature shape, no
 one is right, both are. So the unit worth covering is the distinct *marshalling shape* — the
 set of type kinds involved in a call.
 
-Measured across 4.7:
+Measured across 4.7 by `gdzig-api-audit shapes`:
 
 | | count |
 | --- | ---: |
 | class methods | 16,822 |
-| distinct full signatures | 1,164 |
-| **distinct marshalling shapes** | **459** |
+| **distinct marshalling shapes** | **784** |
 
 And they are heavily skewed:
 
 | shapes tested | methods whose path is exercised | |
 | ---: | ---: | ---: |
-| 10 | 9,919 | 59.0% |
-| 25 | 13,334 | 79.3% |
-| 50 | 14,790 | 87.9% |
-| 100 | 15,792 | 93.9% |
-| 200 | 16,444 | 97.8% |
+| 10 | 9,470 | 56.3% |
+| 25 | 12,764 | 75.9% |
+| 50 | 14,327 | 85.2% |
+| 100 | 15,303 | 91.0% |
+| 200 | 15,957 | 94.9% |
 
-**Fifty tests reach 88% of the method surface.** That is a bounded piece of work with a
+**Fifty tests reach 85% of the method surface.** That is a bounded piece of work with a
 defensible stopping point, which "test more methods" never had.
+
+> **Revised from the original draft**, which said 459 shapes and 88% at fifty. Those numbers
+> came from a shape key that pooled the return kind into the same set as the argument kinds, so
+> a method *returning* an object shared a shape with one *taking* an object — which would let a
+> return-side defect hide behind an argument-side test, and the sub-8-byte ptrcall bug was
+> return-only. Separating them, and tracking `has_default` per argument rather than per method,
+> costs 325 shapes and about three points of reach at fifty. The draft's "1,164 distinct full
+> signatures" row was mislabelled: it is the same kind-based key with argument order preserved,
+> not a count of raw type signatures, so it has been dropped rather than corrected.
 
 ### Steps
 
-**1.1 Teach the audit tool to report shapes.** Add a `shapes` subcommand alongside `diff` and
-`coverage`: enumerate marshalling shapes, rank by method count, and mark which are already
-exercised by the tests. The output is the worklist for 1.2, and afterwards the thing that says
-whether a new Godot version introduced a shape nothing covers.
+**1.1 Teach the audit tool to report shapes.** ✅ **Done** — `pkg/apiaudit/shapes.zig`:
 
-The shape key that produced the numbers above is the set of type *kinds* — `int`, `float`,
-`bool`, `enum`, `flag`, `String`, `StringName`, `NodePath`, `Variant`, `Array`, `Dictionary`,
-`typedarray`, `object/builtin`, `void` — across the return type and every argument, plus
-`has_default` and `vararg` markers. Both markers earn their place: omitted-argument
-materialisation and vararg wrappers have each already produced bugs.
+```sh
+zig build audit && ./zig-out/bin/gdzig-api-audit shapes zig-out/vendor/extension_api.json test
+```
+
+Ranks shapes by method count and, given test directories, marks which are exercised, printing
+the highest-value uncovered ones. That list is the worklist for 1.2, and afterwards the thing
+that says whether a new Godot version introduced a shape nothing covers.
+
+The shape key is the return type's kind, plus the *set* of `(kind, has_default)` pairs over the
+arguments, plus a vararg flag. Kinds are `int`, `float`, `bool`, `enum`, `flag`, `String`,
+`StringName`, `NodePath`, `Variant`, `Array`, `Dictionary`, `typedarray`, `pointer`,
+`object/builtin`, `void`. Rendered as `int <- (String, enum?)`, where `?` marks a defaulted
+argument.
+
+Three choices in that key each answer to a bug that has already happened: the return kind stays
+separate from the argument kinds (the sub-8-byte ptrcall bug was return-only); `has_default` is
+per argument, which puts `FileAccess.get_csv_line(delim = ",")` — the silently-discarded
+non-empty default — in a shape by itself; and argument order and arity are dropped, since two
+`Vector2` arguments marshal the same way one does.
+
+Coverage is deliberately under-reported. The scan is textual and cannot tell `Node.getName`
+from `Translation.getName`, so a called name only marks a shape when it occurs in exactly one;
+ambiguous hits are counted as uncovered and reported separately. Over-reporting would silently
+drop untested shapes off the worklist, which is the one error worth avoiding here.
+
+Current state: **16 of 784 shapes exercised, 3,712 of 16,822 methods (22.1%)**, with 15 more
+shapes (25.5%) reached only ambiguously. The largest uncovered shapes are
+`object/builtin <- ()` (1,409 methods) and `void <- (object/builtin)` (1,400).
 
 **1.2 Cover the top shapes.** Work down the ranked list, one test per shape, picking whichever
 real method exercises it most cheaply. Round-trip where possible — set a value, read it back,
 assert equality — since that catches marshalling in both directions, which is how the
 sub-8-byte ptrcall bug manifested.
 
-Stop at a stated threshold. 50 shapes for 88% is a reasonable first target; the next 50 buy
-only 6% and cost the same.
+Stop at a stated threshold. 50 shapes for 85% is a reasonable first target; the next 50 buy
+under 6% and cost the same.
 
 **1.3 Poison the stack.** `test/codegen/root.zig` already has `poisonStack()`, written for
 exactly the bug class where a narrow return leaves adjacent bytes intact and the test passes by
@@ -223,9 +251,9 @@ a refcounted field is `RefReturnNode` in `test/leaks`, which now exercises exact
 
 ## Suggested order
 
-1. ~~**3. decide `Gd(T)`**~~ — done; adopted
-2. **1.1 shape reporting** — cheap, and turns coverage from a number into a worklist
-3. **1.2–1.4 shape tests** — the highest-value engineering here
+1. ~~**3. decide `Gd(T)`**~~ — done; adopted, returns and constructors
+2. ~~**1.1 shape reporting**~~ — done; `gdzig-api-audit shapes`
+3. **1.2–1.4 shape tests** — the highest-value engineering here, and now a ranked worklist
 4. **2. indexed properties** — bounded, and the design questions are already answered
 
 `Gd(T)` went first so that 2 would not have to be revisited: an indexed getter forwards to its

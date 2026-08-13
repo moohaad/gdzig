@@ -14,9 +14,15 @@ Run `zig build -h` to confirm the available steps.
 - `zig build test -Dsurface-audit` - Additionally type-check every generated declaration.
   Zig only analyses referenced functions, so the plain build proves the bindings parse, not
   that they compile; CI runs this as its own step
-- `zig build audit` - Build `gdzig-api-audit`, which diffs two `extension_api.json` dumps
-  (`diff old.json new.json`) or reports how much of the generated surface the tests exercise
-  (`coverage extension_api.json test`)
+- `zig build audit` - Build `gdzig-api-audit`, which has three subcommands:
+  - `diff old.json new.json` - how the shape of the API changed between two dumps
+  - `coverage extension_api.json test` - how much of the generated surface the tests exercise,
+    by category
+  - `shapes extension_api.json [test-dir...]` - groups class methods by marshalling shape,
+    ranks the shapes by method count, and marks which the tests exercise. This is the
+    actionable form of `coverage`: 16,822 methods is not a worklist, ~780 shapes is, and the
+    top 50 reach 85% of the method surface. Run it after a Godot upgrade to see whether a new
+    shape appeared that nothing covers
 - `zig build uninstall` - Remove installed artifacts
 
 ### Build Options

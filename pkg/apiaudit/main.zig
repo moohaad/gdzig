@@ -1,6 +1,6 @@
 //! Auditing tools for Godot's `extension_api.json`.
 //!
-//! Two subcommands:
+//! Three subcommands:
 //!
 //!   diff <old.json> <new.json>
 //!       Reports how the *shape* of the API changed between two dumps: fields
@@ -13,6 +13,13 @@
 //!       Reports how much of the generated surface the tests actually exercise,
 //!       broken down by category, so the untouched areas are visible.
 //!
+//!   shapes <extension_api.json> [test-dir]...
+//!       Groups class methods by marshalling shape and ranks the shapes by how
+//!       many methods they cover. With test directories it marks which are
+//!       already exercised, turning the ranking into a worklist. This is the
+//!       actionable form of `coverage`: 16,822 methods is not a list anyone can
+//!       work through, a few hundred shapes is.
+//!
 //! Both read the dump dynamically rather than through `GodotApi`, which is the
 //! point: a typed parse can only see fields the model already knows about, and
 //! the interesting changes are the ones it does not.
@@ -22,10 +29,12 @@ const Io = std.Io;
 
 const diff = @import("diff.zig");
 const coverage = @import("coverage.zig");
+const shapes = @import("shapes.zig");
 
 const usage =
     \\usage: api-audit diff <old.json> <new.json>
     \\       api-audit coverage <extension_api.json> <test-dir>...
+    \\       api-audit shapes <extension_api.json> [test-dir]...
     \\
 ;
 
@@ -59,6 +68,8 @@ pub fn main(init: std.process.Init) !void {
             break :blk diff.run(arena, io, out, args[2], args[3]);
         } else if (std.mem.eql(u8, command, "coverage")) {
             break :blk coverage.run(arena, io, out, args[2], args[3..]);
+        } else if (std.mem.eql(u8, command, "shapes")) {
+            break :blk shapes.run(arena, io, out, args[2], args[3..]);
         } else {
             try out.print("unknown command '{s}'\n\n{s}", .{ command, usage });
             try out.flush();

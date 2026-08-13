@@ -165,7 +165,9 @@ fn markTouched(arena: Allocator, sources: []const u8, cat: *Category) !void {
     }
 }
 
-fn appendZigSources(arena: Allocator, io: Io, path: []const u8, out: *std.ArrayList(u8)) !void {
+/// Concatenates every `.zig` file under `path`. Shared with `shapes`, which
+/// scans the same sources for the same reason.
+pub fn appendZigSources(arena: Allocator, io: Io, path: []const u8, out: *std.ArrayList(u8)) !void {
     var dir = Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return,
         else => return err,
