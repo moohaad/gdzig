@@ -1743,16 +1743,36 @@ fn writeModuleFunctionVarargWrapper(w: *CodeWriter, function: *const Context.Fun
 /// Converts a possibly qualified type name (e.g., "AStarGrid2D.CellShape") to use converted class prefixes.
 /// For qualified names, splits on "." and converts the class prefix.
 /// For simple names, looks them up in the appropriate ctx map (enums or flags).
+/// Enums whose generated spelling differs from the API's because the owning
+/// type is hand-written rather than generated.
+///
+/// `Variant` lives in `src/builtin/variant.zig` and calls its type tag `Tag`,
+/// which is why `Context.castEnums` skips `Variant.*`. Nothing generates the
+/// enum, so references to it have to be redirected here.
+const renamed_qualified_enums = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "Variant.Type", "Variant.Tag" },
+});
+
 fn convertQualifiedName(api_name: []const u8, ctx: *const Context, comptime map_type: enum { enums, flags }) []const u8 {
+    if (renamed_qualified_enums.get(api_name)) |renamed| return renamed;
+
     // Check if it's a qualified name (contains a dot)
     if (std.mem.indexOf(u8, api_name, ".")) |dot_idx| {
         const class_api_name = api_name[0..dot_idx];
-        const enum_name = api_name[dot_idx..]; // includes the dot
+        const member_api_name = api_name[dot_idx + 1 ..];
         // Look up the class to get its converted name
         if (ctx.classes.get(class_api_name)) |class| {
-            // Return converted class name + original enum/flag suffix
+            // Both halves need converting. The member is declared under its
+            // converted name, so emitting the API spelling produces references
+            // to something that does not exist -- visible only on names whose
+            // case actually changes, which is the ones carrying acronyms
+            // (`GIMode` -> `GiMode`, `MSAA` -> `Msaa`).
+            const member_name = switch (map_type) {
+                .enums => if (class.enums.get(member_api_name)) |e| e.name else member_api_name,
+                .flags => if (class.flags.get(member_api_name)) |f| f.name else member_api_name,
+            };
             // We need to allocate, but can use the arena
-            return std.fmt.allocPrint(ctx.arena.allocator(), "{s}{s}", .{ class.name, enum_name }) catch api_name;
+            return std.fmt.allocPrint(ctx.arena.allocator(), "{s}.{s}", .{ class.name, member_name }) catch api_name;
         }
         // Fallback to original if class not found
         return api_name;

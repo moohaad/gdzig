@@ -237,27 +237,50 @@ Emitted widths went from 909 × `u64` / 38 × `u32` to **932 × `u32` / 15 × `u
 remaining `u64`s are all `RenderingServer.ArrayFormat`, whose highest bit is 35 — genuinely
 64-bit, and generated as `packed struct(u64)`.
 
-### Outstanding — 90 errors
+**Qualified enum and flag references kept the API's spelling** — 62 errors, now fixed.
+`convertQualifiedName` converted the class half of a name and, as its own comment admitted,
+appended the "original enum/flag suffix". Declarations use the converted spelling, so any
+member whose case actually changes was referenced by a name that does not exist. That is
+precisely the ones carrying acronyms: `GeometryInstance3D.GIMode` against the declared
+`GiMode`, `Viewport.MSAA` against `Msaa`, `FFTSize`, `GLTFComponentType`, `ASTCFormat`.
 
-Remaining, unanalysed:
+Both halves are now converted, taking the member's name from `class.enums` / `class.flags`.
+Unlike the flag-width bug this had no ordering hazard: `convertQualifiedName` runs during
+codegen, by which point `Context.build` has finished.
+
+**`Variant.Type` referenced a type that is never generated** — 9 errors, now fixed. `Variant`
+is hand-written and calls its type tag `Tag`, which is why `castEnums` skips `Variant.*`.
+Codegen already hardcoded `Variant.Tag` in the expressions it emits, but type references still
+said `Variant.Type`. Redirected through a small `renamed_qualified_enums` table, which also
+documents why the rename exists.
+
+### Outstanding — 20 errors
 
 | Count | Error |
 | --- | --- |
-| 62 | `opaque X has no member named Y` |
-| 8 | `struct X has no member named Y` |
 | 7 | `expected type X, found Y` |
 | 6 | `@ptrCast discards const qualifier` |
 | 2 | `unable to resolve comptime value` |
 | 2 | `evaluation exceeded 20000 backwards branches` |
+| 1 | `expected type X, found pointer` |
+| 1 | `cannot call optional type X` |
+| 1 | `Cannot construct a X from type X` |
 
-The last is a generated `@setEvalBranchQuota(20000)` that is simply too low under the sweep,
-not a defect.
+The branch-quota pair is a generated `@setEvalBranchQuota(20000)` that is simply too low under
+the sweep, not a defect. The rest are now few enough to read individually rather than group.
+
+### Cosmetic, not counted
+
+Doc-comment links still use API spellings, so `Viewport.MSAA` survives inside a generated
+`///` URL. Those anchors point at names the docs do not publish. Harmless to compilation,
+worth a pass when the doc pipeline is next touched.
 
 ### Turning it on
 
-The sweep should gate CI once the backlog clears; until then it is a worklist. The flag-width
-pass is done, taking it from 694 to 90. What is left is triage of the 90, then flipping the
-default and dropping the option.
+The sweep should gate CI once the backlog clears; until then it is a worklist. Progress so
+far: 735 on first run, then 694 (unary operators), 90 (flag widths), 29 (qualified enum
+names), 20 (`Variant.Type`). What is left is small enough to triage case by case, after which
+the default flips and the option goes away.
 
 Measure build cost before flipping it — referencing the whole API is a large compilation unit,
 and if it is slow it belongs in its own CI job rather than in every local `zig build test`.
