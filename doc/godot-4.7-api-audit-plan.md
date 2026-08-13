@@ -254,33 +254,67 @@ Codegen already hardcoded `Variant.Tag` in the expressions it emits, but type re
 said `Variant.Type`. Redirected through a small `renamed_qualified_enums` table, which also
 documents why the rename exists.
 
-### Outstanding — 20 errors
+### Cleared
 
-| Count | Error |
-| --- | --- |
-| 7 | `expected type X, found Y` |
-| 6 | `@ptrCast discards const qualifier` |
-| 2 | `unable to resolve comptime value` |
-| 2 | `evaluation exceeded 20000 backwards branches` |
-| 1 | `expected type X, found pointer` |
-| 1 | `cannot call optional type X` |
-| 1 | `Cannot construct a X from type X` |
+The rest fell into five more causes:
 
-The branch-quota pair is a generated `@setEvalBranchQuota(20000)` that is simply too low under
-the sweep, not a defect. The rest are now few enough to read individually rather than group.
+**Non-empty `String` / `StringName` / `NodePath` defaults were discarded.** Only the empty
+cases were special-cased; anything else fell through to `parse`, producing a nullable value
+that materialized as `.init()`. `NodePath("")` additionally became `NodePath.copy("")`, and
+`copy` takes a NodePath.
 
-### Cosmetic, not counted
+This one is worth dwelling on: for `String` it was **silent**. `FileAccess.get_csv_line(delim:
+String = ",")` compiled fine and defaulted to `""` instead of `","`; likewise
+`bind_address = "*"` on four networking methods. The compiler could never have caught it —
+found only by reading the API alongside the generated output while chasing the StringName
+error next to it.
 
-Doc-comment links still use API spellings, so `Viewport.MSAA` survives inside a generated
-`///` URL. Those anchors point at names the docs do not publish. Harmless to compilation,
-worth a pass when the doc pipeline is next touched.
+Defaults that cannot be a comptime field initializer now go through
+`Parameter.default_materializer`, which supplies the expression that reconstitutes the
+argument. `Variant = 0` (`RegExMatch.get_string`) uses the same route.
+
+**`Variant` methods taking `self: *Variant` passed `&self`.** Six of them — `call`, `set`,
+`setNamed`, `setKeyed`, `setIndexed`, `ptr` — took a pointer receiver and then took its
+address again, handing the engine a `**Variant`: the address of the parameter slot rather than
+the value. The neighbouring methods take `self: Variant` by value, where `&self` is right,
+which is presumably how it went unnoticed. Nothing referenced any of the six, so nothing ever
+compiled them.
+
+**`variantGetObjectInstanceId` was called without unwrapping** the optional dispatch pointer.
+Same shape as the earlier `String.fromUtf8/16` fix.
+
+**`Variant.Tag.forType(Variant)` hit a `@compileError`.** The generated `eqlVariant` /
+`notEqlVariant` operators ask for the tag of a `Variant` right-hand side. A dynamically typed
+operand has no static tag; the engine spells that NIL, which is what godot-cpp passes too.
+
+**`Rect2.initXYWidthHeight` took `i64`** and forwarded to `Vector2.initXY`, which takes `f64`.
+Hand-written in the mixin.
+
+**`Plane`'s constants called a runtime constructor.** `plane_yz` and friends were
+`initABCD(1, 0, 0, 0)`, but `initABCD` goes through the engine's constructor table and cannot
+be evaluated at comptime. Rewritten in the mixin over `initNormalD` and `Vector3.initXYZ`,
+which assign fields directly. Mixin constants override the API-derived ones, since both key on
+the same screaming-case name.
+
+**`vtable.zig` exceeded its eval branch quota.** Not a defect. `combineNames` computes its own
+return type by calling `countNew`, which is evaluated before that function's body and so
+before any quota it sets; the budget is shared across the comptime call tree. Raised at
+`extend`, the outermost entry.
 
 ### Turning it on
 
-The sweep should gate CI once the backlog clears; until then it is a worklist. Progress so
-far: 735 on first run, then 694 (unary operators), 90 (flag widths), 29 (qualified enum
-names), 20 (`Variant.Type`). What is left is small enough to triage case by case, after which
-the default flips and the option goes away.
+**The backlog is clear: 0 errors.** Progress was 735 on first run, then 694 (unary
+operators), 90 (flag widths), 29 (qualified enum names), 20 (`Variant.Type`), 14 (string and
+path defaults), 7 (`Variant` self-pointers), 0.
+
+CI runs the sweep as its own step, so a surface regression is distinguishable from a test
+failure. It stays off by default rather than becoming part of every local `zig build test`.
+
+That split is a judgement call made without a measurement. Attempts to time the delta all
+returned cache hits -- Zig reuses both the compile and the Run step results, and neither
+touching a file nor appending a comment reliably forced the unit-test step to rebuild. Rather
+than quote a meaningless number, the conservative option was taken. Anyone who gets a real
+cold-cache measurement should revisit it: if the cost is small, this belongs on by default.
 
 Measure build cost before flipping it — referencing the whole API is a large compilation unit,
 and if it is slow it belongs in its own CI job rather than in every local `zig build test`.

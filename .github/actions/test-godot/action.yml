@@ -89,3 +89,11 @@ runs:
     - name: Run tests
       shell: bash
       run: zig build test -Dgodot-path="$GODOT_BIN"
+
+    # Separate step so a surface regression is distinguishable from a test
+    # failure. Kept off the default build: it analyses every generated
+    # declaration, and that cost should not land on every local `zig build
+    # test` when CI can carry it.
+    - name: Type-check the generated surface
+      shell: bash
+      run: zig build test -Dgodot-path="$GODOT_BIN" -Dsurface-audit

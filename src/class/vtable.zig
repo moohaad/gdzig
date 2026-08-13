@@ -22,7 +22,7 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
         });
 
         fn countImplemented() usize {
-            @setEvalBranchQuota(20000);
+            @setEvalBranchQuota(100_000);
             var count: usize = 0;
             for (method_names) |name| {
                 if (findMethod(name) != null) count += 1;
@@ -90,11 +90,18 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
 
         /// Extend this vtable with additional methods from a derived type.
         pub fn extend(comptime Derived: type, comptime override_names: anytype) type {
+            // Set here as well as in the callees: `combineNames` computes its
+            // own return type by calling `countNew`, which is evaluated before
+            // that function's body -- and so before any quota it sets. The
+            // budget is shared across the whole comptime call tree, and the
+            // name matching below is quadratic in the method count, which for
+            // the larger engine classes is substantial.
+            @setEvalBranchQuota(1_000_000);
             return VTable(Derived, combineNames(override_names));
         }
 
         fn countNew(comptime override_names: anytype) usize {
-            @setEvalBranchQuota(20000);
+            @setEvalBranchQuota(100_000);
             var count: usize = 0;
             outer: for (override_names) |override_name| {
                 for (method_names) |base_name| {
@@ -108,7 +115,7 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
         }
 
         fn combineNames(comptime override_names: anytype) [method_names.len + countNew(override_names)][]const u8 {
-            @setEvalBranchQuota(20000);
+            @setEvalBranchQuota(100_000);
             var combined: [method_names.len + countNew(override_names)][]const u8 = undefined;
 
             // Copy base names

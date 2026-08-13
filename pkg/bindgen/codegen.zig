@@ -1251,6 +1251,7 @@ fn writeFunctionHeader(w: *CodeWriter, function: *const Context.Function, class:
 /// Returns null when the field is safe to pass by address as-is: object/raw pointers (a null
 /// ptrcall slot is valid) and concrete-value defaults (non-nullable, already materialized).
 fn optNullMaterializer(param: *const Context.Function.Parameter, ctx: *const Context) ?[]const u8 {
+    if (param.default_materializer) |expr| return expr;
     if (param.needsRuntimeInit(ctx)) return null;
     const default = param.default orelse return null;
     if (!default.isNullable()) return null;

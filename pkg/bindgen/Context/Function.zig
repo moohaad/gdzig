@@ -449,6 +449,12 @@ pub const Parameter = struct {
     name_api: []const u8 = "_",
     type: Type = .void,
     default: ?Value = null,
+    /// Expression that reconstitutes an omitted argument, for defaults that
+    /// cannot be a struct field default because building them calls into the
+    /// engine. The parameter is emitted as `?T = null` and this fills it in.
+    ///
+    /// Overrides the type-derived expression `optNullMaterializer` would pick.
+    default_materializer: ?[]const u8 = null,
     field_name: ?[]const u8 = null,
     field_type: ?Type = null,
 
@@ -496,8 +502,40 @@ pub const Parameter = struct {
             self.default = .null;
         } else if (self.type == .string and std.mem.eql(u8, default, "\"\"")) {
             self.default = .null;
-        } else if (self.type == .string_name and std.mem.eql(u8, default, "&\"\"")) {
+        } else if (self.type == .string and default.len > 2 and default[0] == '"') {
+            // A non-empty String default, e.g. `FileAccess.get_csv_line(delim: String = ",")`.
+            // Without this it fell through to `parse`, which yields a nullable
+            // `.string` value that materializes as `.init()` -- silently
+            // substituting an empty string for the documented default. The API
+            // text is already a quoted literal, so it interpolates as-is.
             self.default = .null;
+            self.default_materializer = try std.fmt.allocPrint(allocator, "String.fromLatin1({s})", .{default});
+        } else if (self.type == .string_name and
+            (std.mem.eql(u8, default, "&\"\"") or std.mem.eql(u8, default, "\"\"")))
+        {
+            self.default = .null;
+        } else if (self.type == .string_name and default.len > 3 and default[0] == '&' and default[1] == '"') {
+            // Godot spells StringName literals `&"..."`; drop the sigil and keep
+            // the quoted literal. Not static: the value is owned by the callee
+            // and freed alongside the other materialized arguments.
+            self.default = .null;
+            self.default_materializer = try std.fmt.allocPrint(allocator, "StringName.fromLatin1({s}, false)", .{default[1..]});
+        } else if (self.type == .node_path and std.mem.eql(u8, default, "NodePath(\"\")")) {
+            // Same shape as the empty String and StringName cases above: parsing
+            // it as a constructor yields `NodePath.copy("")`, but `copy` takes a
+            // NodePath. An omitted argument is materialized with `.init()`.
+            self.default = .null;
+        } else if (self.type == .variant and !std.mem.eql(u8, default, "null")) {
+            // A Variant default that is not nil has to be built at runtime, so
+            // it cannot be a field default. Only integer literals occur in the
+            // API today (`RegExMatch.get_string(name: Variant = 0)`); anything
+            // else is left to `parse` so it surfaces rather than being guessed.
+            if (std.fmt.parseInt(i64, default, 10)) |int| {
+                self.default = .null;
+                self.default_materializer = try std.fmt.allocPrint(allocator, "Variant.init(i64, {d})", .{int});
+            } else |_| {
+                self.default = try .parse(allocator, default, ctx);
+            }
         } else if (self.type == .@"enum") {
             self.default = .{
                 .primitive = try std.fmt.allocPrint(allocator, "@enumFromInt({s})", .{default}),

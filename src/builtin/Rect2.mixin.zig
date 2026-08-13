@@ -7,7 +7,7 @@ pub const init: Rect2 = .initPositionSize(
 /// Constructs a [Rect2](https://gdzig.github.io/gdzig/#gdzig.builtin.rect2.Rect2) by setting its `position` to (`x`, `y`), and its `size` to (`width`, `height`).
 ///
 /// @comptime
-pub fn initXYWidthHeight(p_x: i64, p_y: i64, p_width: i64, p_height: i64) Rect2 {
+pub fn initXYWidthHeight(p_x: f64, p_y: f64, p_width: f64, p_height: f64) Rect2 {
     return .initPositionSize(
         .initXY(p_x, p_y),
         .initXY(p_width, p_height),

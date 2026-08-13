@@ -162,7 +162,7 @@ pub const Variant = extern struct {
     }
 
     pub fn ptr(self: *Variant) *anyopaque {
-        return @ptrCast(&self);
+        return @ptrCast(self);
     }
 
     pub fn constPtr(self: Variant) *const anyopaque {
@@ -180,7 +180,7 @@ pub const Variant = extern struct {
     pub fn call(self: *Variant, method: StringName, args: []const *const Variant) CallError!Variant {
         var ret: Variant = undefined;
         var err: CallResult = undefined;
-        raw.variantCall(@ptrCast(&self), @ptrCast(&method), @ptrCast(args.ptr), @intCast(args.len), @ptrCast(&ret), @ptrCast(&err));
+        raw.variantCall(@ptrCast(self), @ptrCast(&method), @ptrCast(args.ptr), @intCast(args.len), @ptrCast(&ret), @ptrCast(&err));
         try err.throw();
         return ret;
     }
@@ -354,7 +354,7 @@ pub const Variant = extern struct {
     /// Sets a key on this Variant to a value.
     pub fn set(self: *Variant, key: Variant, value: Variant) PropertyError!void {
         var valid: u8 = 0;
-        raw.variantSet(@ptrCast(&self), @ptrCast(&key), @ptrCast(&value), &valid);
+        raw.variantSet(@ptrCast(self), @ptrCast(&key), @ptrCast(&value), &valid);
         if (valid == 0) return error.InvalidKey;
     }
 
@@ -370,7 +370,7 @@ pub const Variant = extern struct {
     /// Sets a named property on this Variant to a value.
     pub fn setNamed(self: *Variant, key: StringName, value: Variant) PropertyError!void {
         var valid: u8 = 0;
-        raw.variantSetNamed(@ptrCast(&self), @ptrCast(&key), @ptrCast(&value), &valid);
+        raw.variantSetNamed(@ptrCast(self), @ptrCast(&key), @ptrCast(&value), &valid);
         if (valid == 0) return error.InvalidKey;
     }
 
@@ -386,7 +386,7 @@ pub const Variant = extern struct {
     /// Sets a keyed property on this Variant to a value.
     pub fn setKeyed(self: *Variant, key: Variant, value: Variant) PropertyError!void {
         var valid: u8 = 0;
-        raw.variantSetKeyed(@ptrCast(&self), @ptrCast(&key), @ptrCast(&value), &valid);
+        raw.variantSetKeyed(@ptrCast(self), @ptrCast(&key), @ptrCast(&value), &valid);
         if (valid == 0) return error.InvalidKey;
     }
 
@@ -405,7 +405,7 @@ pub const Variant = extern struct {
     pub fn setIndexed(self: *Variant, index: i64, value: Variant) PropertyError!void {
         var valid: u8 = 0;
         var oob: u8 = 0;
-        raw.variantSetIndexed(@ptrCast(&self), index, @ptrCast(&value), &valid, &oob);
+        raw.variantSetIndexed(@ptrCast(self), index, @ptrCast(&value), &valid, &oob);
         if (valid == 0) return error.InvalidOperation;
         if (oob != 0) return error.IndexOutOfBounds;
     }
@@ -440,7 +440,7 @@ pub const Variant = extern struct {
 
     /// Gets the object instance ID from this Variant (if it contains an Object).
     pub fn getObjectInstanceId(self: Variant) ObjectId {
-        return @enumFromInt(raw.variantGetObjectInstanceId(@ptrCast(&self)));
+        return @enumFromInt(raw.variantGetObjectInstanceId.?(@ptrCast(&self)));
     }
 
     /// Converts this Variant to a boolean.
@@ -578,6 +578,12 @@ pub const Variant = extern struct {
                 Vector4 => .vector4,
                 Vector4i => .vector4i,
                 void => .nil,
+                // A dynamically typed operand has no static tag. The engine
+                // spells that NIL in its operator table, which is what
+                // godot-cpp passes for a `Variant` right-hand side too, and is
+                // how the generated `eqlVariant` / `notEqlVariant` operators
+                // reach their evaluator.
+                Variant => .nil,
                 inline else => blk: {
                     if (has_packed_vector4_array and T == PackedVector4Array) {
                         break :blk .packed_vector4_array;
