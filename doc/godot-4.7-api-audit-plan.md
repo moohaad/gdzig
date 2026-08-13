@@ -194,18 +194,31 @@ Because bindgen generates from the API wholesale, a new engine version is largel
 free. The defects that actually blocked 4.7 were not missing bindings but untravelled code
 paths, which is the case for keeping the surface sweep gating in CI.
 
-### 2.5 Close the gaps worth closing
+### 2.5 ~~Close the gaps worth closing~~ — native structures done, properties scoped
 
-Output of the above is a ranked list. Expect it to include:
+**Native structures — done.** 14 plain C structs the engine passes by pointer, described in the
+API only as C declaration strings (`"float left;float right"`). They were generated nowhere,
+and every one of the 20 methods using them is a *virtual* an extension implements, so
+`AudioStreamPlayback._mix` and the physics-server extension points simply could not be written.
 
-- **Native structures**, already known unhandled (`codegen.zig:1405`, "TODO: native
-  structures?"). Parsed into `GodotApi.native_structures`, registered as engine classes, then
-  dropped at import resolution.
-- **Engine properties**, also known missing (`codegen.zig:435`, "TODO: write properties and
-  signals" — signals were done, properties were not).
+`Context/NativeStructure.zig` parses the declarations and `writeNativeStructures` emits
+`native.zig`, exported as `gdzig.native`. The grammar is small and fully covered: C scalars,
+`real_t` resolved per precision, Godot builtins, `TextServer::Direction` style scoped enums,
+`Object *` as `?*Object`, and `collisions[32]` as a fixed array.
 
-Both were found by reading, not testing, which is itself a datum: the audit should include a
-pass over bindgen's TODOs, since they mark known-unfinished surface.
+Related: the `// TODO: native structures?` branch in import resolution is correctly a no-op and
+now says so. Nothing *generated* names these types -- all 20 uses are virtuals whose signatures
+the user writes -- so they need a namespace, not class imports.
+
+**Engine properties — scoped, not done.** 4162 properties, none emitted as declarations. The
+figure overstates it: for the 3729 without an index the accessors are already generated, so a
+declaration is naming sugar. The real gap is the **433 indexed** properties, where the accessor
+exists but takes a magic constant -- `AreaLight3D.area_range` means calling `getParam(4)`. Those
+are the ones worth generating, and `writeClassProperty` does not exist yet.
+
+Both gaps were found by reading rather than testing, so the audit also swept bindgen's TODOs.
+The rest are minor: name normalisation in `Constant`/`Property`/`Signal`, doc links, and a
+`function_imports` cleanup.
 
 ---
 

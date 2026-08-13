@@ -21,6 +21,9 @@ pub const engine_allocator = heap.engine_allocator;
 pub const GeneralPurposeAllocator = heap.GeneralPurposeAllocator;
 pub const general = @import("general.zig");
 pub const global = @import("global.zig");
+/// Plain C structs the engine passes by pointer, used by virtual methods such
+/// as `AudioStreamPlayback._mix`.
+pub const native = @import("native.zig");
 pub const math = @import("math.zig");
 pub const random = @import("random.zig");
 pub const extension = @import("extension.zig");

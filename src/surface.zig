@@ -27,6 +27,7 @@ const namespaces = .{
     gdzig.global,
     gdzig.general,
     gdzig.math,
+    gdzig.native,
 };
 
 /// References a declaration if doing so is meaningful. Types recurse one level

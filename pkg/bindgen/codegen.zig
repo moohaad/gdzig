@@ -2,6 +2,7 @@ pub fn generate(ctx: *Context) !void {
     try writeBuiltins(ctx);
     try writeClasses(ctx);
     try writeGlobals(ctx);
+    try writeNativeStructures(ctx);
     try writeDispatchTable(ctx);
     try writeModules(ctx);
 }
@@ -861,6 +862,101 @@ fn writeDocBlock(w: *CodeWriter, docs: ?[]const u8) !void {
         w.comment = .doc;
         try w.writeLine(d);
         w.comment = .off;
+    }
+}
+
+/// Writes `native.zig`: the plain C structs the engine passes by pointer.
+///
+/// They are `extern struct` because the engine reads and writes them directly,
+/// so the layout has to match the C declaration exactly. All of them appear
+/// only in virtual methods an extension implements, which is why nothing
+/// generated references them and they get a namespace of their own rather than
+/// being threaded through the class imports.
+fn writeNativeStructures(ctx: *const Context) !void {
+    if (ctx.native_structures.count() == 0) return;
+
+    var buf: [1024]u8 = undefined;
+    const file = try ctx.config.output.createFile(ctx.config.io, "native.zig", .{});
+    defer file.close(ctx.config.io);
+
+    var file_writer = file.writer(ctx.config.io, &buf);
+    var writer = &file_writer.interface;
+    var w: CodeWriter = .init(writer);
+
+    try w.writeLine(
+        \\//! Native structures: plain C structs the engine passes by pointer.
+        \\//!
+        \\//! These appear in the signatures of virtual methods an extension
+        \\//! implements, such as `AudioStreamPlayback._mix`.
+        \\
+    );
+
+    var imports: Context.Imports = .empty;
+    defer imports.deinit(ctx.rawAllocator());
+
+    for (ctx.native_structures.values()) |*native| {
+        try w.printLine("pub const {s} = extern struct {{", .{native.name});
+        w.indent += 1;
+        for (native.fields.items) |field| {
+            if (field.default) |default| {
+                try w.printLine("{s}: {s} = {s},", .{ field.name, field.type, default });
+            } else {
+                try w.printLine("{s}: {s},", .{ field.name, field.type });
+            }
+        }
+        w.indent -= 1;
+        try w.writeLine("};");
+        try w.writeLine("");
+    }
+
+    try w.writeLine("const gdzig = @import(\"gdzig.zig\");");
+    try writeNativeImports(&w, ctx);
+
+    try writer.flush();
+}
+
+/// Emits an alias for every type the structures mention that is not a Zig
+/// scalar or another native structure.
+fn writeNativeImports(w: *CodeWriter, ctx: *const Context) !void {
+    var seen: std.StringArrayHashMapUnmanaged(void) = .empty;
+    defer seen.deinit(ctx.rawAllocator());
+
+    // Keyed by API name (`ObjectID`), but field types carry the converted name
+    // (`ObjectId`), so membership has to be tested against the converted set or
+    // a structure ends up both declared here and imported from `class`.
+    var declared: std.StringArrayHashMapUnmanaged(void) = .empty;
+    defer declared.deinit(ctx.rawAllocator());
+    for (ctx.native_structures.values()) |*native| {
+        try declared.put(ctx.rawAllocator(), native.name, {});
+    }
+
+    for (ctx.native_structures.values()) |*native| {
+        for (native.fields.items) |field| {
+            // Strip any `?*` or `[N]` wrapper down to the bare type name.
+            var bare = field.type;
+            if (std.mem.lastIndexOfScalar(u8, bare, ']')) |close| bare = bare[close + 1 ..];
+            bare = std.mem.trimStart(u8, bare, "?*");
+            // A qualified name like `TextServer.Direction` imports its owner.
+            if (std.mem.indexOfScalar(u8, bare, '.')) |dot| bare = bare[0..dot];
+
+            if (bare.len == 0 or std.ascii.isLower(bare[0])) continue; // scalar
+            if (declared.contains(bare)) continue; // declared above
+            if (seen.contains(bare)) continue;
+            try seen.put(ctx.rawAllocator(), bare, {});
+        }
+    }
+
+    // `builtins` is keyed by API name (`RID`) while these are converted (`Rid`),
+    // so the namespace has to be decided against the converted spellings.
+    var builtin_names: std.StringArrayHashMapUnmanaged(void) = .empty;
+    defer builtin_names.deinit(ctx.rawAllocator());
+    for (ctx.builtins.values()) |*builtin| {
+        try builtin_names.put(ctx.rawAllocator(), builtin.name, {});
+    }
+
+    for (seen.keys()) |name| {
+        const namespace: []const u8 = if (builtin_names.contains(name)) "builtin" else "class";
+        try w.printLine("const {0s} = gdzig.{1s}.{0s};", .{ name, namespace });
     }
 }
 

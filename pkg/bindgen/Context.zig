@@ -38,6 +38,8 @@ flags: StringArrayHashMap(Flag) = .empty,
 flag_reprs: StringHashMap(Flag.Representation) = .empty,
 /// `@GlobalScope` constants. Empty before Godot 4.7.
 global_constants: StringArrayHashMap(Constant) = .empty,
+/// Plain C structs the engine passes by pointer, used only by virtual methods.
+native_structures: StringArrayHashMap(NativeStructure) = .empty,
 dispatch_table: DispatchTable = .empty,
 modules: StringArrayHashMap(Module) = .empty,
 
@@ -78,6 +80,7 @@ pub fn build(arena: *ArenaAllocator, api: GodotApi, config: Config) !Context {
     try self.castEnums();
     try self.castFlags();
     try self.castGlobalConstants();
+    try self.castNativeStructures();
     try self.castModules();
 
     try self.collectImports();
@@ -389,6 +392,16 @@ fn castClass(self: *Context, class: GodotApi.Class) !void {
         }
     }
     try self.classes.put(self.allocator(), class.name, try .fromApi(self.allocator(), class, self));
+}
+
+fn castNativeStructures(self: *Context) !void {
+    for (self.api.native_structures) |native| {
+        try self.native_structures.put(
+            self.allocator(),
+            native.name,
+            try .fromApi(self.allocator(), native, self),
+        );
+    }
 }
 
 fn castGlobalConstants(self: *Context) !void {
@@ -720,6 +733,7 @@ pub const Function = @import("Context/Function.zig");
 pub const Imports = @import("Context/Imports.zig");
 pub const DispatchTable = @import("Context/DispatchTable.zig");
 pub const Module = @import("Context/Module.zig");
+pub const NativeStructure = @import("Context/NativeStructure.zig");
 pub const Property = @import("Context/Property.zig");
 pub const Signal = @import("Context/Signal.zig");
 pub const Type = @import("Context/type.zig").Type;
