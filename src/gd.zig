@@ -11,6 +11,9 @@
 //! * A method **returning** a refcounted class returns `?Gd(T)`. Godot hands
 //!   back a `Ref<T>` whose count it has already incremented for us, so the
 //!   handle adopts that reference and the caller owes a `deinit`.
+//! * A **constructor** for a refcounted class returns `Gd(T)`, owning the
+//!   initial reference. Non-refcounted `T.init()` still returns `*T`; those
+//!   objects are freed with `destroy`, not released.
 //! * A method **taking** a refcounted class takes `*T`. Godot takes
 //!   `const Ref<T>&`, which borrows; the caller keeps ownership.
 //!
@@ -20,8 +23,14 @@
 //! tex.get().someMethod();
 //! ```
 //!
-//! Constructors are the exception: `T.init()` still returns `*T`, even for a
-//! refcounted `T`. Wrap one with `Gd(T).adopt` if you want a handle.
+//! `release` is the way back out where a handle cannot go — most often a
+//! class's `base` field, which must be a plain pointer for `oopz` to recognise
+//! the struct as a class:
+//!
+//! ```zig
+//! var base = Resource.init();
+//! self.* = .{ .base = base.release() };
+//! ```
 //!
 //! ## What this does not do
 //!

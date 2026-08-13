@@ -29,8 +29,16 @@ test "Variant return from bound method holds a reference to borrowed RefCounted"
     try testing.expectEqual(@as(i32, 1), node.resource.getReferenceCount());
 }
 
+test "a constructor hands back a handle owning the initial reference" {
+    var resource = Resource.init();
+    try testing.expectEqual(@as(i32, 1), resource.get().getReferenceCount());
+
+    // Sole owner, so this frees it.
+    resource.deinit();
+}
+
 test "engine object survives a temporary Ref taken by an engine call" {
-    const resource = Resource.init();
+    const resource = rawResource();
     try testing.expectEqual(@as(i32, 1), resource.getReferenceCount());
 
     // ResourceSaver.getRecognizedExtensions takes its `Resource` argument by
@@ -50,7 +58,8 @@ test "engine object survives a temporary Ref taken by an engine call" {
 }
 
 test "variant reference counting" {
-    const object = RefCounted.init();
+    var owned = RefCounted.init();
+    const object = owned.release();
     try testing.expectEqual(@as(i32, 1), object.getReferenceCount());
 
     const variant = Variant.init(*RefCounted, object);
@@ -68,7 +77,7 @@ test "variant reference counting" {
 }
 
 test "Gd.adopt takes over the existing reference without adding one" {
-    const resource = Resource.init();
+    const resource = rawResource();
     try testing.expectEqual(@as(i32, 1), resource.getReferenceCount());
 
     var handle: Gd(Resource) = .adopt(resource);
@@ -80,7 +89,7 @@ test "Gd.adopt takes over the existing reference without adding one" {
 }
 
 test "Gd.borrow adds a reference, leaving the original owner intact" {
-    const resource = Resource.init();
+    const resource = rawResource();
     defer {
         if (!resource.unreference()) @panic("resource still has external references");
         resource.destroy();
@@ -95,7 +104,7 @@ test "Gd.borrow adds a reference, leaving the original owner intact" {
 }
 
 test "Gd.clone yields an independently releasable handle" {
-    const resource = Resource.init();
+    const resource = rawResource();
 
     var first: Gd(Resource) = .adopt(resource);
     var second = first.clone();
@@ -109,7 +118,7 @@ test "Gd.clone yields an independently releasable handle" {
 }
 
 test "Gd.release hands ownership back to the caller" {
-    const resource = Resource.init();
+    const resource = rawResource();
 
     var handle: Gd(Resource) = .adopt(resource);
     const raw = handle.release();
@@ -123,7 +132,7 @@ test "Gd.release hands ownership back to the caller" {
 }
 
 test "Gd.upcast preserves the reference across the type change" {
-    const resource = Resource.init();
+    const resource = rawResource();
 
     var derived: Gd(Resource) = .adopt(resource);
     var base = derived.upcast(RefCounted);
@@ -136,7 +145,7 @@ test "Gd.upcast preserves the reference across the type change" {
 }
 
 test "a generated method returning a refcounted class hands back an owned reference" {
-    const resource = Resource.init();
+    const resource = rawResource();
     defer {
         if (!resource.unreference()) @panic("resource still has external references");
         resource.destroy();
@@ -165,15 +174,28 @@ test "an absent refcounted return is null rather than a handle to nothing" {
     try testing.expectEqual(@as(?Gd(Mesh), null), instance.getMesh());
 }
 
+/// A bare owned `*Resource`, which is what the refcount-mechanics tests below
+/// want to start from. `init` returns a handle now, and `release` is the
+/// supported way back to a raw pointer the caller is responsible for.
+fn rawResource() *Resource {
+    var owned = Resource.init();
+    return owned.release();
+}
+
 const RefReturnNode = struct {
     base: *Node,
     resource: *Resource,
 
     pub fn create() !*RefReturnNode {
         const self: *RefReturnNode = allocator.create(RefReturnNode) catch @panic("out of memory");
+        // `Node.init()` is a bare pointer -- Node is not refcounted -- while
+        // `Resource.init()` is a handle, so its pointer has to be taken out
+        // before it can live in a `*Resource` field. This is the same shape a
+        // class extending a refcounted type hits with its `base` field.
+        var resource = Resource.init();
         self.* = .{
             .base = Node.init(),
-            .resource = Resource.init(),
+            .resource = resource.release(),
         };
         self.base.setInstance(RefReturnNode, self);
         return self;

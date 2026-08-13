@@ -82,7 +82,17 @@ defer result.deinit();
 
 Beyond value types and `Variant`s, Godot has **classes** - heap-allocated objects accessed by pointer. All classes inherit from `Object`, with some inheriting from `RefCounted` (itself an `Object` subclass).
 
-**RefCounted** classes (and their descendants like `Resource`) use reference counting. You must manage this manually:
+**RefCounted** classes (and their descendants like `Resource`) use reference counting. Anywhere the bindings hand you one, you get a `Gd(T)` handle that owns a reference, and you release it with `deinit`:
+
+```zig
+var res = ResourceLoader.load(path, .{}).?;   // ?Gd(Resource)
+defer res.deinit();
+res.get().someMethod();
+```
+
+That covers both ways an object reaches you, because both transfer ownership: a constructor (`Resource.init()` returns `Gd(Resource)`) and a method returning a refcounted class. Arguments go the other way — Godot takes `const Ref<T>&`, which borrows — so a method *taking* a refcounted class still takes a plain `*T` and you keep ownership.
+
+`Gd(T)` is a discipline aid, not a guarantee: Zig has no destructors, so a missing `deinit` still leaks, and copying a handle still double-releases (though Debug and ReleaseSafe builds panic on the second release rather than corrupting). The underlying operations remain available if you want them:
 
 ```zig
 // When acquiring a reference
@@ -92,12 +102,19 @@ _ = obj.reference();
 if (obj.unreference()) obj.destroy();
 ```
 
-In gdzig, when you box a `RefCounted` object pointer into a `Variant`, ownership is not taken. Instead, the reference count is incremented. This is different than Godot's internal behavior; but we determined it was a significant source of confusion worth correcting. If you'd like to pass ownership of a `RefCounted` type to a `Variant` in gdzig, just call `obj.unreference()` after initializing the Variant:
+Use `release` to take the bare pointer back out of a handle, becoming responsible for it yourself. That is required for a class's `base` field, which must be a plain pointer:
 
 ```zig
-const obj = RefCounted.init();
-defer _ = obj.unreference();
-return Variant.init(obj);
+var base = Resource.init();
+self.* = .{ .base = base.release() };
+```
+
+In gdzig, when you box a `RefCounted` object pointer into a `Variant`, ownership is not taken. Instead, the reference count is incremented. This is different than Godot's internal behavior; but we determined it was a significant source of confusion worth correcting. If you'd like to pass ownership of a `RefCounted` type to a `Variant` in gdzig, release your own handle once the Variant holds its reference:
+
+```zig
+var obj = RefCounted.init();
+defer obj.deinit();
+return Variant.init(*RefCounted, obj.get());
 ```
 
 **Non-RefCounted** classes (like `Node`) require manual destruction. Prefer `node.queueFree()` which defers destruction until safe. Use `node.destroy()` only when immediate destruction is required (e.g., in your extension class's destroy callback).

@@ -402,11 +402,15 @@ fn writeClass(w: *CodeWriter, class: *const Context.Class, ctx: *const Context) 
             // (mirroring Ref<T>::instantiate()) makes init() return an object
             // that is plainly owned at refcount 1, like everything else.
             try w.printLine(
-                \\/// Allocates an empty {0s} with a refcount of 1, plainly owned by the caller.
-                \\pub fn init() *{0s} {{
+                \\/// Allocates an empty {0s} with a refcount of 1, owned by the returned handle.
+                \\///
+                \\/// Release it with `deinit`, or take the bare pointer back out with
+                \\/// `release` if you need to store it somewhere a handle cannot go,
+                \\/// such as a class's `base` field.
+                \\pub fn init() Gd({0s}) {{
                 \\    const self: *{0s} = @ptrCast(raw.classdbConstructObject(@ptrCast(&StringName.fromComptimeLatin1("{1s}"))).?);
                 \\    _ = self.initRef();
-                \\    return self;
+                \\    return .adopt(self);
                 \\}}
                 \\
             , .{ class.name, class.name_api });

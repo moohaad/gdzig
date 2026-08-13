@@ -160,9 +160,10 @@ that already collide often enough to need `hasCollision`.
 
 ## 3. `Gd(T)` — adopted (done)
 
-**Decision: adopt.** Generated methods returning a refcounted class now return `?Gd(T)`.
-That is 562 distinct API methods, which the flattened per-class surface re-emits as 3,359
-signatures across 817 files.
+**Decision: adopt, everywhere a refcounted object is handed to the caller.** Generated methods
+returning a refcounted class return `?Gd(T)` — 562 distinct API methods, which the flattened
+per-class surface re-emits as 3,359 signatures across 817 files — and the constructors of the
+661 refcounted classes return `Gd(T)`.
 
 ### The convention, and why it is the engine's own
 
@@ -173,6 +174,8 @@ Ownership across the ptrcall boundary is not symmetric, so the binding is not ei
   godot-rust, which skips its refcount bump exactly when the static return type is refcounted
   (`adjust_refcount_on_ptrcall_return` increments only for a non-refcounted static type such as
   `Object`, where the pointer really is borrowed).
+* **Constructors are owned.** `T.init()` already consumed Godot's "pending" initial reference
+  (mirroring `Ref<T>::instantiate()`), so it too hands the caller a reference it owes.
 * **Arguments are borrowed.** Godot takes `const Ref<T>&`; the caller keeps ownership. `*T` was
   already the right signature, so the planned "arguments second" step dissolved — there was
   nothing to change.
@@ -180,23 +183,39 @@ Ownership across the ptrcall boundary is not symmetric, so the binding is not ei
 That asymmetry is the whole reason the handle earns its place: it is invisible in a `*T`
 signature and now legible in the return type.
 
-### What was not changed
+### The one place a handle cannot go
 
-**Constructors.** `T.init()` still returns `*T` for a refcounted `T`, and still leaks just as
-silently if you forget the release. The line is defensible — at an `init()` call the caller
-plainly created the object, whereas an engine method's ownership was never readable from the
-signature — but it is a line, not an absence of one. Converting it is a separate decision: it
-would break every `T.init()` call site, and gdzig's registration model stores `base: *Node` in
-user structs, which the registry machinery would have to learn to accept as a handle.
+`oopz` recognises a struct as a class by finding a **pointer** in its `base` field:
+
+```zig
+/// - It is a struct with a `base: *Base` field.
+.@"struct" => RecursiveChild(@FieldType(T, "base")),
+```
+
+So a class extending a refcounted type cannot write `base: Gd(Resource)` — `isClass` would
+return false and `BaseOf` would fail. Teaching `oopz` about handles is a change to a separate
+dependency, and not obviously the right one: the base pointer's lifetime is the instance
+binding's, which Godot controls, not the caller's.
+
+`release` covers it instead, and now carries a doc comment saying so:
+
+```zig
+var base = Resource.init();
+self.* = .{ .base = base.release() };
+```
+
+Two lines rather than one, for a case with no occurrences in-tree — the repo's only class over
+a refcounted field is `RefReturnNode` in `test/leaks`, which now exercises exactly this shape.
 
 ### Verification
 
-* `zig build -Dsurface-audit` — every generated declaration analysed, including 3,359 `Gd(T)`
-  instantiations; no dependency loop from instantiating `Gd(Resource)` inside `resource.zig`.
-* `zig build test` — 80/80, including two new assertions in `test/leaks`: that
+* `zig build -Dsurface-audit` — every generated declaration analysed, including every `Gd(T)`
+  instantiation; no dependency loop from instantiating `Gd(Resource)` inside `resource.zig`.
+* `zig build test` — 82/82, including three new assertions in `test/leaks`: that
   `Resource.duplicate()` yields a handle holding exactly one reference (a 2 would prove
-  `borrow` was used where `adopt` belonged, a 0 the reverse), and that an absent refcounted
-  return arrives as `null` rather than a handle to nothing.
+  `borrow` was used where `adopt` belonged, a 0 the reverse), that an absent refcounted
+  return arrives as `null` rather than a handle to nothing, and that `Resource.init()`'s
+  handle owns the initial reference.
 * The example runs to a clean self-quit under `--quit-after` with no leaked RIDs and no
   unreferenced-string errors.
 
