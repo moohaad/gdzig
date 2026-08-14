@@ -31,6 +31,23 @@ test "a handle to a freed node reports dead instead of dangling" {
     try testing.expectEqual(@as(?*Node, null), handle.get());
 }
 
+test "a child freed by its parent is reported dead" {
+    // The case that motivates storing a handle rather than a pointer: you never
+    // freed the node, its owner did. `example/src/ExampleNode.zig` keeps exactly
+    // this shape -- a child handed to a container that outlives the reference.
+    const parent = Node.init();
+    const child = Node.init();
+    parent.addChild(child, .{});
+
+    const handle: Weak(Node) = .init(child);
+    try testing.expect(handle.isValid());
+
+    // Frees the subtree, child included; nothing here touches `child` directly.
+    parent.destroy();
+
+    try testing.expect(!handle.isValid());
+}
+
 test "the instance id outlives the object" {
     const node = Node.init();
     const handle: Weak(Node) = .init(node);

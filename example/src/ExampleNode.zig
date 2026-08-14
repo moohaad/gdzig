@@ -33,7 +33,7 @@ pub fn unregister(r: *Registry) void {
 allocator: Allocator,
 base: *Node,
 panel: *PanelContainer = undefined,
-example_node: ?*Node = null,
+example_node: ?Weak(Node) = null,
 
 property1: Vector3 = .zero,
 property2: Vector3 = .zero,
@@ -89,8 +89,13 @@ pub fn _process(self: *ExampleNode, _: f64) void {
 }
 
 fn clearScene(self: *ExampleNode) void {
-    if (self.example_node) |n| {
-        n.destroy();
+    if (self.example_node) |handle| {
+        // `onItemFocused` hands this node to the panel, so the panel owns it
+        // and anything that frees the panel frees it too. Today `_exitTree`
+        // reliably gets here first, so a stored `*Node` would also work -- but
+        // only because of that ordering, and nothing in the types said so.
+        // The handle makes the assumption unnecessary instead of load-bearing.
+        if (handle.get()) |node| node.destroy();
         self.example_node = null;
     }
 }
@@ -108,8 +113,9 @@ pub fn onItemFocused(self: *ExampleNode, idx: i64) void {
     switch (idx) {
         inline 0...Examples.len - 1 => |i| {
             const n = Examples[i].T.create(&self.allocator) catch unreachable;
-            self.example_node = .upcast(n);
-            self.panel.addChild(self.example_node.?, .{});
+            const node: *Node = .upcast(n);
+            self.example_node = .init(node);
+            self.panel.addChild(node, .{});
             self.panel.grabFocus(.{});
         },
         else => {},
@@ -202,6 +208,7 @@ const HSplitContainer = godot.class.HSplitContainer;
 const ItemList = godot.class.ItemList;
 const Label = godot.class.Label;
 const Node = godot.class.Node;
+const Weak = godot.Weak;
 const Object = godot.class.Object;
 const PanelContainer = godot.class.PanelContainer;
 const String = godot.builtin.String;
