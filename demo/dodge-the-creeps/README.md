@@ -56,12 +56,30 @@ Two smaller notes, both places where the port initially went wrong:
 
 ## Known issues
 
-**Importing the project crashes on exit.** `godot --import` finishes the import
-correctly and then segfaults. Not this demo: gdzig's own `example/` project does
-the same, and removing `dodge.gdextension` makes it stop (2/2 crashes with the
-extension, 0/2 without). Only editor-mode runs are affected -- playing the game
-exits cleanly -- and the import output is valid, so it is noise rather than a
-blocker.
+**The first editor run segfaults on exit.** The run that imports assets --
+`--import`, or the first `--editor` on a fresh checkout -- finishes its work
+correctly and then crashes at shutdown. Import output is valid and every run
+afterwards is clean, so in practice you import once and forget it.
+
+This is gdzig, not the demo, and not the port:
+
+| | result |
+| --- | --- |
+| no `.gdextension` at all | clean |
+| extension registering **zero** classes | clean |
+| extension registering **one trivial** class | segfault, 3/3 |
+| gdzig's own `example/` project | segfault |
+| second editor run, assets already imported | clean |
+
+gdzig's own lifecycle completes before the crash. Tracing it shows one load
+cycle -- entrypoint, `enter` 0..3, the editor instantiating and freeing the
+class once, `exit` 3..0 -- with no reload, and the crash lands after the final
+`exit(0)` returns. Skipping `registry.deinit()`, skipping the instance-binding
+pool cleanup, and skipping `unregister` each leave it unchanged.
+
+So the fault is in Godot's teardown after gdzig has handed control back, and it
+needs both a registered class and a fresh import to appear. Localising it
+further wants a native debugger, which is where this stopped.
 
 **Quitting while a sound is playing leaks the stream.** Godot reports
 `AudioStreamWAV` and `AudioStreamPlaybackWAV` leaked, each with one reference,
