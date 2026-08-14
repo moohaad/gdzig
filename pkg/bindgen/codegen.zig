@@ -779,12 +779,42 @@ fn writeFunctionAlloc(w: *CodeWriter, function: *const Context.Function, class: 
         try w.printLine("{0s}Alloc_ptr.?(@ptrCast(&result), @ptrCast(&args), @intCast(args.len));", .{function.name});
     }
 
-    // Return
+    // Return.
+    //
+    // Unlike the ptrcall path, a vararg call comes back in a `Variant` that owns
+    // what it holds: heap data for a `String` or `Callable`, a reference for a
+    // `RefCounted`. `as` copies scalars but only *borrows* an object pointer, so
+    // anything that has to outlive the Variant must be taken before it is
+    // released.
     switch (function.return_type) {
-        .class => try w.writeLine("return @ptrCast(result);"),
+        // Handed straight back, so the caller inherits the Variant and the job
+        // of releasing it.
         .variant => try w.writeLine("return result;"),
+
         .void => {},
+
+        .class => |api_name| {
+            try w.writeLine("defer result.deinit();");
+            if (ctx.isRefCounted(api_name)) {
+                // `borrow`, not `adopt`: the reference belongs to the Variant
+                // and the deferred release above drops it, so the handle needs
+                // one of its own.
+                try w.writeAll("return if (result.as(*");
+                try writeClassName(w, api_name, class, ctx);
+                try w.writeAll(")) |_ptr| Gd(");
+                try writeClassName(w, api_name, class, ctx);
+                try w.writeLine(").borrow(_ptr) else null;");
+            } else {
+                // Not refcounted, so the Variant never owned it and the bare
+                // pointer outlives the release below.
+                try w.writeAll("return result.as(*");
+                try writeClassName(w, api_name, class, ctx);
+                try w.writeLine(");");
+            }
+        },
+
         else => {
+            try w.writeLine("defer result.deinit();");
             try w.writeAll("return result.as(");
             try writeTypeAtReturn(w, &function.return_type, class, ctx);
             try w.writeLine(").?;");

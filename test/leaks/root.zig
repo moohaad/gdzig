@@ -174,6 +174,37 @@ test "an absent refcounted return is null rather than a handle to nothing" {
     try testing.expectEqual(@as(?Gd(Mesh), null), instance.getMesh());
 }
 
+test "the vararg return shape takes its own reference before releasing the Variant" {
+    const resource = rawResource();
+    defer {
+        if (!resource.unreference()) @panic("resource still has external references");
+        resource.destroy();
+    }
+
+    // Written out the way codegen emits it for a vararg function returning a
+    // refcounted class. No such function exists in 4.7 -- every vararg method
+    // returns void, Variant, Error, String or Callable -- so this stands in for
+    // generated code that cannot be called yet, and pins the semantics for when
+    // some future Godot adds one.
+    var result: Variant = .init(*Resource, resource);
+    try testing.expectEqual(@as(i32, 2), resource.getReferenceCount());
+
+    var handle = blk: {
+        defer result.deinit();
+        // `borrow`, not `adopt`: the reference is the Variant's and the defer
+        // above drops it. Adopting would leave the handle owning a count that
+        // just went away.
+        break :blk if (result.as(*Resource)) |ptr| Gd(Resource).borrow(ptr) else null;
+    };
+
+    // The Variant is gone and the handle holds a reference of its own, so we
+    // are back to two owners: this handle and the caller's `resource`.
+    try testing.expectEqual(@as(i32, 2), resource.getReferenceCount());
+
+    handle.?.deinit();
+    try testing.expectEqual(@as(i32, 1), resource.getReferenceCount());
+}
+
 /// A bare owned `*Resource`, which is what the refcount-mechanics tests below
 /// want to start from. `init` returns a handle now, and `release` is the
 /// supported way back to a raw pointer the caller is responsible for.
