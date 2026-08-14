@@ -56,10 +56,12 @@ Two smaller notes, both places where the port initially went wrong:
 
 ## Known issues
 
-**Eight `invalid UID ... using text path instead` warnings.** Upstream's scenes
-reference UIDs absent from this checkout. Printed before any Zig code runs, and
-the copy is not missing files -- it has more than upstream, since Godot writes
-`.import` sidecars on first run.
+**Importing the project crashes on exit.** `godot --import` finishes the import
+correctly and then segfaults. Not this demo: gdzig's own `example/` project does
+the same, and removing `dodge.gdextension` makes it stop (2/2 crashes with the
+extension, 0/2 without). Only editor-mode runs are affected -- playing the game
+exits cleanly -- and the import output is valid, so it is noise rather than a
+blocker.
 
 **Quitting while a sound is playing leaks the stream.** Godot reports
 `AudioStreamWAV` and `AudioStreamPlaybackWAV` leaked, each with one reference,
