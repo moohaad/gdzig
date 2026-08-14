@@ -29,6 +29,7 @@ pub const random = @import("random.zig");
 pub const extension = @import("extension.zig");
 pub const testing = @import("testing.zig");
 pub const Gd = @import("gd.zig").Gd;
+pub const Weak = @import("weak.zig").Weak;
 
 const DispatchTable = @import("DispatchTable.zig");
 

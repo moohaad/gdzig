@@ -119,6 +119,20 @@ return Variant.init(*RefCounted, obj.get());
 
 **Non-RefCounted** classes (like `Node`) require manual destruction. Prefer `node.queueFree()` which defers destruction until safe. Use `node.destroy()` only when immediate destruction is required (e.g., in your extension class's destroy callback).
 
+### Pointers that outlive the object
+
+A `*Node` you keep across frames can go stale — the node gets freed and nothing about the pointer says so. `Weak(T)` pairs the pointer with the object's instance ID, which Godot resolves independently, so you can ask:
+
+```zig
+var target: Weak(Node) = .init(node);
+// ... later ...
+if (target.get()) |live| live.setName(name);   // skipped if the node is gone
+```
+
+It works for any class, holds no reference, and keeps nothing alive — on a `RefCounted` it is genuinely weak, which is what you want for a back-reference that must not form a cycle. `get` is an instance-ID lookup rather than free, so hold the result across a call instead of re-checking per field access, and remember validity is a snapshot: anything you call afterwards can still free the object.
+
+This covers use-after-free. It does not cover two live pointers to one object during re-entrancy — Godot re-enters routinely and legitimately, and Zig cannot make the outer pointer unusable the way Rust can. See `src/weak.zig` for the reasoning.
+
 ### Extension Classes
 
 When you define your own extension class, there are two allocations necessary:
