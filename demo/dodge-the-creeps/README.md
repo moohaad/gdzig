@@ -22,12 +22,13 @@ but if you invoke Godot yourself, do an `--import` pass first.
 | `src/Player.zig` | eight-way movement, clamped to the screen |
 | `src/Mob.zig` | an enemy that frees itself once off-screen |
 | `src/Hud.zig` | score, messages, start button |
-| `src/nodes.zig` | `nodeAs`, the equivalent of `get_node_as::<T>` |
+| `src/nodes.zig` | `nodeAs`, for the lookups that are not declared as fields |
 
 ## What differs from the Rust version
 
-Three of these are gdzig gaps rather than stylistic choices, and they are the
-interesting part of the comparison.
+These are the interesting part of the comparison. A third, the lack of an
+`OnReady` equivalent, was on this list until porting the demo prompted one --
+see *What this port drove into gdzig* below.
 
 **Handlers connected from code must still be registered.** godot-rust's
 `connect_other(&main, Self::game_over)` needs no `#[func]`. gdzig's
@@ -36,30 +37,25 @@ and then asks Godot whether the method exists, so every closure-connected
 handler has to be both `pub` and passed to `addMethod`. Forgetting either is a
 runtime panic, not a compile error.
 
-**No `OnReady`.** godot-rust defers a field's initialiser until the node enters
-the tree. gdzig has no equivalent, so `Main` resolves its children in `_ready`
-and stores them as `Weak` handles — they belong to the scene tree, and a plain
-pointer would not say so.
+**No methods on your own type, and no typed signal accessors.** `self` is a
+plain Zig struct, so everything goes through `self.base`:
+`self.base.emit(Hit, .{})` rather than godot-rust's `self.signals().hit().emit()`.
+`Hit` is a struct type, so the emit is still type-checked, but the connection
+side is a closure rather than a named signal object.
 
-**No typed signal accessors.** `self.signals().hit().emit()` becomes
-`self.base.emit(Hit, .{})`, where `Hit` is a struct type. Type-checked, but the
-connection side is a closure rather than a named signal object.
+This one is a language constraint rather than something gdzig is neglecting:
+`usingnamespace` was removed in Zig 0.15, and nothing else can add methods to a
+type you declared. You do *not* need to upcast to reach an *inherited* method,
+though -- see below.
 
-**No methods on your own type.** `self` is a plain Zig struct, so signals and
-engine calls go through `self.base`: `self.base.emit(Hit, .{})` rather than
-godot-rust's `self.signals().hit().emit()`. gdzig does not inject anything into
-your struct, which is why the `base` field is spelled out everywhere.
-
-You do *not* need to upcast to reach an inherited method, though -- see below.
-
-Two smaller notes, both places where the port initially went wrong:
+Three smaller notes, the first two places where this port initially went wrong:
 
 * `StringName.fromComptimeLatin1` returns a cached **static** name. Deiniting it
   drops a shared refcount, and Godot reports `Unreferenced static string to 0`
   once per frame. `fromLatin1` is the owned one that does need releasing.
 * Engine classes downcast with `T.downcast(node)`; a class defined here is a
-  plain struct reached through `asInstance(T)` on its base. `nodeAs` picks
-  between them with `comptime isStructClass`.
+  plain struct reached through `asInstance(T)` on its base. `class.castTo(T, v)`
+  hides that difference, and is what `nodeAs` uses.
 * **Upcasting to call an inherited method is unnecessary.** bindgen flattens
   every inherited method onto every class, so `Area2d` already has `hide`,
   `getNode` and `setGlobalPosition`, and `CollisionShape2d` already has
@@ -114,10 +110,45 @@ to a stream, and removing the two `play` calls removes the leak entirely.
 Not cross-checked against the Rust original, so "engine, not gdzig" rests on
 that timing correlation rather than on a side-by-side run.
 
+## What this port drove into gdzig
+
+Reading the finished port back, the noisiest parts were gdzig's fault rather
+than the game's. Four things were added or fixed as a result, and the demo now
+uses all of them.
+
+**`Child(T, path)`** closes the `OnReady` gap. The path sits next to the field
+and gdzig resolves it just before `_ready`:
+
+```zig
+hud: Child(Hud, "Hud") = .pending,
+music: Child(AudioStreamPlayer, "Music") = .pending,
+```
+
+That deleted the four-line lookup block from `Main._ready`. A class with these
+fields gets a `_ready` whether or not it declares one, and a missing path logs
+which field failed rather than crashing.
+
+**`godot.load(T, path)`** replaces ten lines with one. `ResourceLoader.load`
+returns the base type, so narrowing it used to mean unwrapping the handle,
+casting, re-wrapping, and releasing the original:
+
+```zig
+self.mob_scene = godot.load(PackedScene, "res://Mob.tscn");
+```
+
+**`PackedScene.instantiateAs(T)`** does the same for the mob spawn, which was
+the worst-reading code here: a parenthesised expression with two `orelse` blocks
+that each repeated the cleanup, now `scene.instantiateAs(Mob) orelse return`.
+
+**`Weak(T).empty`** lets a field be `Weak(T)` instead of `?Weak(T)`, so reaching
+the object is one unwrap rather than two asking the same question.
+
+Between them `Main.zig` lost about 25 lines, all of it ceremony.
+
 ## What using gdzig for real turned up
 
-Porting this found a bug in gdzig's own `Weak(T)`, which is the point of doing it
-rather than writing another synthetic example. `Main` stores its children as
+Porting this also found a bug in gdzig's own `Weak(T)`, which is the point of
+doing it rather than writing another synthetic example. `Main` stores its children as
 `Weak` handles; `Weak.init` cast the pointer straight to a Godot object, which is
 right for an engine class and wrong for a class defined in an extension, where
 the object is the `base` field. Every handle here was dead on arrival, `get()`
