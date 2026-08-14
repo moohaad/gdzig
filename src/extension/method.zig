@@ -12,6 +12,7 @@ const MethodFlags = gdzig.global.MethodFlags;
 const StringName = gdzig.builtin.StringName;
 const Variant = gdzig.builtin.Variant;
 
+const DispatchGuard = gdzig.extension.DispatchGuard;
 const Registry = @import("Registry.zig");
 
 /// Registers a method on a class.
@@ -87,6 +88,8 @@ pub fn MethodConfig(comptime Class: type) type {
                 const method = @field(Class, decl_name);
 
                 fn call(instance: *Class, args: []const *const Variant) gdzig.CallError!Variant {
+                    const guard = DispatchGuard.enter(instance);
+                    defer guard.leave();
                     var call_args: std.meta.ArgsTuple(MethodType) = undefined;
                     call_args[0] = instance;
                     inline for (1..Args.len) |i| {
@@ -105,6 +108,8 @@ pub fn MethodConfig(comptime Class: type) type {
                 }
 
                 fn ptrCall(instance: *Class, args: [*]const *const anyopaque, ret: ?*anyopaque) void {
+                    const guard = DispatchGuard.enter(instance);
+                    defer guard.leave();
                     var call_args: std.meta.ArgsTuple(MethodType) = undefined;
                     call_args[0] = instance;
                     inline for (1..Args.len) |i| {
@@ -154,10 +159,14 @@ pub fn MethodConfig(comptime Class: type) type {
 
             const Callbacks = struct {
                 fn call(instance: *Class, _: []const *const Variant) gdzig.CallError!Variant {
+                    const guard = DispatchGuard.enter(instance);
+                    defer guard.leave();
                     return Variant.init(FieldType, @field(instance, field_name));
                 }
 
                 fn ptrCall(instance: *Class, _: [*]const *const anyopaque, ret: ?*anyopaque) void {
+                    const guard = DispatchGuard.enter(instance);
+                    defer guard.leave();
                     if (ret) |r| {
                         ptrcall.writeReturn(FieldType, r, @field(instance, field_name));
                     }
@@ -184,6 +193,8 @@ pub fn MethodConfig(comptime Class: type) type {
 
             const Callbacks = struct {
                 fn call(instance: *Class, args: []const *const Variant) gdzig.CallError!Variant {
+                    const guard = DispatchGuard.enter(instance);
+                    defer guard.leave();
                     if (args.len < 1) return error.TooFewArguments;
                     const value = args[0].as(FieldType) orelse return error.InvalidArgument;
                     @field(instance, field_name) = value;
@@ -191,6 +202,8 @@ pub fn MethodConfig(comptime Class: type) type {
                 }
 
                 fn ptrCall(instance: *Class, args: [*]const *const anyopaque, _: ?*anyopaque) void {
+                    const guard = DispatchGuard.enter(instance);
+                    defer guard.leave();
                     @field(instance, field_name) = ptrcall.readArg(FieldType, args[0]);
                 }
             };

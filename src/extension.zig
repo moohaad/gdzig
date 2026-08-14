@@ -14,5 +14,6 @@ pub const Registry = @import("extension/Registry.zig");
 
 const class = @import("extension/class.zig");
 pub const DestroyInstanceBinding = class.DestroyInstanceBinding;
+pub const DispatchGuard = class.DispatchGuard;
 
 const c = @import("gdextension");

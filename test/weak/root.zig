@@ -86,6 +86,24 @@ test "upcast keeps the identity of the object" {
     try testing.expectEqual(Node.upcast(node), base.get().?);
 }
 
+test "queueFree does not trip the free-while-dispatching guard" {
+    // The guard exists to catch an object freed out from under a running
+    // method. `queueFree` defers to the end of the frame, so it must not fire
+    // -- a detector that flagged the *recommended* way to free a node would be
+    // worse than none. Nothing here is in a dispatch, but the same holds
+    // inside one, which is the case the guard is aimed at.
+    const node = Node.init();
+    const handle: Weak(Node) = .init(node);
+
+    node.queueFree();
+    // Still alive: the free is queued, not done.
+    try testing.expect(handle.isValid());
+
+    // No scene tree here to flush the queue, so free it properly.
+    node.destroy();
+    try testing.expect(!handle.isValid());
+}
+
 const gdzig = @import("gdzig");
 const Weak = gdzig.Weak;
 

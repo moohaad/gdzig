@@ -34,10 +34,21 @@ pub fn ClassUserdataOf(comptime T: type) type {
     };
 }
 
+/// Whether dispatches are counted so that freeing an object out from under one
+/// can be caught. Enabled where the other safety checks are.
+pub const track_dispatch = switch (builtin.mode) {
+    .Debug, .ReleaseSafe => true,
+    .ReleaseFast, .ReleaseSmall => false,
+};
+
 /// Tracks destruction state to prevent double-free.
 pub const DestroyInstanceBinding = struct {
     user_destroying: bool = false,
     engine_destroying: bool = false,
+    /// How many gdzig dispatches -- bound methods and virtual overrides -- are
+    /// currently executing on this instance. Freeing the object while this is
+    /// non-zero means the dispatch is about to return into freed memory.
+    dispatch_depth: u16 = 0,
 
     var gpa: GeneralPurposeAllocator = .init;
     const allocator = gpa.allocator();
@@ -49,7 +60,13 @@ pub const DestroyInstanceBinding = struct {
     };
 
     fn create(_: ?*anyopaque, _: ?*anyopaque) callconv(.c) ?*anyopaque {
-        return @ptrCast(pool.create(allocator) catch return null);
+        const self = pool.create(allocator) catch return null;
+        // `MemoryPool.create` hands back raw storage; the field defaults above
+        // are declarations, not an initializer, so without this every binding
+        // starts as whatever the pool last held. Both destruction flags were
+        // reading that garbage.
+        self.* = .{};
+        return @ptrCast(self);
     }
 
     fn free(_: ?*anyopaque, _: ?*anyopaque, binding: ?*anyopaque) callconv(.c) void {
@@ -61,9 +78,51 @@ pub const DestroyInstanceBinding = struct {
         return @ptrCast(@alignCast(raw_ptr));
     }
 
+    /// Panics if a dispatch into this object is still on the stack. Called from
+    /// both destruction paths, so it fires whether the free came from your
+    /// `destroy` or from the engine.
+    ///
+    /// There is no legitimate case here. `queueFree` defers, so it never trips
+    /// this; what does is destroying an object from inside one of its own
+    /// methods, or from a signal handler while the emitter's method is still
+    /// running. Either way the dispatch returns into freed memory.
+    pub fn assertNotDispatching(self: *const DestroyInstanceBinding) void {
+        if (!track_dispatch) return;
+        if (self.dispatch_depth == 0) return;
+        @panic("object freed while one of its methods was still running; use queueFree to defer the free until the call has returned");
+    }
+
     pub fn cleanup() void {
         pool.deinit(allocator);
         assert(gpa.deinit() == .ok);
+    }
+};
+
+/// Marks an instance as being dispatched into for the lifetime of the guard.
+///
+/// The binding is looked up once on entry and reused on exit, so a dispatch
+/// costs one `object_get_instance_binding` rather than two. That is safe
+/// because the only way the binding could go away mid-dispatch is the object
+/// being freed, which `assertNotDispatching` turns into a panic first.
+pub const DispatchGuard = struct {
+    binding: ?*DestroyInstanceBinding,
+
+    /// Takes the instance in whatever form the dispatch site has it -- a user
+    /// class pointer -- and finds the engine object behind it.
+    pub fn enter(instance: anytype) DispatchGuard {
+        if (!track_dispatch) return .{ .binding = null };
+        // `vtable.zig` exercises the dispatch machinery in its own unit tests
+        // with plain structs that are not classes and have no engine object
+        // behind them. Nothing to track there.
+        if (comptime !class.isClassPtr(@TypeOf(instance))) return .{ .binding = null };
+        const binding = DestroyInstanceBinding.get(Object.upcast(instance));
+        if (binding) |b| b.dispatch_depth += 1;
+        return .{ .binding = binding };
+    }
+
+    pub fn leave(self: DispatchGuard) void {
+        if (!track_dispatch) return;
+        if (self.binding) |b| b.dispatch_depth -= 1;
     }
 };
 
@@ -134,6 +193,7 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
         fn destroyImpl(self: *T, userdata: Userdata) void {
             const obj = Object.upcast(self);
             if (DestroyInstanceBinding.get(obj)) |destroy_meta| {
+                destroy_meta.assertNotDispatching();
                 if (destroy_meta.user_destroying) return;
                 destroy_meta.engine_destroying = true;
             }
@@ -162,7 +222,6 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
             _ = hash;
             return getVirtualImpl(name);
         }
-
     };
 
     return .{
@@ -273,6 +332,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const MemoryPool = std.heap.MemoryPool;
 const assert = std.debug.assert;
+
+const builtin = @import("builtin");
 
 const c = @import("gdextension");
 const common = @import("common");

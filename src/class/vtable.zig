@@ -45,6 +45,8 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                         const Wrapper = struct {
                             fn call(p_instance: c.GDExtensionClassInstancePtr, _: [*]const c.GDExtensionConstTypePtr, p_ret: c.GDExtensionTypePtr) callconv(.c) void {
                                 const instance: *Owner = @ptrCast(@alignCast(p_instance));
+                                const guard = DispatchGuard.enter(instance);
+                                defer guard.leave();
                                 if (ReturnType == void) {
                                     method(instance);
                                 } else {
@@ -59,6 +61,8 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                         const Wrapper = struct {
                             fn call(p_instance: c.GDExtensionClassInstancePtr, p_args: [*]const c.GDExtensionConstTypePtr, p_ret: c.GDExtensionTypePtr) callconv(.c) void {
                                 const instance: *Owner = @ptrCast(@alignCast(p_instance));
+                                const guard = DispatchGuard.enter(instance);
+                                defer guard.leave();
                                 var args: std.meta.ArgsTuple(FnType) = undefined;
                                 args[0] = instance;
                                 inline for (1..param_count) |j| {
@@ -369,3 +373,4 @@ const common = @import("common");
 const godot_case = common.godot_case;
 const class = gdzig.class;
 const ptrcall = @import("ptrcall.zig");
+const DispatchGuard = gdzig.extension.DispatchGuard;

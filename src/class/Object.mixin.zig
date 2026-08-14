@@ -3,6 +3,7 @@
 /// Immediately destroys the object. Prefer `queueFree` in most situations.
 pub fn destroy(self: *Self) void {
     if (DestroyInstanceBinding.get(Object.upcast(self))) |destroy_meta| {
+        destroy_meta.assertNotDispatching();
         if (destroy_meta.engine_destroying) return;
         destroy_meta.user_destroying = true;
     }
