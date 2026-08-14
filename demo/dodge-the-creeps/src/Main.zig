@@ -116,14 +116,7 @@ pub fn onMobTimerTimeout(self: *Main) void {
     const spawn = nodeAs(PathFollow2d, self.base, "MobPath/MobSpawnLocation") orelse return;
     var scene = self.mob_scene orelse return;
 
-    const instance = scene.get().instantiate(.{}) orelse return;
-    const mob = (Node.downcast(instance) orelse {
-        instance.destroy();
-        return;
-    }).asInstance(Mob) orelse {
-        instance.destroy();
-        return;
-    };
+    const mob = scene.get().instantiateAs(Mob) orelse return;
 
     spawn.setProgress(random.randfRange(0, std.math.maxInt(u32)));
     mob.base.setPosition(spawn.getPosition());

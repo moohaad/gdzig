@@ -52,11 +52,53 @@ test "a wrong type is null, and does not leak the resource" {
     try testing.expectEqual(@as(i32, 1), RefCounted.upcast(again.get()).getReferenceCount());
 }
 
+test "instantiateAs narrows the scene root" {
+    // A PackedScene built in memory rather than loaded, so the test needs no
+    // asset: pack a Node2d and instantiate it back.
+    const source = Node2d.init();
+    defer source.destroy();
+    source.setName(.fromComptimeLatin1("Root"));
+
+    var scene = PackedScene.init();
+    defer scene.deinit();
+    if (scene.get().pack(Node.upcast(source)) != .ok) return error.PackFailed;
+
+    const root = scene.get().instantiateAs(Node2d) orelse return error.InstantiateFailed;
+    defer root.destroy();
+
+    var name = Node.upcast(root).getName();
+    defer name.deinit();
+    var text: String = .fromStringName(name);
+    defer text.deinit();
+    var buf: [32]u8 = undefined;
+    try testing.expectEqualStrings("Root", text.toUtf8Buf(&buf));
+}
+
+test "instantiateAs returns null for the wrong type" {
+    const source = Node2d.init();
+    defer source.destroy();
+
+    var scene = PackedScene.init();
+    defer scene.deinit();
+    if (scene.get().pack(Node.upcast(source)) != .ok) return error.PackFailed;
+
+    // A Node2d root is not a Timer.
+    try testing.expectEqual(@as(?*Timer, null), scene.get().instantiateAs(Timer));
+}
+
+// Not covered: that the mismatched root is *freed* rather than leaked. Two
+// attempts failed to observe it -- `Performance.getMonitor` does not move in a
+// headless test, and a packed root of a class defined here never reached its
+// `destroy` -- so the cleanup in `instantiateAs` rests on reading the code.
+
 const godot = @import("gdzig");
 const Gd = godot.Gd;
 const Gradient = godot.class.Gradient;
 const PackedScene = godot.class.PackedScene;
 const RefCounted = godot.class.RefCounted;
+const Node = godot.class.Node;
+const Node2d = godot.class.Node2d;
 const Resource = godot.class.Resource;
+const Timer = godot.class.Timer;
 const ResourceSaver = godot.class.ResourceSaver;
 const String = godot.builtin.String;
