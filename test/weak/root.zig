@@ -153,11 +153,23 @@ test "queueFree does not trip the free-while-dispatching guard" {
     try testing.expect(!handle.isValid());
 }
 
+test "an empty handle is inert" {
+    // The reason this exists: a field can be `Weak(T)` instead of `?Weak(T)`,
+    // so reaching the object is one unwrap rather than two saying the same
+    // thing. An empty handle must behave exactly like a dead one.
+    const handle: Weak(Node) = .empty;
+    try testing.expect(!handle.isValid());
+    try testing.expectEqual(@as(?*Node, null), handle.get());
+    try testing.expectEqual(@as(u64, 0), handle.instanceId());
+    try testing.expect(!handle.upcast(Object).isValid());
+}
+
 const gdzig = @import("gdzig");
 const Weak = gdzig.Weak;
 const allocator = gdzig.testing.allocator;
 
 const Node = gdzig.class.Node;
+const Object = gdzig.class.Object;
 const Node2d = gdzig.class.Node2d;
 const RefCounted = gdzig.class.RefCounted;
 const Resource = gdzig.class.Resource;

@@ -2,10 +2,10 @@
 //!
 //! Ported from `demo-projects/dodge-the-creeps/rust/src/main_scene.rs`.
 //!
-//! godot-rust uses `OnReady<Gd<T>>` fields, which defer their lookup until the
-//! node is in the tree. gdzig has no equivalent, so the children are resolved in
-//! `_ready` and held as `Weak` handles -- they are owned by the scene tree, and
-//! a plain pointer would say nothing about that.
+//! The four children are declared as `Child(T, path)` fields, gdzig's answer to
+//! godot-rust's `OnReady<Gd<T>>`: the path sits next to the field and gdzig
+//! resolves it just before `_ready`. Each holds a `Weak` handle underneath, so
+//! `get` stays honest if the scene tree frees the node later.
 
 const Main = @This();
 
@@ -33,10 +33,10 @@ allocator: Allocator,
 base: *Node,
 score: i64 = 0,
 mob_scene: ?Gd(PackedScene) = null,
-player: ?Weak(Player) = null,
-hud: ?Weak(Hud) = null,
-music: ?Weak(AudioStreamPlayer) = null,
-death_sound: ?Weak(AudioStreamPlayer) = null,
+player: Child(Player, "Player") = .pending,
+hud: Child(Hud, "Hud") = .pending,
+music: Child(AudioStreamPlayer, "Music") = .pending,
+death_sound: Child(AudioStreamPlayer, "DeathSound") = .pending,
 
 pub fn create(allocator: *Allocator) !*Main {
     const self = try allocator.create(Main);
@@ -71,17 +71,12 @@ pub fn _ready(self: *Main) void {
         owned.deinit();
     }
 
-    if (nodeAs(Player, self.base, "Player")) |p| self.player = .init(p);
-    if (nodeAs(Hud, self.base, "Hud")) |h| self.hud = .init(h);
-    if (nodeAs(AudioStreamPlayer, self.base, "Music")) |m| self.music = .init(m);
-    if (nodeAs(AudioStreamPlayer, self.base, "DeathSound")) |d| self.death_sound = .init(d);
-
-    if (self.player) |p| if (p.get()) |live| {
+    if (self.player.get()) |live| {
         live.base.connect(Player.Hit, .fromClosure(self, &gameOver)) catch |e| std.log.err("connect Player.Hit: {s}", .{@errorName(e)});
-    };
-    if (self.hud) |h| if (h.get()) |live| {
+    }
+    if (self.hud.get()) |live| {
         live.base.connect(Hud.StartGame, .fromClosure(self, &newGame)) catch |e| std.log.err("connect Hud.StartGame: {s}", .{@errorName(e)});
-    };
+    }
     if (self.timer("ScoreTimer")) |t| {
         t.connect(Timer.Timeout, .fromClosure(self, &onScoreTimerTimeout)) catch |e| std.log.err("connect ScoreTimer: {s}", .{@errorName(e)});
     }
@@ -94,27 +89,27 @@ pub fn gameOver(self: *Main) void {
     if (self.timer("ScoreTimer")) |t| t.stop();
     if (self.timer("MobTimer")) |t| t.stop();
 
-    if (self.hud) |h| if (h.get()) |live| live.showGameOver();
-    if (self.music) |m| if (m.get()) |live| live.stop();
-    if (self.death_sound) |d| if (d.get()) |live| live.play(.{});
+    if (self.hud.get()) |live| live.showGameOver();
+    if (self.music.get()) |live| live.stop();
+    if (self.death_sound.get()) |live| live.play(.{});
 }
 
 pub fn newGame(self: *Main) void {
     self.score = 0;
 
     if (nodeAs(Marker2d, self.base, "StartPosition")) |start| {
-        if (self.player) |p| if (p.get()) |live| live.start(start.getPosition());
+        if (self.player.get()) |live| live.start(start.getPosition());
     }
     if (self.timer("StartTimer")) |t| t.start(.{});
 
-    if (self.hud) |h| if (h.get()) |live| {
+    if (self.hud.get()) |live| {
         live.updateScore(self.score);
         var text: String = .fromLatin1("Get Ready");
         defer text.deinit();
         live.showMessage(text);
-    };
+    }
 
-    if (self.music) |m| if (m.get()) |live| live.play(.{});
+    if (self.music.get()) |live| live.play(.{});
 }
 
 pub fn onStartTimerTimeout(self: *Main) void {
@@ -124,7 +119,7 @@ pub fn onStartTimerTimeout(self: *Main) void {
 
 pub fn onScoreTimerTimeout(self: *Main) void {
     self.score += 1;
-    if (self.hud) |h| if (h.get()) |live| live.updateScore(self.score);
+    if (self.hud.get()) |live| live.updateScore(self.score);
 }
 
 pub fn onMobTimerTimeout(self: *Main) void {
@@ -168,7 +163,7 @@ const Allocator = std.mem.Allocator;
 const godot = @import("godot");
 const random = godot.random;
 const Gd = godot.Gd;
-const Weak = godot.Weak;
+const Child = godot.Child;
 const Registry = godot.extension.Registry;
 const AudioStreamPlayer = godot.class.AudioStreamPlayer;
 const Marker2d = godot.class.Marker2d;

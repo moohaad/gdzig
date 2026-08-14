@@ -32,6 +32,23 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
 
         fn findMethod(comptime method_name: []const u8) c.GDExtensionClassCallVirtual {
             @setEvalBranchQuota(100_000);
+
+            // A class with `Child` fields needs a `_ready` whether or not it
+            // wrote one, since that is where the fields get filled in. The
+            // user's own `_ready`, if present, runs straight after.
+            if (comptime std.mem.eql(u8, method_name, "_ready") and child.hasAny(T)) {
+                const Wrapper = struct {
+                    fn call(p_instance: c.GDExtensionClassInstancePtr, _: [*]const c.GDExtensionConstTypePtr, _: c.GDExtensionTypePtr) callconv(.c) void {
+                        const instance: *T = @ptrCast(@alignCast(p_instance));
+                        const guard = DispatchGuard.enter(instance);
+                        defer guard.leave();
+                        child.resolveAll(T, instance);
+                        if (comptime @hasDecl(T, "_ready")) T._ready(instance);
+                    }
+                };
+                return @ptrCast(&Wrapper.call);
+            }
+
             inline for (class.selfAndAncestorsOf(T)) |Owner| {
                 if (@hasDecl(Owner, method_name)) {
                     const method = @field(Owner, method_name);
@@ -373,4 +390,5 @@ const common = @import("common");
 const godot_case = common.godot_case;
 const class = gdzig.class;
 const ptrcall = @import("ptrcall.zig");
+const child = @import("../child.zig");
 const DispatchGuard = gdzig.extension.DispatchGuard;

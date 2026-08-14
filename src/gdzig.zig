@@ -30,6 +30,7 @@ pub const extension = @import("extension.zig");
 pub const testing = @import("testing.zig");
 pub const Gd = @import("gd.zig").Gd;
 pub const Weak = @import("weak.zig").Weak;
+pub const Child = @import("child.zig").Child;
 
 const DispatchTable = @import("DispatchTable.zig");
 
