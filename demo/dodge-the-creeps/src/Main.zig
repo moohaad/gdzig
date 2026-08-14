@@ -59,17 +59,7 @@ pub fn destroy(self: *Main, allocator: *Allocator) void {
 }
 
 pub fn _ready(self: *Main) void {
-    var path: String = .fromLatin1("res://Mob.tscn");
-    defer path.deinit();
-    if (ResourceLoader.load(path, .{})) |resource| {
-        var owned = resource;
-        // `load` hands back an owned `Gd(Resource)`; narrow it to the scene type
-        // and keep ownership, releasing the original handle either way.
-        if (PackedScene.downcast(owned.get())) |scene| {
-            self.mob_scene = Gd(PackedScene).borrow(scene);
-        }
-        owned.deinit();
-    }
+    self.mob_scene = godot.load(PackedScene, "res://Mob.tscn");
 
     if (self.player.get()) |live| {
         live.base.connect(Player.Hit, .fromClosure(self, &gameOver)) catch |e| std.log.err("connect Player.Hit: {s}", .{@errorName(e)});
@@ -171,7 +161,6 @@ const Node = godot.class.Node;
 const Object = godot.class.Object;
 const PackedScene = godot.class.PackedScene;
 const PathFollow2d = godot.class.PathFollow2d;
-const ResourceLoader = godot.class.ResourceLoader;
 const String = godot.builtin.String;
 const Timer = godot.class.Timer;
 const Vector2 = godot.builtin.Vector2;

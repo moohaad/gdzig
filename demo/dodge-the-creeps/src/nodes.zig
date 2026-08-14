@@ -21,14 +21,7 @@ pub fn nodeAs(comptime T: type, parent: anytype, comptime path: [:0]const u8) ?*
     defer node_path.deinit();
 
     const node = parent.getNode(node_path) orelse return null;
-
-    // Engine classes are opaque and carry their own `downcast`; a class defined
-    // here is a plain struct reached through its instance binding instead.
-    if (comptime godot.class.isStructClass(T)) {
-        const typed = Node.downcast(node) orelse return null;
-        return typed.asInstance(T);
-    }
-    return T.downcast(node);
+    return godot.class.castTo(T, node);
 }
 
 const godot = @import("godot");

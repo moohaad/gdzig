@@ -33,6 +33,21 @@ pub fn isRefCountedPtr(comptime T: type) bool {
     return isRefCounted(std.meta.Child(T));
 }
 
+/// Narrows `value` to `*T`, whichever kind of class `T` is.
+///
+/// Engine classes are opaque and carry their own `downcast`; a class defined in
+/// an extension is a plain struct reached through its instance binding. Callers
+/// should not have to know which they are holding, and before this they did --
+/// the same six lines were written out at every site that needed it.
+///
+/// Null when `value` is not a `T`.
+pub fn castTo(comptime T: type, value: anytype) ?*T {
+    if (comptime isStructClass(T)) {
+        return upcast(*Object, value).asInstance(T);
+    }
+    return T.downcast(value);
+}
+
 /// Downcast a value to a child type in the class hierarchy. Has some compile time checks, but returns null at runtime if the cast fails.
 ///
 /// Expects pointer types, e.g `*Node` or `*MyClass`, not `Node` or `MyClass`.

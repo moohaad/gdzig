@@ -126,14 +126,7 @@ fn lookup(comptime T: type, owner: *Node, comptime path: [:0]const u8) ?*T {
     defer node_path.deinit();
 
     const node = owner.getNode(node_path) orelse return null;
-
-    // Engine classes are opaque and carry their own `downcast`; a class defined
-    // in an extension is a plain struct reached through its instance binding.
-    if (comptime class.isStructClass(T)) {
-        const typed = Node.downcast(node) orelse return null;
-        return typed.asInstance(T);
-    }
-    return T.downcast(node);
+    return class.castTo(T, node);
 }
 
 test "Child is recognised only as itself" {
