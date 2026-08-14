@@ -63,6 +63,12 @@ pub fn Weak(comptime T: type) type {
         const Self = @This();
 
         ptr: *T,
+        /// The engine object behind `ptr`. For an opaque class that is `ptr`
+        /// itself; for a class defined in an extension it is the `base` field,
+        /// since the surrounding struct is not a Godot object and casting it to
+        /// one yields a garbage instance ID and a handle that is dead the
+        /// moment it is made.
+        obj: *Object,
         /// Godot's ID for the object, unique among *live* objects. Recorded at
         /// construction, when the object is known good.
         id: u64,
@@ -70,9 +76,11 @@ pub fn Weak(comptime T: type) type {
         /// Records `ptr` and its current instance ID. The object must be alive
         /// now; reading the ID is a dereference.
         pub fn init(ptr: *T) Self {
+            const obj = oopz.upcast(*Object, ptr);
             return .{
                 .ptr = ptr,
-                .id = gdzig.raw.objectGetInstanceId(@ptrCast(ptr)),
+                .obj = obj,
+                .id = gdzig.raw.objectGetInstanceId(@ptrCast(obj)),
             };
         }
 
@@ -86,7 +94,7 @@ pub fn Weak(comptime T: type) type {
             // with each new ID a fixed step above the last. The lookup alone is
             // therefore enough today; comparing the pointer costs nothing and
             // keeps this correct if that ever stops being true.
-            if (@intFromPtr(live) != @intFromPtr(self.ptr)) return null;
+            if (@intFromPtr(live) != @intFromPtr(self.obj)) return null;
 
             return self.ptr;
         }
@@ -112,7 +120,7 @@ pub fn Weak(comptime T: type) type {
         /// `U` is not a base of `T`.
         pub fn upcast(self: Self, comptime U: type) Weak(U) {
             comptime oopz.assertIsA(U, T);
-            return .{ .ptr = @ptrCast(self.ptr), .id = self.id };
+            return .{ .ptr = oopz.upcast(*U, self.ptr), .obj = self.obj, .id = self.id };
         }
     };
 }
@@ -124,6 +132,7 @@ test "a weak handle needs no live engine to be constructed comptime-correct" {
     comptime {
         const W = Weak(gdzig.class.Node);
         if (@FieldType(W, "ptr") != *gdzig.class.Node) @compileError("ptr field changed shape");
+        if (@FieldType(W, "obj") != *Object) @compileError("obj field changed shape");
         if (@FieldType(W, "id") != u64) @compileError("id field changed shape");
     }
 }

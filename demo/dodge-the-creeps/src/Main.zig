@@ -77,16 +77,16 @@ pub fn _ready(self: *Main) void {
     if (nodeAs(AudioStreamPlayer, self.base, "DeathSound")) |d| self.death_sound = .init(d);
 
     if (self.player) |p| if (p.get()) |live| {
-        live.base.connect(Player.Hit, .fromClosure(self, &gameOver)) catch {};
+        live.base.connect(Player.Hit, .fromClosure(self, &gameOver)) catch |e| std.log.err("connect Player.Hit: {s}", .{@errorName(e)});
     };
     if (self.hud) |h| if (h.get()) |live| {
-        live.base.connect(Hud.StartGame, .fromClosure(self, &newGame)) catch {};
+        live.base.connect(Hud.StartGame, .fromClosure(self, &newGame)) catch |e| std.log.err("connect Hud.StartGame: {s}", .{@errorName(e)});
     };
     if (self.timer("ScoreTimer")) |t| {
-        t.connect(Timer.Timeout, .fromClosure(self, &onScoreTimerTimeout)) catch {};
+        t.connect(Timer.Timeout, .fromClosure(self, &onScoreTimerTimeout)) catch |e| std.log.err("connect ScoreTimer: {s}", .{@errorName(e)});
     }
     if (self.timer("MobTimer")) |t| {
-        t.connect(Timer.Timeout, .fromClosure(self, &onMobTimerTimeout)) catch {};
+        t.connect(Timer.Timeout, .fromClosure(self, &onMobTimerTimeout)) catch |e| std.log.err("connect MobTimer: {s}", .{@errorName(e)});
     }
 }
 

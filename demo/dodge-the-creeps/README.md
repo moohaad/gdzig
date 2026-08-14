@@ -54,8 +54,33 @@ Two smaller notes, both places where the port initially went wrong:
   plain struct reached through `asInstance(T)` on its base. `nodeAs` picks
   between them with `comptime isStructClass`.
 
-## Known noise
+## Known issues
 
-Running the game prints eight `invalid UID ... using text path instead`
-warnings. They come from the upstream project's scenes referencing UIDs that are
-not in this checkout, and are present before any Zig code runs.
+**Eight `invalid UID ... using text path instead` warnings.** Upstream's scenes
+reference UIDs absent from this checkout. Printed before any Zig code runs, and
+the copy is not missing files -- it has more than upstream, since Godot writes
+`.import` sidecars on first run.
+
+**A leak once a round starts.** Quitting mid-game reports `4 ObjectDB instances
+were leaked` and `2 resources still in use at exit`. It does not happen on the
+title screen, only after `newGame`. Mobs are not the cause -- instrumenting
+`_ready` and `destroy` shows six created and six destroyed -- so the suspects are
+the audio streams still playing at quit, or a handle this code holds. Not yet
+diagnosed, and worth doing before this demo is held up as a reference.
+
+## What using gdzig for real turned up
+
+Porting this found a bug in gdzig's own `Weak(T)`, which is the point of doing it
+rather than writing another synthetic example. `Main` stores its children as
+`Weak` handles; `Weak.init` cast the pointer straight to a Godot object, which is
+right for an engine class and wrong for a class defined in an extension, where
+the object is the `base` field. Every handle here was dead on arrival, `get()`
+returned null, and because the connect calls sat behind `if (h.get()) |live|`
+they were skipped in silence -- no music, no player, no game. The fix and a
+regression test are in `src/weak.zig` and `test/weak`.
+
+Two things made that harder to find than it should have been, both worth
+avoiding in your own code: `catch {}` on `connect`, copied from `example/`, threw
+away the only error that would have pointed at it; and a `Weak` handle that is
+non-null but dead reads as "present" at a glance. The connect calls here log
+their errors now.

@@ -8,6 +8,55 @@
 const std = @import("std");
 const testing = std.testing;
 
+pub fn register(r: *gdzig.extension.Registry) void {
+    _ = r.createClass(WeakProbe, {}, .auto);
+}
+
+fn ensureRegistered() void {
+    const S = struct {
+        var done: bool = false;
+    };
+    if (!S.done) {
+        S.done = true;
+        gdzig.testing.loadModule(@This());
+    }
+}
+
+/// A class defined here rather than an engine one: the surrounding struct is
+/// not itself a Godot object, so the handle has to reach the engine object
+/// through `base`.
+const WeakProbe = struct {
+    base: *Node,
+
+    pub fn create() !*WeakProbe {
+        const self = try allocator.create(WeakProbe);
+        self.* = .{ .base = Node.init() };
+        self.base.setInstance(WeakProbe, self);
+        return self;
+    }
+
+    pub fn destroy(self: *WeakProbe) void {
+        allocator.destroy(self);
+    }
+};
+
+test "a handle to an extension class resolves through its base" {
+    ensureRegistered();
+
+    const probe = try WeakProbe.create();
+    const handle: Weak(WeakProbe) = .init(probe);
+
+    // The first cut of `Weak` cast the struct pointer straight to an object,
+    // recorded a garbage instance ID, and produced a handle that was dead the
+    // moment it was made -- silently, since `get` just returns null. Nothing
+    // caught it until a real port stored one of these.
+    try testing.expect(handle.isValid());
+    try testing.expectEqual(probe, handle.get().?);
+
+    probe.base.destroy();
+    try testing.expect(!handle.isValid());
+}
+
 test "a handle to a live node resolves to the same pointer" {
     const node = Node.init();
     defer node.destroy();
@@ -106,6 +155,7 @@ test "queueFree does not trip the free-while-dispatching guard" {
 
 const gdzig = @import("gdzig");
 const Weak = gdzig.Weak;
+const allocator = gdzig.testing.allocator;
 
 const Node = gdzig.class.Node;
 const Node2d = gdzig.class.Node2d;

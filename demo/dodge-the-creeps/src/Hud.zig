@@ -96,7 +96,7 @@ pub fn onStartButtonPressed(self: *Hud) void {
     if (nodeAs(Button, Node.upcast(self.base), "StartButton")) |button| {
         CanvasItem.upcast(button).hide();
     }
-    self.base.emit(StartGame, .{}) catch {};
+    self.base.emit(StartGame, .{}) catch |e| std.log.err("emit StartGame: {s}", .{@errorName(e)});
 }
 
 pub fn onMessageTimerTimeout(self: *Hud) void {
