@@ -1,0 +1,16 @@
+[configuration]
+
+compatibility_minimum = "4.2.0"
+entry_symbol = "dodge_the_creeps_init"
+reloadable = true
+
+[libraries]
+
+macos.debug = "lib/libdodge.dylib"
+macos.release = "lib/libdodge.dylib"
+windows.debug.x86_64 = "lib/dodge.dll"
+windows.release.x86_64 = "lib/dodge.dll"
+linux.debug.x86_64 = "lib/libdodge.so"
+linux.release.x86_64 = "lib/libdodge.so"
+linux.debug.arm64 = "lib/libdodge.so"
+linux.release.arm64 = "lib/libdodge.so"
