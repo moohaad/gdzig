@@ -61,12 +61,24 @@ reference UIDs absent from this checkout. Printed before any Zig code runs, and
 the copy is not missing files -- it has more than upstream, since Godot writes
 `.import` sidecars on first run.
 
-**A leak once a round starts.** Quitting mid-game reports `4 ObjectDB instances
-were leaked` and `2 resources still in use at exit`. It does not happen on the
-title screen, only after `newGame`. Mobs are not the cause -- instrumenting
-`_ready` and `destroy` shows six created and six destroyed -- so the suspects are
-the audio streams still playing at quit, or a handle this code holds. Not yet
-diagnosed, and worth doing before this demo is held up as a reference.
+**Quitting while a sound is playing leaks the stream.** Godot reports
+`AudioStreamWAV` and `AudioStreamPlaybackWAV` leaked, each with one reference,
+plus `res://art/gameover.wav still in use`. It is the engine's shutdown path,
+not this port:
+
+| quit after | leaks |
+| ---: | ---: |
+| 20 frames (before playback starts) | none |
+| 40 frames (mid-playback) | 2 |
+| 600 frames (playback finished) | none |
+
+The same code plays the same sound in all three; only whether audio is still
+running at exit changes. Mobs were ruled out first -- instrumenting `_ready` and
+`destroy` showed six created and six destroyed. Nothing here holds a reference
+to a stream, and removing the two `play` calls removes the leak entirely.
+
+Not cross-checked against the Rust original, so "engine, not gdzig" rests on
+that timing correlation rather than on a side-by-side run.
 
 ## What using gdzig for real turned up
 
