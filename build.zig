@@ -214,11 +214,25 @@ pub fn build(b: *Build) !void {
     // Default step
     //
 
-    b.installDirectory(.{
+    // The generated bindings are installed back into `src/` so they can be read
+    // and browsed, which makes that directory both an output of this step and an
+    // input to the `gdzig_files` copy above. Nothing connects the two, so they
+    // are free to run at the same time, and intermittently did: the install
+    // writes each file as a hex-named temporary and renames it into place, while
+    // the copy walks the same directory and fails with `FileNotFound` on a name
+    // that has just been renamed away.
+    //
+    // Neither step needs the other's result, so ordering the write after the
+    // read costs nothing and removes the overlap. `zig build test` never hit
+    // this because it does not run the install step at all.
+    const install_bindings = b.addInstallDirectory(.{
         .source_dir = bindings,
         .install_dir = .{ .custom = "../" },
         .install_subdir = "src",
     });
+    install_bindings.step.dependOn(&gdzig_files.step);
+    b.getInstallStep().dependOn(&install_bindings.step);
+
     b.installArtifact(bindgen_exe);
     b.installDirectory(.{
         .source_dir = gdzig_lib.getEmittedDocs(),
