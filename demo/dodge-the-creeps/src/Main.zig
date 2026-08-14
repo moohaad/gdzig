@@ -103,7 +103,7 @@ pub fn newGame(self: *Main) void {
     self.score = 0;
 
     if (nodeAs(Marker2d, self.base, "StartPosition")) |start| {
-        if (self.player) |p| if (p.get()) |live| live.start(Node2d.upcast(start).getPosition());
+        if (self.player) |p| if (p.get()) |live| live.start(start.getPosition());
     }
     if (self.timer("StartTimer")) |t| t.start(.{});
 
@@ -141,13 +141,13 @@ pub fn onMobTimerTimeout(self: *Main) void {
     };
 
     spawn.setProgress(random.randfRange(0, std.math.maxInt(u32)));
-    Node2d.upcast(mob.base).setPosition(spawn.getPosition());
+    mob.base.setPosition(spawn.getPosition());
 
     const quarter_turn = std.math.pi / 2.0;
     const spread = std.math.pi / 4.0;
-    const direction = Node2d.upcast(spawn).getRotation() + quarter_turn +
+    const direction = spawn.getRotation() + quarter_turn +
         random.randfRange(-spread, spread);
-    Node2d.upcast(mob.base).setRotation(direction);
+    mob.base.setRotation(direction);
 
     self.base.addChild(Node.upcast(mob.base), .{});
 
@@ -173,7 +173,6 @@ const Registry = godot.extension.Registry;
 const AudioStreamPlayer = godot.class.AudioStreamPlayer;
 const Marker2d = godot.class.Marker2d;
 const Node = godot.class.Node;
-const Node2d = godot.class.Node2d;
 const Object = godot.class.Object;
 const PackedScene = godot.class.PackedScene;
 const PathFollow2d = godot.class.PathFollow2d;

@@ -46,12 +46,12 @@ pub fn destroy(self: *Player, allocator: *Allocator) void {
 }
 
 pub fn _ready(self: *Player) void {
-    self.screen_size = CanvasItem.upcast(self.base).getViewportRect().size;
-    CanvasItem.upcast(self.base).hide();
+    self.screen_size = self.base.getViewportRect().size;
+    self.base.hide();
 }
 
 pub fn _process(self: *Player, delta: f64) void {
-    const sprite = nodeAs(AnimatedSprite2d, Node.upcast(self.base), "AnimatedSprite2D") orelse return;
+    const sprite = nodeAs(AnimatedSprite2d, self.base, "AnimatedSprite2D") orelse return;
 
     var velocity: Vector2 = .{ .x = 0, .y = 0 };
     if (pressed("move_right")) velocity.x += 1;
@@ -80,32 +80,32 @@ pub fn _process(self: *Player, delta: f64) void {
     }
 
     const d: f32 = @floatCast(delta);
-    const at = Node2d.upcast(self.base).getGlobalPosition();
-    Node2d.upcast(self.base).setGlobalPosition(.{
+    const at = self.base.getGlobalPosition();
+    self.base.setGlobalPosition(.{
         .x = std.math.clamp(at.x + velocity.x * d, 0, self.screen_size.x),
         .y = std.math.clamp(at.y + velocity.y * d, 0, self.screen_size.y),
     });
 }
 
 pub fn onPlayerBodyEntered(self: *Player, _: *Node2d) void {
-    CanvasItem.upcast(self.base).hide();
+    self.base.hide();
     self.base.emit(Hit, .{}) catch {};
 
-    const shape = nodeAs(CollisionShape2d, Node.upcast(self.base), "CollisionShape2D") orelse return;
+    const shape = nodeAs(CollisionShape2d, self.base, "CollisionShape2D") orelse return;
 
     // Deferred: the body is mid-collision-response, and Godot refuses to change
     // shape state during physics resolution.
     const property: StringName = .fromComptimeLatin1("disabled");
     var value: Variant = .init(bool, true);
     defer value.deinit();
-    Object.upcast(shape).setDeferred(property, value);
+    shape.setDeferred(property, value);
 }
 
 pub fn start(self: *Player, pos: Vector2) void {
-    Node2d.upcast(self.base).setGlobalPosition(pos);
-    CanvasItem.upcast(self.base).show();
+    self.base.setGlobalPosition(pos);
+    self.base.show();
 
-    if (nodeAs(CollisionShape2d, Node.upcast(self.base), "CollisionShape2D")) |shape| {
+    if (nodeAs(CollisionShape2d, self.base, "CollisionShape2D")) |shape| {
         shape.setDisabled(false);
     }
 }
@@ -121,10 +121,8 @@ const godot = @import("godot");
 const Registry = godot.extension.Registry;
 const AnimatedSprite2d = godot.class.AnimatedSprite2d;
 const Area2d = godot.class.Area2d;
-const CanvasItem = godot.class.CanvasItem;
 const CollisionShape2d = godot.class.CollisionShape2d;
 const Input = godot.class.Input;
-const Node = godot.class.Node;
 const Node2d = godot.class.Node2d;
 const Object = godot.class.Object;
 const StringName = godot.builtin.StringName;

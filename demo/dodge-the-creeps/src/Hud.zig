@@ -46,11 +46,11 @@ pub fn destroy(self: *Hud, allocator: *Allocator) void {
 }
 
 pub fn showMessage(self: *Hud, text: String) void {
-    if (nodeAs(Label, Node.upcast(self.base), "MessageLabel")) |label| {
+    if (nodeAs(Label, self.base, "MessageLabel")) |label| {
         label.setText(text);
-        CanvasItem.upcast(label).show();
+        label.show();
     }
-    if (nodeAs(Timer, Node.upcast(self.base), "MessageTimer")) |timer| {
+    if (nodeAs(Timer, self.base, "MessageTimer")) |timer| {
         timer.start(.{});
     }
 }
@@ -70,19 +70,19 @@ pub fn showGameOver(self: *Hud) void {
 }
 
 pub fn showStartButton(self: *Hud) void {
-    if (nodeAs(Label, Node.upcast(self.base), "MessageLabel")) |label| {
+    if (nodeAs(Label, self.base, "MessageLabel")) |label| {
         var text: String = .fromLatin1("Dodge the\nCreeps!");
         defer text.deinit();
         label.setText(text);
-        CanvasItem.upcast(label).show();
+        label.show();
     }
-    if (nodeAs(Button, Node.upcast(self.base), "StartButton")) |button| {
-        CanvasItem.upcast(button).show();
+    if (nodeAs(Button, self.base, "StartButton")) |button| {
+        button.show();
     }
 }
 
 pub fn updateScore(self: *Hud, score: i64) void {
-    const label = nodeAs(Label, Node.upcast(self.base), "ScoreLabel") orelse return;
+    const label = nodeAs(Label, self.base, "ScoreLabel") orelse return;
 
     var buf: [32]u8 = undefined;
     const digits = std.fmt.bufPrint(&buf, "{d}", .{score}) catch return;
@@ -93,15 +93,15 @@ pub fn updateScore(self: *Hud, score: i64) void {
 }
 
 pub fn onStartButtonPressed(self: *Hud) void {
-    if (nodeAs(Button, Node.upcast(self.base), "StartButton")) |button| {
-        CanvasItem.upcast(button).hide();
+    if (nodeAs(Button, self.base, "StartButton")) |button| {
+        button.hide();
     }
     self.base.emit(StartGame, .{}) catch |e| std.log.err("emit StartGame: {s}", .{@errorName(e)});
 }
 
 pub fn onMessageTimerTimeout(self: *Hud) void {
-    if (nodeAs(Label, Node.upcast(self.base), "MessageLabel")) |label| {
-        CanvasItem.upcast(label).hide();
+    if (nodeAs(Label, self.base, "MessageLabel")) |label| {
+        label.hide();
     }
 }
 
@@ -111,10 +111,8 @@ const Allocator = std.mem.Allocator;
 const godot = @import("godot");
 const Registry = godot.extension.Registry;
 const Button = godot.class.Button;
-const CanvasItem = godot.class.CanvasItem;
 const CanvasLayer = godot.class.CanvasLayer;
 const Label = godot.class.Label;
-const Node = godot.class.Node;
 const Object = godot.class.Object;
 const SceneTreeTimer = godot.class.SceneTreeTimer;
 const String = godot.builtin.String;

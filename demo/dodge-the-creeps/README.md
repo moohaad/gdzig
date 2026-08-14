@@ -45,6 +45,13 @@ pointer would not say so.
 `self.base.emit(Hit, .{})`, where `Hit` is a struct type. Type-checked, but the
 connection side is a closure rather than a named signal object.
 
+**No methods on your own type.** `self` is a plain Zig struct, so signals and
+engine calls go through `self.base`: `self.base.emit(Hit, .{})` rather than
+godot-rust's `self.signals().hit().emit()`. gdzig does not inject anything into
+your struct, which is why the `base` field is spelled out everywhere.
+
+You do *not* need to upcast to reach an inherited method, though -- see below.
+
 Two smaller notes, both places where the port initially went wrong:
 
 * `StringName.fromComptimeLatin1` returns a cached **static** name. Deiniting it
@@ -53,6 +60,13 @@ Two smaller notes, both places where the port initially went wrong:
 * Engine classes downcast with `T.downcast(node)`; a class defined here is a
   plain struct reached through `asInstance(T)` on its base. `nodeAs` picks
   between them with `comptime isStructClass`.
+* **Upcasting to call an inherited method is unnecessary.** bindgen flattens
+  every inherited method onto every class, so `Area2d` already has `hide`,
+  `getNode` and `setGlobalPosition`, and `CollisionShape2d` already has
+  `setDeferred`. The first draft of this port wrote
+  `CanvasItem.upcast(self.base).hide()` out of C++ habit; `self.base.hide()` is
+  the same call. Upcasts are still needed to *pass* a value where a base type is
+  expected, which is why `addChild(Node.upcast(mob.base), .{})` keeps one.
 
 ## Known issues
 

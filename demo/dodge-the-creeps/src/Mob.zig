@@ -41,7 +41,7 @@ pub fn destroy(self: *Mob, allocator: *Allocator) void {
 }
 
 pub fn _ready(self: *Mob) void {
-    const sprite = nodeAs(AnimatedSprite2d, Node.upcast(self.base), "AnimatedSprite2D") orelse return;
+    const sprite = nodeAs(AnimatedSprite2d, self.base, "AnimatedSprite2D") orelse return;
     sprite.play(.{});
 
     // `getSpriteFrames` returns an owning handle, so it needs releasing; the
@@ -78,7 +78,6 @@ const godot = @import("godot");
 const random = godot.random;
 const Registry = godot.extension.Registry;
 const AnimatedSprite2d = godot.class.AnimatedSprite2d;
-const Node = godot.class.Node;
 const Object = godot.class.Object;
 const RigidBody2d = godot.class.RigidBody2d;
 const StringName = godot.builtin.StringName;
