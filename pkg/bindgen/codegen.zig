@@ -189,10 +189,12 @@ fn writeBuiltinConstructor(w: *CodeWriter, builtin_name: []const u8, constructor
         }
     } else {
         try w.printLine(
-            \\if ({0s}_ptr == null) {{
-            \\    {0s}_ptr = raw.variantGetPtrConstructor(@intFromEnum(Variant.Tag.forType({2s})), {1d});
+            \\var _bind = {0s}_ptr.load(.monotonic);
+            \\if (_bind == null) {{
+            \\    _bind = raw.variantGetPtrConstructor(@intFromEnum(Variant.Tag.forType({2s})), {1d});
+            \\    {0s}_ptr.store(_bind, .monotonic);
             \\}}
-            \\{0s}_ptr.?(@ptrCast(&result), @ptrCast(&args));
+            \\_bind.?(@ptrCast(&result), @ptrCast(&args));
         , .{
             constructor.name,
             constructor.index.?,
@@ -202,7 +204,7 @@ fn writeBuiltinConstructor(w: *CodeWriter, builtin_name: []const u8, constructor
     try writeFunctionFooter(w, constructor, null, ctx);
     if (!constructor.can_init_directly) {
         try w.printLine(
-            \\var {0s}_ptr: c.GDExtensionPtrConstructor = null;
+            \\var {0s}_ptr: std.atomic.Value(c.GDExtensionPtrConstructor) = .init(null);
         , .{constructor.name});
     }
 }
@@ -210,12 +212,14 @@ fn writeBuiltinConstructor(w: *CodeWriter, builtin_name: []const u8, constructor
 fn writeBuiltinDestructor(w: *CodeWriter, builtin: *const Context.Builtin) !void {
     try w.printLine(
         \\pub fn deinit(self: *{0s}) void {{
-        \\    if (deinit_ptr == null) {{
-        \\        deinit_ptr = raw.variantGetPtrDestructor(@intFromEnum(Variant.Tag.forType({0s}))).?;
+        \\    var _bind = deinit_ptr.load(.monotonic);
+        \\    if (_bind == null) {{
+        \\        _bind = raw.variantGetPtrDestructor(@intFromEnum(Variant.Tag.forType({0s}))).?;
+        \\        deinit_ptr.store(_bind, .monotonic);
         \\    }}
-        \\    deinit_ptr.?(@ptrCast(self));
+        \\    _bind.?(@ptrCast(self));
         \\}}
-        \\var deinit_ptr: c.GDExtensionPtrDestructor = null;
+        \\var deinit_ptr: std.atomic.Value(c.GDExtensionPtrDestructor) = .init(null);
         \\
     , .{
         builtin.name,
@@ -226,10 +230,12 @@ fn writeBuiltinMethod(w: *CodeWriter, builtin_name: []const u8, method: *const C
     try writeFunctionHeader(w, method, null, ctx);
 
     try w.printLine(
-        \\if ({0s}_ptr == null) {{
-        \\    {0s}_ptr = raw.variantGetPtrBuiltinMethod(@intFromEnum(Variant.Tag.forType({3s})), @ptrCast(&StringName.fromComptimeLatin1("{1s}")), {2d}).?;
+        \\var _bind = {0s}_ptr.load(.monotonic);
+        \\if (_bind == null) {{
+        \\    _bind = raw.variantGetPtrBuiltinMethod(@intFromEnum(Variant.Tag.forType({3s})), @ptrCast(&StringName.fromComptimeLatin1("{1s}")), {2d}).?;
+        \\    {0s}_ptr.store(_bind, .monotonic);
         \\}}
-        \\{0s}_ptr.?({4s}, @ptrCast(&args), {5s}, args.len);
+        \\_bind.?({4s}, @ptrCast(&args), {5s}, args.len);
     , .{
         method.name,
         method.name_api,
@@ -246,7 +252,7 @@ fn writeBuiltinMethod(w: *CodeWriter, builtin_name: []const u8, method: *const C
     });
     try writeFunctionFooter(w, method, null, ctx);
     try w.printLine(
-        \\var {0s}_ptr: c.GDExtensionPtrBuiltInMethod = null;
+        \\var {0s}_ptr: std.atomic.Value(c.GDExtensionPtrBuiltInMethod) = .init(null);
     , .{method.name});
 }
 
@@ -255,8 +261,9 @@ fn writeBuiltinOperator(w: *CodeWriter, builtin_name: []const u8, operator: *con
 
     // Lookup the method
     try w.print(
-        \\if ({0s}_ptr == null) {{
-        \\    {0s}_ptr = raw.variantGetPtrOperatorEvaluator(@intFromEnum(Variant.Operator.{1s}), @intFromEnum(Variant.Tag.forType({2s})),
+        \\var _bind = {0s}_ptr.load(.monotonic);
+        \\if (_bind == null) {{
+        \\    _bind = raw.variantGetPtrOperatorEvaluator(@intFromEnum(Variant.Operator.{1s}), @intFromEnum(Variant.Tag.forType({2s})),
     , .{ operator.name, operator.operator_name.?, builtin_name });
     w.indent += 1;
     if (operator.parameters.getPtr("rhs")) |rhs| {
@@ -270,13 +277,12 @@ fn writeBuiltinOperator(w: *CodeWriter, builtin_name: []const u8, operator: *con
         try w.writeAll(" @intFromEnum(Variant.Tag.nil)");
     }
     w.indent -= 1;
-    try w.writeLine(
-        \\);
-        \\}
-    );
+    try w.writeLine(");");
+    try w.printLine("    {0s}_ptr.store(_bind, .monotonic);", .{operator.name});
+    try w.writeLine("}");
 
     // Call the method
-    try w.print("{0s}_ptr.?(", .{operator.name});
+    try w.writeAll("_bind.?(");
     w.indent += 1;
     try w.writeAll("@ptrCast(self), ");
     if (operator.parameters.getPtr("rhs")) |_| {
@@ -290,7 +296,7 @@ fn writeBuiltinOperator(w: *CodeWriter, builtin_name: []const u8, operator: *con
 
     try writeFunctionFooter(w, operator, null, ctx);
     try w.printLine(
-        \\var {0s}_ptr: c.GDExtensionPtrOperatorEvaluator = null;
+        \\var {0s}_ptr: std.atomic.Value(c.GDExtensionPtrOperatorEvaluator) = .init(null);
     , .{operator.name});
 }
 
@@ -367,9 +373,12 @@ fn writeClass(w: *CodeWriter, class: *const Context.Class, ctx: *const Context) 
     }
 
     // Singleton storage
+    //
+    // Atomic for the same reason the method-bind caches are: `globalGetSingleton`
+    // is called lazily on first use, from whichever thread gets there first.
     if (class.is_singleton) {
         try w.printLine(
-            \\pub var instance: ?*{0s} = null;
+            \\pub var instance: std.atomic.Value(?*{0s}) = .init(null);
         , .{class.name});
     }
 
@@ -510,15 +519,19 @@ fn writeClassFunction(w: *CodeWriter, class: *const Context.Class, function: *co
 
     if (class.is_singleton) {
         try w.writeLine(
-            \\if (instance == null) {
-            \\    instance = @ptrCast(raw.globalGetSingleton(@ptrCast(&StringName.fromComptimeLatin1(self_name))).?);
+            \\var _singleton = instance.load(.monotonic);
+            \\if (_singleton == null) {
+            \\    _singleton = @ptrCast(raw.globalGetSingleton(@ptrCast(&StringName.fromComptimeLatin1(self_name))).?);
+            \\    instance.store(_singleton, .monotonic);
             \\}
         );
     }
 
     try w.printLine(
-        \\if ({0s}_ptr == null) {{
-        \\    {0s}_ptr = raw.classdbGetMethodBind(@ptrCast(&StringName.fromComptimeLatin1("{2s}")), @ptrCast(&StringName.fromComptimeLatin1("{1s}")), {3d});
+        \\var _bind = {0s}_ptr.load(.monotonic);
+        \\if (_bind == null) {{
+        \\    _bind = raw.classdbGetMethodBind(@ptrCast(&StringName.fromComptimeLatin1("{2s}")), @ptrCast(&StringName.fromComptimeLatin1("{1s}")), {3d});
+        \\    {0s}_ptr.store(_bind, .monotonic);
         \\}}
     , .{
         function.name,
@@ -527,7 +540,7 @@ fn writeClassFunction(w: *CodeWriter, class: *const Context.Class, function: *co
         function.hash.?,
     });
 
-    try w.print("raw.objectMethodBindPtrcall({0s}_ptr, ", .{function.name});
+    try w.writeAll("raw.objectMethodBindPtrcall(_bind, ");
     try writeClassFunctionObjectPtr(w, class, function, ctx);
     try w.printLine(", @ptrCast(&args), {s});", .{
         if (function.return_type != .void)
@@ -538,7 +551,7 @@ fn writeClassFunction(w: *CodeWriter, class: *const Context.Class, function: *co
 
     try writeFunctionFooter(w, function, class, ctx);
     try w.printLine(
-        \\var {0s}_ptr: c.GDExtensionMethodBindPtr = null;
+        \\var {0s}_ptr: std.atomic.Value(c.GDExtensionMethodBindPtr) = .init(null);
     , .{function.name});
 }
 
@@ -744,39 +757,43 @@ fn writeFunctionAlloc(w: *CodeWriter, function: *const Context.Function, class: 
         try w.writeLine("var err: c.GDExtensionCallError = undefined;");
         // Class method
         if (cls.is_singleton) {
-            try w.writeLine("if (instance == null) {");
+            try w.writeLine("var _singleton = instance.load(.monotonic);");
+            try w.writeLine("if (_singleton == null) {");
             w.indent += 1;
-            try w.writeLine("instance = @ptrCast(raw.globalGetSingleton(@ptrCast(&StringName.fromComptimeLatin1(self_name))).?);");
+            try w.writeLine("_singleton = @ptrCast(raw.globalGetSingleton(@ptrCast(&StringName.fromComptimeLatin1(self_name))).?);");
+            try w.writeLine("instance.store(_singleton, .monotonic);");
             w.indent -= 1;
             try w.writeLine("}");
         }
 
-        try w.printLine("if ({0s}Alloc_ptr == null) {{", .{function.name});
+        try w.printLine("var _bind = {0s}Alloc_ptr.load(.monotonic);", .{function.name});
+        try w.writeLine("if (_bind == null) {");
         w.indent += 1;
-        try w.printLine("{0s}Alloc_ptr = raw.classdbGetMethodBind(@ptrCast(&StringName.fromComptimeLatin1(\"{1s}\")), @ptrCast(&StringName.fromComptimeLatin1(\"{2s}\")), {3d});", .{
-            function.name,
+        try w.printLine("_bind = raw.classdbGetMethodBind(@ptrCast(&StringName.fromComptimeLatin1(\"{0s}\")), @ptrCast(&StringName.fromComptimeLatin1(\"{1s}\")), {2d});", .{
             function.base.?,
             function.name_api,
             function.hash.?,
         });
+        try w.printLine("{0s}Alloc_ptr.store(_bind, .monotonic);", .{function.name});
         w.indent -= 1;
         try w.writeLine("}");
 
-        try w.print("raw.objectMethodBindCall({0s}Alloc_ptr, ", .{function.name});
+        try w.writeAll("raw.objectMethodBindCall(_bind, ");
         try writeClassFunctionObjectPtr(w, cls, function, ctx);
         try w.writeLine(", @ptrCast(@alignCast(&args[0])), @intCast(args.len), @ptrCast(&result), &err);");
     } else {
         // Utility function
-        try w.printLine("if ({0s}Alloc_ptr == null) {{", .{function.name});
+        try w.printLine("var _bind = {0s}Alloc_ptr.load(.monotonic);", .{function.name});
+        try w.writeLine("if (_bind == null) {");
         w.indent += 1;
-        try w.printLine("{0s}Alloc_ptr = raw.variantGetPtrUtilityFunction(@ptrCast(@constCast(&StringName.fromComptimeLatin1(\"{1s}\"))), {2d});", .{
-            function.name,
+        try w.printLine("_bind = raw.variantGetPtrUtilityFunction(@ptrCast(@constCast(&StringName.fromComptimeLatin1(\"{0s}\"))), {1d});", .{
             function.name_api,
             function.hash.?,
         });
+        try w.printLine("{0s}Alloc_ptr.store(_bind, .monotonic);", .{function.name});
         w.indent -= 1;
         try w.writeLine("}");
-        try w.printLine("{0s}Alloc_ptr.?(@ptrCast(&result), @ptrCast(&args), @intCast(args.len));", .{function.name});
+        try w.writeLine("_bind.?(@ptrCast(&result), @ptrCast(&args), @intCast(args.len));");
     }
 
     // Return.
@@ -826,9 +843,9 @@ fn writeFunctionAlloc(w: *CodeWriter, function: *const Context.Function, class: 
 
     // Method bind pointer storage
     if (class != null) {
-        try w.printLine("var {0s}Alloc_ptr: c.GDExtensionMethodBindPtr = null;", .{function.name});
+        try w.printLine("var {0s}Alloc_ptr: std.atomic.Value(c.GDExtensionMethodBindPtr) = .init(null);", .{function.name});
     } else {
-        try w.printLine("var {0s}Alloc_ptr: c.GDExtensionPtrUtilityFunction = null;", .{function.name});
+        try w.printLine("var {0s}Alloc_ptr: std.atomic.Value(c.GDExtensionPtrUtilityFunction) = .init(null);", .{function.name});
     }
 }
 
@@ -837,9 +854,9 @@ fn writeClassFunctionObjectPtr(w: *CodeWriter, class: *const Context.Class, func
         try w.writeAll("null");
     } else if (class.getNearestSingleton(ctx)) |singleton| {
         if (class.is_singleton) {
-            try w.writeAll("@ptrCast(instance)");
+            try w.writeAll("@ptrCast(_singleton)");
         } else {
-            try w.print("@ptrCast({s}.instance)", .{singleton.name});
+            try w.print("@ptrCast({s}.instance.load(.monotonic))", .{singleton.name});
         }
     } else if (function.self == .constant) {
         try w.writeAll("@ptrCast(@constCast(self))");
@@ -1931,10 +1948,12 @@ fn writeModuleFunction(w: *CodeWriter, function: *const Context.Function, ctx: *
     try writeFunctionHeader(w, function, null, ctx);
 
     try w.printLine(
-        \\if ({0s}_ptr == null) {{
-        \\    {0s}_ptr = raw.variantGetPtrUtilityFunction(@ptrCast(@constCast(&StringName.fromComptimeLatin1("{1s}"))), {2d});
+        \\var _bind = {0s}_ptr.load(.monotonic);
+        \\if (_bind == null) {{
+        \\    _bind = raw.variantGetPtrUtilityFunction(@ptrCast(@constCast(&StringName.fromComptimeLatin1("{1s}"))), {2d});
+        \\    {0s}_ptr.store(_bind, .monotonic);
         \\}}
-        \\{0s}_ptr.?({3s}, @ptrCast(&args), @intCast(args.len));
+        \\_bind.?({3s}, @ptrCast(&args), @intCast(args.len));
     , .{
         function.name,
         function.name_api,
@@ -1943,7 +1962,7 @@ fn writeModuleFunction(w: *CodeWriter, function: *const Context.Function, ctx: *
     });
     try writeFunctionFooter(w, function, null, ctx);
     try w.printLine(
-        \\var {0s}_ptr: c.GDExtensionPtrUtilityFunction = null;
+        \\var {0s}_ptr: std.atomic.Value(c.GDExtensionPtrUtilityFunction) = .init(null);
         \\
     , .{function.name});
 }
