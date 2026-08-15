@@ -36,8 +36,12 @@ pub fn fromClosure(p_instance: anytype, comptime p_function_ptr: anytype) Callab
             "so a handler declared `fn` rather than `pub fn` cannot be found.");
     };
 
-    var method_string_name: StringName = .fromComptimeLatin1(method_name);
-    defer method_string_name.deinit();
+    // Not destroyed. `fromComptimeLatin1` interns the literal once and returns
+    // bitwise copies of it; the cache holds the only reference and a copy does
+    // not add one, so deiniting this would release a reference we never took.
+    // Godot reports that as "Unreferenced static string to 0", frees the entry,
+    // and leaves the cache pointing at a slot the next intern reuses.
+    const method_string_name: StringName = .fromComptimeLatin1(method_name);
 
     const obj = gdzig.class.upcast(*Object, p_instance);
 

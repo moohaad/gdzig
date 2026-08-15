@@ -20,6 +20,13 @@ pub inline fn fromLatin1(str: [:0]const u8, is_static: bool) StringName {
 /// Creates a StringName from a comptime Latin-1 encoded C string.
 ///
 /// The string is treated as static and the result is cached per unique string.
+///
+/// **Never call `deinit` on what this returns.** The cache holds exactly one
+/// engine reference and hands out bitwise copies of it without incrementing, so
+/// destroying a copy releases the cache's own reference. Godot then reports
+/// `BUG: Unreferenced static string to 0`, frees the entry, and the next intern
+/// takes the vacated slot -- leaving the cache handing back a name that is now
+/// some other string. Pass the value on, or take its address, and let it be.
 pub fn fromComptimeLatin1(comptime str: [:0]const u8) StringName {
     const S = struct {
         const key = str;

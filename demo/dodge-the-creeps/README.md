@@ -92,6 +92,15 @@ class once, `exit` 3..0 -- with no reload, and the crash lands after the final
 `exit(0)` returns. Skipping `registry.deinit()`, skipping the instance-binding
 pool cleanup, and skipping `unregister` each leave it unchanged.
 
+Also ruled out: the static-`StringName` underflow in `Callable.fromClosure`,
+which released a reference the cache owned and could leave a freed name behind.
+It looked like a candidate because it bites at teardown, when ClassDB drops its
+own copy of a method name. It is not this. Fixing it leaves the import run
+segfaulting exactly as before, and the run never emits the
+`Unreferenced static string to 0` error the bug produces -- consistent with the
+trigger being a class with an *empty* body, which registers no methods and so
+never reaches `fromClosure` at all.
+
 So the fault is in Godot's teardown after gdzig has handed control back, and it
 needs both a registered class and a fresh import to appear. Localising it
 further wants a native debugger, which is where this stopped.
