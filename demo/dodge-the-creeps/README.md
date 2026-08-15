@@ -156,6 +156,28 @@ self.mob_scene = godot.load(PackedScene, "res://Mob.tscn");
 the worst-reading code here: a parenthesised expression with two `orelse` blocks
 that each repeated the cleanup, now `scene.instantiateAs(Mob) orelse return`.
 
+**`Scene(@embedFile("Player.tscn"))`** goes a step further than `Child` and
+reads the whole scene at comptime, so the paths stop being copied into the code
+at all:
+
+```zig
+children: Scene(@embedFile("Player.tscn")) = .{},
+...
+if (self.children.CollisionShape2D.get()) |shape| shape.setDisabled(false);
+```
+
+`Hud` and `Player` use it; between them that removed ten `nodeAs` calls and the
+four path strings that had to agree with the editor. Renaming a node now fails
+the build rather than logging at runtime. The scenes live next to the Godot
+project rather than the Zig source, so `build.zig` names them as imports --
+`@embedFile` cannot reach outside its own module.
+
+`Main` deliberately keeps `Child`, and shows where the line is. Its `Player`
+and `Hud` children are instanced sub-scenes, which carry no `type` of their own
+-- the type lives in the other file -- so `Scene` can only offer them as `Node`.
+`Child(Player, "Player")` names the type the code actually needs. Same for a
+node added at runtime, or one inherited from a base scene.
+
 **`Weak(T).empty`** lets a field be `Weak(T)` instead of `?Weak(T)`, so reaching
 the object is one unwrap rather than two asking the same question.
 

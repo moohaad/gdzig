@@ -23,6 +23,7 @@ pub fn unregister(r: *Registry) void {
 
 allocator: Allocator,
 base: *Area2d,
+children: Scene(@embedFile("Player.tscn")) = .{},
 speed: f32 = 400.0,
 screen_size: Vector2 = .{ .x = 0, .y = 0 },
 
@@ -51,7 +52,7 @@ pub fn _ready(self: *Player) void {
 }
 
 pub fn _process(self: *Player, delta: f64) void {
-    const sprite = nodeAs(AnimatedSprite2d, self.base, "AnimatedSprite2D") orelse return;
+    const sprite = self.children.AnimatedSprite2D.get() orelse return;
 
     var velocity: Vector2 = .{ .x = 0, .y = 0 };
     if (pressed("move_right")) velocity.x += 1;
@@ -90,7 +91,7 @@ pub fn onPlayerBodyEntered(self: *Player, _: *Node2d) void {
     self.base.hide();
     self.base.emit(Hit, .{}) catch {};
 
-    const shape = nodeAs(CollisionShape2d, self.base, "CollisionShape2D") orelse return;
+    const shape = self.children.CollisionShape2D.get() orelse return;
 
     // Deferred: the body is mid-collision-response, and Godot refuses to change
     // shape state during physics resolution.
@@ -104,7 +105,7 @@ pub fn start(self: *Player, pos: Vector2) void {
     self.base.setGlobalPosition(pos);
     self.base.show();
 
-    if (nodeAs(CollisionShape2d, self.base, "CollisionShape2D")) |shape| {
+    if (self.children.CollisionShape2D.get()) |shape| {
         shape.setDisabled(false);
     }
 }
@@ -117,10 +118,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const godot = @import("godot");
+const Scene = godot.Scene;
 const Registry = godot.extension.Registry;
-const AnimatedSprite2d = godot.class.AnimatedSprite2d;
 const Area2d = godot.class.Area2d;
-const CollisionShape2d = godot.class.CollisionShape2d;
 const Input = godot.class.Input;
 const Node2d = godot.class.Node2d;
 const Object = godot.class.Object;
@@ -128,4 +128,3 @@ const StringName = godot.builtin.StringName;
 const Variant = godot.builtin.Variant;
 const Vector2 = godot.builtin.Vector2;
 
-const nodeAs = @import("nodes.zig").nodeAs;

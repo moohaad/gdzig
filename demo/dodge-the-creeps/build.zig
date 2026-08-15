@@ -21,6 +21,14 @@ pub fn build(b: *Build) !void {
         },
     });
 
+    // `Scene(@embedFile(...))` needs the scene text, and `@embedFile` cannot
+    // reach outside the module's own directory -- the scenes live in the Godot
+    // project next door. Naming them as imports is how a file outside the
+    // module gets in; `@embedFile("Hud.tscn")` then resolves to this path.
+    for ([_][]const u8{ "Hud.tscn", "Main.tscn", "Mob.tscn", "Player.tscn" }) |scene| {
+        mod.addAnonymousImport(scene, .{ .root_source_file = b.path(b.fmt("godot/{s}", .{scene})) });
+    }
+
     const extension = gdzig.addExtension(b, .{
         .name = "dodge",
         .root_module = mod,

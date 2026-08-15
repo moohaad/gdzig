@@ -1,0 +1,20 @@
+[gd_scene load_steps=2 format=3 uid="uid://gdzigtestfixture"]
+
+[ext_resource type="PackedScene" path="res://Other.tscn" id="1_other"]
+
+[node name="Root" type="Node"]
+
+[node name="Marker" type="Node" parent="."]
+
+[node name="Branch" type="Node" parent="."]
+some_property = 3
+
+[node name="Leaf" type="Node" parent="Branch"]
+
+[node name="Sprite" type="Sprite2D" parent="." groups=["tagged"]]
+
+[node name="Instanced" parent="." instance=ExtResource("1_other")]
+
+[node name="Mismatch" type="Timer" parent="."]
+
+[node name="Absent" type="Node" parent="."]

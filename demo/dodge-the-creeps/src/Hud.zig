@@ -25,6 +25,9 @@ pub fn unregister(r: *Registry) void {
 
 allocator: Allocator,
 base: *CanvasLayer,
+/// Every child, straight from the scene file. Renaming one in the editor now
+/// breaks the build rather than logging at runtime.
+children: Scene(@embedFile("Hud.tscn")) = .{},
 
 pub fn create(allocator: *Allocator) !*Hud {
     const self = try allocator.create(Hud);
@@ -46,11 +49,11 @@ pub fn destroy(self: *Hud, allocator: *Allocator) void {
 }
 
 pub fn showMessage(self: *Hud, text: String) void {
-    if (nodeAs(Label, self.base, "MessageLabel")) |label| {
+    if (self.children.MessageLabel.get()) |label| {
         label.setText(text);
         label.show();
     }
-    if (nodeAs(Timer, self.base, "MessageTimer")) |timer| {
+    if (self.children.MessageTimer.get()) |timer| {
         timer.start(.{});
     }
 }
@@ -72,19 +75,19 @@ pub fn showGameOver(self: *Hud) void {
 }
 
 pub fn showStartButton(self: *Hud) void {
-    if (nodeAs(Label, self.base, "MessageLabel")) |label| {
+    if (self.children.MessageLabel.get()) |label| {
         var text: String = .fromLatin1("Dodge the\nCreeps!");
         defer text.deinit();
         label.setText(text);
         label.show();
     }
-    if (nodeAs(Button, self.base, "StartButton")) |button| {
+    if (self.children.StartButton.get()) |button| {
         button.show();
     }
 }
 
 pub fn updateScore(self: *Hud, score: i64) void {
-    const label = nodeAs(Label, self.base, "ScoreLabel") orelse return;
+    const label = self.children.ScoreLabel.get() orelse return;
 
     var buf: [32]u8 = undefined;
     const digits = std.fmt.bufPrint(&buf, "{d}", .{score}) catch return;
@@ -95,14 +98,14 @@ pub fn updateScore(self: *Hud, score: i64) void {
 }
 
 pub fn onStartButtonPressed(self: *Hud) void {
-    if (nodeAs(Button, self.base, "StartButton")) |button| {
+    if (self.children.StartButton.get()) |button| {
         button.hide();
     }
     self.base.emit(StartGame, .{}) catch |e| std.log.err("emit StartGame: {s}", .{@errorName(e)});
 }
 
 pub fn onMessageTimerTimeout(self: *Hud) void {
-    if (nodeAs(Label, self.base, "MessageLabel")) |label| {
+    if (self.children.MessageLabel.get()) |label| {
         label.hide();
     }
 }
@@ -111,14 +114,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const godot = @import("godot");
+const Scene = godot.Scene;
 const Registry = godot.extension.Registry;
-const Button = godot.class.Button;
 const CanvasLayer = godot.class.CanvasLayer;
-const Label = godot.class.Label;
 const Object = godot.class.Object;
 const SceneTreeTimer = godot.class.SceneTreeTimer;
 const String = godot.builtin.String;
 const StringName = godot.builtin.StringName;
-const Timer = godot.class.Timer;
 
-const nodeAs = @import("nodes.zig").nodeAs;

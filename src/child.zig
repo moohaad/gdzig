@@ -87,6 +87,7 @@ pub fn hasAny(comptime T: type) bool {
     if (@typeInfo(T) != .@"struct") return false;
     inline for (@typeInfo(T).@"struct".fields) |field| {
         if (comptime isChild(field.type)) return true;
+        if (comptime isGroup(field.type)) return true;
     }
     return false;
 }
@@ -95,20 +96,51 @@ pub fn hasAny(comptime T: type) bool {
 /// `_ready` wrapper, before the user's own `_ready`.
 pub fn resolveAll(comptime T: type, instance: *T) void {
     const owner = oopz.upcast(*Node, instance);
-    inline for (@typeInfo(T).@"struct".fields) |field| {
+    resolveInto(T, @typeName(T), instance, owner);
+}
+
+/// One level of the walk. Paths stay relative to `owner`, the node the class
+/// itself is, however deeply the field is nested.
+fn resolveInto(comptime S: type, comptime label: []const u8, target: *S, owner: *Node) void {
+    inline for (@typeInfo(S).@"struct".fields) |field| {
         if (comptime isChild(field.type)) {
             const Target = field.type.Resolves;
             const found = lookup(Target, owner, field.type.node_path);
             if (found) |node| {
-                @field(instance, field.name) = .{ .handle = .init(node) };
+                @field(target, field.name) = .{ .handle = .init(node) };
             } else {
                 std.log.err(
                     "{s}.{s}: no child '{s}' of type {s}",
-                    .{ @typeName(T), field.name, field.type.node_path, @typeName(Target) },
+                    .{ label, field.name, field.type.node_path, @typeName(Target) },
                 );
             }
+        } else if (comptime isGroup(field.type)) {
+            resolveInto(
+                field.type,
+                label ++ "." ++ field.name,
+                &@field(target, field.name),
+                owner,
+            );
         }
     }
+}
+
+/// A struct whose fields are all `Child`, which is what `Scene` builds and what
+/// hand-grouping them looks like. Recognised structurally because a type made
+/// by `@Struct` cannot carry a marker declaration.
+///
+/// Deliberately narrow: descending into *any* struct would walk every `Vector2`
+/// and `String` on the class looking for something that cannot be there.
+fn isGroup(comptime F: type) bool {
+    const info = @typeInfo(F);
+    if (info != .@"struct") return false;
+    if (info.@"struct".layout != .auto) return false;
+    if (info.@"struct".fields.len == 0) return false;
+    if (isChild(F)) return false;
+    inline for (info.@"struct".fields) |field| {
+        if (!isChild(field.type)) return false;
+    }
+    return true;
 }
 
 /// Exact test for `Child(U, p)`, so an unrelated struct that happens to declare
