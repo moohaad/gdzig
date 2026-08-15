@@ -54,8 +54,8 @@ pub fn _enterTree(self: *GuiNode) void {
     toggle_btn.setSize(.initXY(100, 50), .{});
     toggle_btn.setText(.fromLatin1("Toggle Me"));
 
-    toggle_btn.connect(Button.Toggled, .fromClosure(self, &onToggled)) catch {};
-    normal_btn.connect(Button.Pressed, .fromClosure(self, &onPressed)) catch {};
+    toggle_btn.connect(Button.Toggled, self, &onToggled) catch {};
+    normal_btn.connect(Button.Pressed, self, &onPressed) catch {};
 
     var res_name: String = .fromLatin1("res://textures/logo.png");
     defer res_name.deinit();

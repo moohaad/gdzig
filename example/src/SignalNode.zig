@@ -91,12 +91,12 @@ pub fn _enterTree(self: *SignalNode) void {
     self.color_rect.setColor(.initRGBA(1, 0, 0, 1));
     self.base.addChild(.upcast(self.color_rect), .{});
 
-    signal1_btn.connect(Button.Pressed, .fromClosure(self, &emitSignal1)) catch {};
-    signal2_btn.connect(Button.Pressed, .fromClosure(self, &emitSignal2)) catch {};
-    signal3_btn.connect(Button.Pressed, .fromClosure(self, &emitSignal3)) catch {};
-    self.base.connect(Signal1, .fromClosure(self, &onSignal1)) catch {};
-    self.base.connect(Signal2, .fromClosure(self, &onSignal2)) catch {};
-    self.base.connect(Signal3, .fromClosure(self, &onSignal3)) catch {};
+    signal1_btn.connect(Button.Pressed, self, &emitSignal1) catch {};
+    signal2_btn.connect(Button.Pressed, self, &emitSignal2) catch {};
+    signal3_btn.connect(Button.Pressed, self, &emitSignal3) catch {};
+    self.base.connect(Signal1, self, &onSignal1) catch {};
+    self.base.connect(Signal2, self, &onSignal2) catch {};
+    self.base.connect(Signal3, self, &onSignal3) catch {};
 }
 
 pub fn _exitTree(self: *SignalNode) void {

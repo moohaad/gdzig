@@ -27,7 +27,7 @@ test "signal connect and emit" {
 
     const callable: Callable = .fromClosure(receiver, &SignalReceiver.onSignal);
 
-    try emitter.base.connect(TestSignal, callable);
+    try emitter.base.connectCallable(TestSignal, callable);
 
     try testing.expectEqual(@as(i64, 0), receiver.count);
     try testing.expectEqual(@as(i64, 0), receiver.value);
@@ -37,12 +37,39 @@ test "signal connect and emit" {
     try testing.expectEqual(@as(i64, 1), receiver.count);
     try testing.expectEqual(@as(i64, 42), receiver.value);
 
-    emitter.base.disconnect(TestSignal, callable);
+    emitter.base.disconnectCallable(TestSignal, callable);
 
     try emitter.base.emit(TestSignal, .{ .value = 99 });
 
     try testing.expectEqual(@as(i64, 1), receiver.count);
     try testing.expectEqual(@as(i64, 42), receiver.value);
+}
+
+test "disconnect matches by receiver and method, not by Callable identity" {
+    ensureRegistered();
+
+    const emitter = try SignalEmitter.create();
+    defer emitter.destroy();
+
+    const receiver = try SignalReceiver.create();
+    defer receiver.destroy();
+
+    // Connect and disconnect without keeping anything in between. Each call
+    // builds its own `Callable`, so this only works if Godot compares object
+    // and method name rather than the value that made the connection -- which
+    // is what lets `connect`/`disconnect` take a receiver and a method pointer
+    // instead of a `Callable` the caller has to store.
+    try emitter.base.connect(TestSignal, receiver, &SignalReceiver.onSignal);
+    try emitter.base.emit(TestSignal, .{ .value = 7 });
+    try testing.expectEqual(@as(i64, 1), receiver.count);
+
+    emitter.base.disconnect(TestSignal, receiver, &SignalReceiver.onSignal);
+    try emitter.base.emit(TestSignal, .{ .value = 8 });
+
+    // Still 1, and still holding the first value: the second emission was not
+    // delivered. Without the disconnect this reads 2 and 8.
+    try testing.expectEqual(@as(i64, 1), receiver.count);
+    try testing.expectEqual(@as(i64, 7), receiver.value);
 }
 
 const TestSignal = struct {

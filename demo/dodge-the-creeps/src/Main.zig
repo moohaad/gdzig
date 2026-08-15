@@ -14,11 +14,11 @@ pub fn register(r: *Registry) void {
     // Wired in Main.tscn from StartTimer.timeout.
     class.addMethod("on_start_timer_timeout", .auto);
 
-    // The rest are connected from `_ready` with `Callable.fromClosure`, which
-    // matches the handler against *public* decls and then checks Godot knows
-    // the method. So unlike godot-rust -- where `connect_other` needs no
-    // `#[func]` -- a closure-connected handler has to be pub and registered
-    // here. Both mistakes now fail the build rather than at the connection.
+    // The rest are connected from `_ready` with `connect(S, self, &method)`,
+    // which matches the handler against *public* decls and then checks Godot
+    // knows the method. So unlike godot-rust -- where `connect_other` needs no
+    // `#[func]` -- a code-connected handler has to be pub and registered here.
+    // Both mistakes now fail the build rather than at the connection.
     class.addMethod("game_over", .auto);
     class.addMethod("new_game", .auto);
     class.addMethod("on_score_timer_timeout", .auto);
@@ -65,16 +65,16 @@ pub fn _ready(self: *Main) void {
     self.mob_scene = godot.load(PackedScene, "res://Mob.tscn");
 
     if (self.player.get()) |live| {
-        live.base.connect(Player.Hit, .fromClosure(self, &gameOver)) catch |e| std.log.err("connect Player.Hit: {s}", .{@errorName(e)});
+        live.base.connect(Player.Hit, self, &gameOver) catch |e| std.log.err("connect Player.Hit: {s}", .{@errorName(e)});
     }
     if (self.hud.get()) |live| {
-        live.base.connect(Hud.StartGame, .fromClosure(self, &newGame)) catch |e| std.log.err("connect Hud.StartGame: {s}", .{@errorName(e)});
+        live.base.connect(Hud.StartGame, self, &newGame) catch |e| std.log.err("connect Hud.StartGame: {s}", .{@errorName(e)});
     }
     if (self.children.ScoreTimer.get()) |t| {
-        t.connect(Timer.Timeout, .fromClosure(self, &onScoreTimerTimeout)) catch |e| std.log.err("connect ScoreTimer: {s}", .{@errorName(e)});
+        t.connect(Timer.Timeout, self, &onScoreTimerTimeout) catch |e| std.log.err("connect ScoreTimer: {s}", .{@errorName(e)});
     }
     if (self.children.MobTimer.get()) |t| {
-        t.connect(Timer.Timeout, .fromClosure(self, &onMobTimerTimeout)) catch |e| std.log.err("connect MobTimer: {s}", .{@errorName(e)});
+        t.connect(Timer.Timeout, self, &onMobTimerTimeout) catch |e| std.log.err("connect MobTimer: {s}", .{@errorName(e)});
     }
 }
 

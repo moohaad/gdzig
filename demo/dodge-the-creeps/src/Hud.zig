@@ -14,8 +14,8 @@ pub fn register(r: *Registry) void {
     // Wired in Hud.tscn.
     class.addMethod("on_start_button_pressed", .auto);
     class.addMethod("on_message_timer_timeout", .auto);
-    // Connected from `showGameOver` via `fromClosure`, which requires the
-    // handler to be registered even though it is never named as a string.
+    // Connected from `showGameOver` via `once`, which requires the handler to
+    // be registered even though it is never named as a string.
     class.addMethod("show_start_button", .auto);
 }
 
@@ -70,7 +70,7 @@ pub fn showGameOver(self: *Hud) void {
     // "Wait two seconds, then show the button" -- the shape GDScript writes as
     // `await`. `once` is the primitive underneath it: a connection Godot drops
     // after the first emission.
-    timer.get().once(SceneTreeTimer.Timeout, .fromClosure(self, &showStartButton)) catch |e|
+    timer.get().once(SceneTreeTimer.Timeout, self, &showStartButton) catch |e|
         std.log.err("once SceneTreeTimer.Timeout: {s}", .{@errorName(e)});
 }
 

@@ -98,8 +98,35 @@ fn typeToken(comptime T: type) *anyopaque {
     }.token);
 }
 
-/// Connects a signal to a callable.
-pub fn connect(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
+/// Connects a signal to a method on `receiver`.
+///
+/// ```zig
+/// try player.base.connect(Player.Hit, self, &gameOver);
+/// ```
+///
+/// `method` points at one of `receiver`'s *public* declarations, which is how
+/// the method name is recovered at comptime, and the method has to be
+/// registered with `addMethod` so Godot knows it by that name. Both mistakes
+/// fail the build.
+///
+/// The receiver is passed because it cannot be inferred: a function pointer
+/// names a function, not an object, and Godot's callable is an object plus a
+/// method name. Deriving it from the receiver would only be right when a class
+/// connects its own signal to its own method, which is the rarer case -- the
+/// emitter is usually some other node.
+///
+/// `connectCallable` takes a `Callable` you already hold.
+///
+/// Named `receiver` rather than `instance` because this mixin is merged into
+/// every class, and singletons generate a class-level `pub var instance` that
+/// a parameter of that name shadows.
+pub fn connect(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) ConnectError!void {
+    return self.connectCallable(S, .fromClosure(receiver, method));
+}
+
+/// `connect` for a `Callable` you already have: one built elsewhere, or one
+/// you keep in order to `disconnectCallable` the same value later.
+pub fn connectCallable(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
     const signal_name = StringName.fromSignal(S);
     const result = self.connectRaw(signal_name.*, callable, .{});
     if (result != .ok) return ConnectError.AlreadyConnected;
@@ -116,21 +143,35 @@ pub fn connect(self: *Self, comptime S: type, callable: Callable) ConnectError!v
 /// ```zig
 /// var timer = tree.createTimer(2.0, .{}).?;
 /// defer timer.deinit();
-/// try timer.get().once(SceneTreeTimer.Timeout, .fromClosure(self, &showStartButton));
+/// try timer.get().once(SceneTreeTimer.Timeout, self, &showStartButton);
 /// ```
 ///
 /// A sequence of waits still needs explicit state, the way the engine does it.
 /// That is the one case `await` genuinely buys something, and it is not worth a
 /// coroutine runtime to get.
-pub fn once(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
+pub fn once(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) ConnectError!void {
+    return self.onceCallable(S, .fromClosure(receiver, method));
+}
+
+/// `once` for a `Callable` you already have.
+pub fn onceCallable(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
     const signal_name = StringName.fromSignal(S);
     const flags: Object.ConnectFlags = .{ .connect_one_shot = true };
     const result = self.connectRaw(signal_name.*, callable, .{ .flags = @bitCast(flags) });
     if (result != .ok) return ConnectError.AlreadyConnected;
 }
 
-/// Disconnects a signal from a callable.
-pub fn disconnect(self: *Self, comptime S: type, callable: Callable) void {
+/// Disconnects a signal from a method on `receiver`.
+///
+/// Matches by object and method name rather than by the identity of the
+/// `Callable` that made the connection, so this undoes a `connect` written the
+/// same way without having kept anything.
+pub fn disconnect(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) void {
+    self.disconnectCallable(S, .fromClosure(receiver, method));
+}
+
+/// `disconnect` for a `Callable` you already have.
+pub fn disconnectCallable(self: *Self, comptime S: type, callable: Callable) void {
     const signal_name = StringName.fromSignal(S);
     self.disconnectRaw(signal_name.*, callable);
 }
