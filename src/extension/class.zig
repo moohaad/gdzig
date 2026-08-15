@@ -48,11 +48,28 @@ pub const DestroyInstanceBinding = struct {
     /// How many gdzig dispatches -- bound methods and virtual overrides -- are
     /// currently executing on this instance. Freeing the object while this is
     /// non-zero means the dispatch is about to return into freed memory.
-    dispatch_depth: u16 = 0,
+    ///
+    /// Atomic because Godot dispatches from whichever thread makes the call; a
+    /// torn counter would turn a debugging aid into a source of false panics.
+    dispatch_depth: std.atomic.Value(u16) = .init(0),
 
     var gpa: GeneralPurposeAllocator = .init;
     const allocator = gpa.allocator();
     var pool: MemoryPool(DestroyInstanceBinding) = .empty;
+
+    /// Guards `pool` and `gpa`, neither of which locks. Godot creates and frees
+    /// instance bindings from whichever thread touches or drops the object, so
+    /// two concurrent frees would corrupt the pool's free list.
+    ///
+    /// A spin lock rather than a blocking one because Zig 0.16 has no io-free
+    /// blocking mutex: `std.Io.Mutex` wants an `Io`, which a shared library with
+    /// no `main` does not have, and `std.atomic.Mutex` is try-only. The critical
+    /// section is a pool alloc or free, so spinning is the right trade anyway.
+    var pool_lock: std.atomic.Mutex = .unlocked;
+
+    fn lockPool() void {
+        while (!pool_lock.tryLock()) std.atomic.spinLoopHint();
+    }
 
     pub const callbacks: c.GDExtensionInstanceBindingCallbacks = .{
         .create_callback = &create,
@@ -60,6 +77,9 @@ pub const DestroyInstanceBinding = struct {
     };
 
     fn create(_: ?*anyopaque, _: ?*anyopaque) callconv(.c) ?*anyopaque {
+        lockPool();
+        defer pool_lock.unlock();
+
         const self = pool.create(allocator) catch return null;
         // `MemoryPool.create` hands back raw storage; the field defaults above
         // are declarations, not an initializer, so without this every binding
@@ -70,6 +90,9 @@ pub const DestroyInstanceBinding = struct {
     }
 
     fn free(_: ?*anyopaque, _: ?*anyopaque, binding: ?*anyopaque) callconv(.c) void {
+        lockPool();
+        defer pool_lock.unlock();
+
         if (binding) |self| pool.destroy(@ptrCast(@alignCast(self)));
     }
 
@@ -88,11 +111,14 @@ pub const DestroyInstanceBinding = struct {
     /// running. Either way the dispatch returns into freed memory.
     pub fn assertNotDispatching(self: *const DestroyInstanceBinding) void {
         if (!track_dispatch) return;
-        if (self.dispatch_depth == 0) return;
+        if (self.dispatch_depth.load(.monotonic) == 0) return;
         @panic("object freed while one of its methods was still running; use queueFree to defer the free until the call has returned");
     }
 
     pub fn cleanup() void {
+        lockPool();
+        defer pool_lock.unlock();
+
         pool.deinit(allocator);
         assert(gpa.deinit() == .ok);
     }
@@ -116,13 +142,13 @@ pub const DispatchGuard = struct {
         // behind them. Nothing to track there.
         if (comptime !class.isClassPtr(@TypeOf(instance))) return .{ .binding = null };
         const binding = DestroyInstanceBinding.get(Object.upcast(instance));
-        if (binding) |b| b.dispatch_depth += 1;
+        if (binding) |b| _ = b.dispatch_depth.fetchAdd(1, .monotonic);
         return .{ .binding = binding };
     }
 
     pub fn leave(self: DispatchGuard) void {
         if (!track_dispatch) return;
-        if (self.binding) |b| b.dispatch_depth -= 1;
+        if (self.binding) |b| _ = b.dispatch_depth.fetchSub(1, .monotonic);
     }
 };
 

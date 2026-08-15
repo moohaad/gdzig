@@ -24,19 +24,31 @@ pub fn fromComptimeLatin1(comptime str: [:0]const u8) StringName {
     const S = struct {
         const key = str;
         var value: StringName = undefined;
-        var init: bool = false;
+        /// 0 = untouched, 1 = a thread is building it, 2 = published.
+        ///
+        /// A plain `bool` raced: a second thread could see it set beside a
+        /// half-written `StringName`, since nothing ordered the two stores. The
+        /// release/acquire pair below is what makes the value visible only
+        /// after it is complete.
+        var state: std.atomic.Value(u8) = .init(0);
     };
 
-    if (S.init) return S.value;
+    if (S.state.load(.acquire) == 2) return S.value;
 
-    if (raw.stringNameNewWithLatin1Chars) |func| {
-        func(@ptrCast(&S.value), @ptrCast(str.ptr), 1);
-        S.init = true;
-    } else {
-        S.value = viaString(str);
-        S.init = true;
+    if (S.state.cmpxchgStrong(0, 1, .acquire, .monotonic) == null) {
+        // This thread owns the initialisation.
+        if (raw.stringNameNewWithLatin1Chars) |func| {
+            func(@ptrCast(&S.value), @ptrCast(str.ptr), 1);
+        } else {
+            S.value = viaString(str);
+        }
+        S.state.store(2, .release);
+        return S.value;
     }
 
+    // Another thread got there first; wait for it to publish. Construction is a
+    // single engine call, so spinning beats any machinery to sleep on.
+    while (S.state.load(.acquire) != 2) std.atomic.spinLoopHint();
     return S.value;
 }
 
