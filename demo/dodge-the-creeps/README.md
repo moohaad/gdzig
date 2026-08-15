@@ -32,10 +32,15 @@ see *What this port drove into gdzig* below.
 
 **Handlers connected from code must still be registered.** godot-rust's
 `connect_other(&main, Self::game_over)` needs no `#[func]`. gdzig's
-`Callable.fromClosure` finds the handler by scanning the type's *public* decls
-and then asks Godot whether the method exists, so every closure-connected
-handler has to be both `pub` and passed to `addMethod`. Forgetting either is a
-runtime panic, not a compile error.
+`Callable.fromClosure` matches the handler against the type's *public* decls and
+then asks Godot whether the method exists, so every closure-connected handler
+has to be both `pub` and passed to `addMethod`.
+
+Both mistakes are caught at build time. Declaring the handler `fn` rather than
+`pub fn` used to panic at the connection -- it is the bug that broke this port
+-- and is now a compile error naming the type and the likely cause. The
+`hasMethod` check stays a runtime panic, since registration happens at runtime
+and there is nothing to check earlier.
 
 **No methods on your own type, and no typed signal accessors.** `self` is a
 plain Zig struct, so everything goes through `self.base`:

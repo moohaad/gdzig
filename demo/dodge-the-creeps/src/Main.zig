@@ -15,10 +15,10 @@ pub fn register(r: *Registry) void {
     class.addMethod("on_start_timer_timeout", .auto);
 
     // The rest are connected from `_ready` with `Callable.fromClosure`, which
-    // resolves the handler by scanning *public* decls and then checks Godot
-    // knows the method. So unlike godot-rust -- where `connect_other` needs no
-    // `#[func]` -- a closure-connected handler still has to be pub and
-    // registered here.
+    // matches the handler against *public* decls and then checks Godot knows
+    // the method. So unlike godot-rust -- where `connect_other` needs no
+    // `#[func]` -- a closure-connected handler has to be pub and registered
+    // here. Both mistakes now fail the build rather than at the connection.
     class.addMethod("game_over", .auto);
     class.addMethod("new_game", .auto);
     class.addMethod("on_score_timer_timeout", .auto);
