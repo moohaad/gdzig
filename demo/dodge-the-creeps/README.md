@@ -168,9 +168,15 @@ if (self.children.CollisionShape2D.get()) |shape| shape.setDisabled(false);
 
 `Hud` and `Player` use it; between them that removed ten `nodeAs` calls and the
 four path strings that had to agree with the editor. Renaming a node now fails
-the build rather than logging at runtime. The scenes live next to the Godot
-project rather than the Zig source, so `build.zig` names them as imports --
-`@embedFile` cannot reach outside its own module.
+the build rather than logging at runtime.
+
+`@embedFile` cannot reach outside its own module, and the scenes live in the
+Godot project rather than beside the Zig source, so they have to be named as
+imports. `addExtension` does that for you from one line:
+
+```zig
+.godot_project = "godot",
+```
 
 `Main` deliberately keeps `Child`, and shows where the line is. Its `Player`
 and `Hud` children are instanced sub-scenes, which carry no `type` of their own

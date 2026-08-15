@@ -22,6 +22,21 @@ pub const ExtensionOptions = struct {
     emsdk_path: ?Build.LazyPath = null,
     /// For web builds, the Emscripten version to use.
     emsdk_version: []const u8 = "4.0.20",
+    /// Path to the Godot project, relative to the build root.
+    ///
+    /// When set, every `.tscn` under it is added to `root_module` as an import
+    /// named by its path relative to the project, so `Scene` can reach it:
+    ///
+    /// ```zig
+    /// children: Scene(@embedFile("Player.tscn")) = .{},
+    /// children: Scene(@embedFile("ui/Menu.tscn")) = .{},
+    /// ```
+    ///
+    /// Without this, each scene has to be named in your own `build.zig`.
+    /// `@embedFile` resolves relative to the importing file and cannot leave
+    /// its module, and the scenes live in the Godot project rather than beside
+    /// the Zig source, so naming them as imports is the way in.
+    godot_project: ?[]const u8 = null,
 };
 
 /// A GDExtension build artifact.
@@ -48,6 +63,8 @@ pub const Extension = struct {
 pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
     const dep = getSelfDependency(b);
     const is_wasm = options.target.result.cpu.arch.isWasm();
+
+    if (options.godot_project) |project| addSceneImports(b, options.root_module, project);
 
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "entry_symbol", options.entry_symbol);
@@ -82,6 +99,45 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
             .filename = lib.out_filename,
         };
         return ext;
+    }
+}
+
+/// Names every `.tscn` under `project` as an import on `mod`, so `@embedFile`
+/// can reach a file outside the module's own directory.
+///
+/// Import names are the path relative to `project`, with `/` separators. The
+/// walker yields `ui\Menu.tscn` on Windows and an import registered under that
+/// name is not found by `@embedFile("ui/Menu.tscn")` -- measured, not assumed --
+/// so the same source has to compile on both.
+///
+/// Scenes that are never embedded cost nothing but a module entry, so this
+/// takes the whole directory rather than asking which ones you meant.
+fn addSceneImports(b: *Build, mod: *Build.Module, project: []const u8) void {
+    const io = b.graph.io;
+
+    var dir = b.build_root.handle.openDir(io, project, .{ .iterate = true }) catch |err| {
+        std.debug.panic(
+            "gdzig: godot_project '{s}' cannot be opened: {s}",
+            .{ project, @errorName(err) },
+        );
+    };
+    defer dir.close(io);
+
+    var walker = dir.walk(b.allocator) catch @panic("OOM");
+    defer walker.deinit();
+
+    while (walker.next(io) catch null) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".tscn")) continue;
+        // `.godot/` is the editor's import cache, regenerated and not source.
+        if (std.mem.startsWith(u8, entry.path, ".")) continue;
+
+        const name = b.dupe(entry.path);
+        std.mem.replaceScalar(u8, name, '\\', '/');
+
+        mod.addAnonymousImport(name, .{
+            .root_source_file = b.path(b.pathJoin(&.{ project, name })),
+        });
     }
 }
 
