@@ -18,6 +18,7 @@ pub fn unregister(r: *Registry) void {
 
 allocator: Allocator,
 base: *RigidBody2d,
+children: Scene(@embedFile("Mob.tscn")) = .{},
 min_speed: f32 = 150.0,
 max_speed: f32 = 250.0,
 
@@ -41,7 +42,7 @@ pub fn destroy(self: *Mob, allocator: *Allocator) void {
 }
 
 pub fn _ready(self: *Mob) void {
-    const sprite = nodeAs(AnimatedSprite2d, self.base, "AnimatedSprite2D") orelse return;
+    const sprite = self.children.AnimatedSprite2D.get() orelse return;
     sprite.play(.{});
 
     // `getSpriteFrames` returns an owning handle, so it needs releasing; the
@@ -75,11 +76,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const godot = @import("godot");
+const Scene = godot.Scene;
 const random = godot.random;
 const Registry = godot.extension.Registry;
-const AnimatedSprite2d = godot.class.AnimatedSprite2d;
 const Object = godot.class.Object;
 const RigidBody2d = godot.class.RigidBody2d;
 const StringName = godot.builtin.StringName;
-
-const nodeAs = @import("nodes.zig").nodeAs;

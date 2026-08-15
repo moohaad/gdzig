@@ -22,7 +22,6 @@ but if you invoke Godot yourself, do an `--import` pass first.
 | `src/Player.zig` | eight-way movement, clamped to the screen |
 | `src/Mob.zig` | an enemy that frees itself once off-screen |
 | `src/Hud.zig` | score, messages, start button |
-| `src/nodes.zig` | `nodeAs`, for the lookups that are not declared as fields |
 
 ## What differs from the Rust version
 
@@ -62,7 +61,7 @@ Three smaller notes, the first two places where this port initially went wrong:
   need releasing.
 * Engine classes downcast with `T.downcast(node)`; a class defined here is a
   plain struct reached through `asInstance(T)` on its base. `class.castTo(T, v)`
-  hides that difference, and is what `nodeAs` uses.
+  hides that difference, and is what `Child` uses to type a resolved node.
 * **Upcasting to call an inherited method is unnecessary.** bindgen flattens
   every inherited method onto every class, so `Area2d` already has `hide`,
   `getNode` and `setGlobalPosition`, and `CollisionShape2d` already has
@@ -166,9 +165,10 @@ children: Scene(@embedFile("Player.tscn")) = .{},
 if (self.children.CollisionShape2D.get()) |shape| shape.setDisabled(false);
 ```
 
-`Hud` and `Player` use it; between them that removed ten `nodeAs` calls and the
-four path strings that had to agree with the editor. Renaming a node now fails
-the build rather than logging at runtime.
+All four classes use it. That removed fourteen `nodeAs` calls, the twelve path
+strings behind them that had to agree with the editor, and the `nodes.zig`
+helper the port started with. Renaming a node now fails the build rather than logging at
+runtime.
 
 `@embedFile` cannot reach outside its own module, and the scenes live in the
 Godot project rather than beside the Zig source, so they have to be named as

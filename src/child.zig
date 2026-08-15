@@ -7,7 +7,11 @@
 //! hud: Weak(Hud) = .empty,
 //!
 //! pub fn _ready(self: *Main) void {
-//!     if (nodeAs(Hud, self.base, "Hud")) |h| self.hud = .init(h);
+//!     var path: NodePath = .fromString(.fromLatin1("Hud"));
+//!     defer path.deinit();
+//!     if (self.base.getNode(path)) |node| {
+//!         if (gdzig.class.castTo(Hud, node)) |hud| self.hud = .init(hud);
+//!     }
 //! }
 //! ```
 //!
@@ -37,6 +41,14 @@
 //! missing child means the scene and the code disagree, which is worth seeing
 //! rather than crashing on -- and since the result is a [`Weak`](weak.zig)
 //! handle, `get` stays honest afterwards if the node is freed later.
+//!
+//! ## Or let the scene declare them
+//!
+//! [`Scene(@embedFile("Main.tscn"))`](scene.zig) builds a struct of these from
+//! the file, so the paths are not written out at all and a rename fails the
+//! build. `Child` remains the right tool for what a scene file cannot type: an
+//! instanced sub-scene, a node inherited from a base scene, or one added at
+//! runtime.
 
 const std = @import("std");
 

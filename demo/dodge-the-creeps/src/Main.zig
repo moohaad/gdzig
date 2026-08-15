@@ -33,10 +33,13 @@ allocator: Allocator,
 base: *Node,
 score: i64 = 0,
 mob_scene: ?Gd(PackedScene) = null,
+/// Everything Main.tscn declares with a type of its own.
+children: Scene(@embedFile("Main.tscn")) = .{},
+/// `Player` and `Hud` are instanced sub-scenes, so the file gives them no type
+/// -- it lives in the other scene. `Scene` can only offer those as `Node`;
+/// `Child` names the type this code actually needs.
 player: Child(Player, "Player") = .pending,
 hud: Child(Hud, "Hud") = .pending,
-music: Child(AudioStreamPlayer, "Music") = .pending,
-death_sound: Child(AudioStreamPlayer, "DeathSound") = .pending,
 
 pub fn create(allocator: *Allocator) !*Main {
     const self = try allocator.create(Main);
@@ -67,30 +70,30 @@ pub fn _ready(self: *Main) void {
     if (self.hud.get()) |live| {
         live.base.connect(Hud.StartGame, .fromClosure(self, &newGame)) catch |e| std.log.err("connect Hud.StartGame: {s}", .{@errorName(e)});
     }
-    if (self.timer("ScoreTimer")) |t| {
+    if (self.children.ScoreTimer.get()) |t| {
         t.connect(Timer.Timeout, .fromClosure(self, &onScoreTimerTimeout)) catch |e| std.log.err("connect ScoreTimer: {s}", .{@errorName(e)});
     }
-    if (self.timer("MobTimer")) |t| {
+    if (self.children.MobTimer.get()) |t| {
         t.connect(Timer.Timeout, .fromClosure(self, &onMobTimerTimeout)) catch |e| std.log.err("connect MobTimer: {s}", .{@errorName(e)});
     }
 }
 
 pub fn gameOver(self: *Main) void {
-    if (self.timer("ScoreTimer")) |t| t.stop();
-    if (self.timer("MobTimer")) |t| t.stop();
+    if (self.children.ScoreTimer.get()) |t| t.stop();
+    if (self.children.MobTimer.get()) |t| t.stop();
 
     if (self.hud.get()) |live| live.showGameOver();
-    if (self.music.get()) |live| live.stop();
-    if (self.death_sound.get()) |live| live.play(.{});
+    if (self.children.Music.get()) |live| live.stop();
+    if (self.children.DeathSound.get()) |live| live.play(.{});
 }
 
 pub fn newGame(self: *Main) void {
     self.score = 0;
 
-    if (nodeAs(Marker2d, self.base, "StartPosition")) |start| {
+    if (self.children.StartPosition.get()) |start| {
         if (self.player.get()) |live| live.start(start.getPosition());
     }
-    if (self.timer("StartTimer")) |t| t.start(.{});
+    if (self.children.StartTimer.get()) |t| t.start(.{});
 
     if (self.hud.get()) |live| {
         live.updateScore(self.score);
@@ -99,12 +102,12 @@ pub fn newGame(self: *Main) void {
         live.showMessage(text);
     }
 
-    if (self.music.get()) |live| live.play(.{});
+    if (self.children.Music.get()) |live| live.play(.{});
 }
 
 pub fn onStartTimerTimeout(self: *Main) void {
-    if (self.timer("MobTimer")) |t| t.start(.{});
-    if (self.timer("ScoreTimer")) |t| t.start(.{});
+    if (self.children.MobTimer.get()) |t| t.start(.{});
+    if (self.children.ScoreTimer.get()) |t| t.start(.{});
 }
 
 pub fn onScoreTimerTimeout(self: *Main) void {
@@ -113,7 +116,7 @@ pub fn onScoreTimerTimeout(self: *Main) void {
 }
 
 pub fn onMobTimerTimeout(self: *Main) void {
-    const spawn = nodeAs(PathFollow2d, self.base, "MobPath/MobSpawnLocation") orelse return;
+    const spawn = self.children.MobSpawnLocation.get() orelse return;
     var scene = self.mob_scene orelse return;
 
     const mob = scene.get().instantiateAs(Mob) orelse return;
@@ -134,26 +137,18 @@ pub fn onMobTimerTimeout(self: *Main) void {
     mob.base.setLinearVelocity(velocity.rotated(direction));
 }
 
-/// The three timers are looked up on demand rather than cached, matching the
-/// Rust demo, which keeps them as functions "for demonstration purposes".
-fn timer(self: *Main, comptime name: [:0]const u8) ?*Timer {
-    return nodeAs(Timer, self.base, name);
-}
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const godot = @import("godot");
+const Scene = godot.Scene;
 const random = godot.random;
 const Gd = godot.Gd;
 const Child = godot.Child;
 const Registry = godot.extension.Registry;
-const AudioStreamPlayer = godot.class.AudioStreamPlayer;
-const Marker2d = godot.class.Marker2d;
 const Node = godot.class.Node;
 const Object = godot.class.Object;
 const PackedScene = godot.class.PackedScene;
-const PathFollow2d = godot.class.PathFollow2d;
 const String = godot.builtin.String;
 const Timer = godot.class.Timer;
 const Vector2 = godot.builtin.Vector2;
@@ -161,4 +156,3 @@ const Vector2 = godot.builtin.Vector2;
 const Hud = @import("Hud.zig");
 const Mob = @import("Mob.zig");
 const Player = @import("Player.zig");
-const nodeAs = @import("nodes.zig").nodeAs;
