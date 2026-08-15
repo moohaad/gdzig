@@ -15,13 +15,25 @@ pub fn register(r: *gdzig.extension.Registry) void {
         .setter = .{ .method = set_custom },
     });
 
+    // The `@export_*` constructors. Registered so the hints can be read back
+    // from the engine below, which is the only way to tell that the hint string
+    // was in the format Godot expects rather than merely well-typed.
+    class.addProperty("ranged", .range(0, 100, 1, ""));
+    class.addProperty("ranged_extra", .range(0, 10, 0.5, "or_greater"));
+    class.addProperty("choice", .enumOf(&.{ "Low", "High:5" }));
+    class.addProperty("bits", .flags(&.{ "Fire:1", "Ice:2" }));
+    class.addProperty("texture_path", .file("*.png"));
+    class.addProperty("note", .multiline());
+    class.addProperty("hidden", .storage());
+    class.addProperty("mask", .layers(.physics_2d));
+
     // Property groups
-    const stats = class.createGroup("Stats");
+    const stats = class.createGroup("Stats", .{ .prefix = "stat_" });
     stats.addProperty("health", .auto);
     stats.addProperty("mana", .auto);
 
     // Property subgroups
-    const combat = stats.createSubgroup("Combat");
+    const combat = stats.createSubgroup("Combat", .{});
     combat.addProperty("armor", .auto);
     combat.addProperty("damage", .auto);
 
@@ -153,6 +165,127 @@ test "indexed properties" {
     try testing.expectEqual(@as(i64, 300), result.as(i64).?);
 }
 
+/// What Godot reports for one registered property.
+///
+/// Named rather than anonymous: each mention of an anonymous struct is a
+/// distinct type, so a `?struct { ... }` return never unifies with itself. The
+/// hint string is kept as a buffer plus a length rather than a slice, because a
+/// slice into `buf` would point at the local copy once this is returned by
+/// value.
+const HintInfo = struct {
+    hint: i64,
+    usage: i64,
+    buf: [64]u8 = undefined,
+    len: usize = 0,
+
+    fn string(self: *const HintInfo) []const u8 {
+        return self.buf[0..self.len];
+    }
+};
+
+/// Reads a property's entry back out of Godot's own property list. Asserting on
+/// `CreateOptions` would only prove the struct was filled in; this proves the
+/// engine took the hint and kept the string verbatim.
+fn hintOf(obj: *PropertyNode, comptime prop: [:0]const u8) ?HintInfo {
+    var list = obj.base.getPropertyList();
+    defer list.deinit();
+
+    var i: i64 = 0;
+    while (i < list.size()) : (i += 1) {
+        var entry = list.get(i);
+        defer entry.deinit();
+
+        var dict = entry.as(Dictionary) orelse continue;
+        defer dict.deinit();
+
+        var name_str = lookupString(&dict, "name") orelse continue;
+        defer name_str.deinit();
+        var name_buf: [64]u8 = undefined;
+        if (!std.mem.eql(u8, name_str.toLatin1Buf(name_buf[0..]), prop)) continue;
+
+        var out: HintInfo = .{
+            .hint = lookupInt(&dict, "hint"),
+            .usage = lookupInt(&dict, "usage"),
+        };
+        if (lookupString(&dict, "hint_string")) |*hs| {
+            var mutable = hs.*;
+            defer mutable.deinit();
+            out.len = mutable.toLatin1Buf(out.buf[0..]).len;
+        }
+        return out;
+    }
+    return null;
+}
+
+fn lookupString(dict: *Dictionary, comptime key: [:0]const u8) ?String {
+    var k: String = .fromLatin1(key);
+    defer k.deinit();
+    var v = dict.get(.init(String, k), .{});
+    defer v.deinit();
+    return v.as(String);
+}
+
+fn lookupInt(dict: *Dictionary, comptime key: [:0]const u8) i64 {
+    var k: String = .fromLatin1(key);
+    defer k.deinit();
+    var v = dict.get(.init(String, k), .{});
+    defer v.deinit();
+    return v.as(i64) orelse 0;
+}
+
+test "the export constructors reach Godot with the hint string intact" {
+    ensureRegistered();
+
+    const obj = try PropertyNode.create();
+    defer obj.destroy();
+
+    const range = hintOf(obj, "ranged") orelse return error.PropertyMissing;
+    try testing.expectEqual(@as(i64, @intFromEnum(gdzig.global.PropertyHint.property_hint_range)), range.hint);
+    try testing.expectEqualStrings("0,100,1", range.string());
+
+    // The modifier is appended after the numbers, which is where Godot looks.
+    const extra = hintOf(obj, "ranged_extra") orelse return error.PropertyMissing;
+    try testing.expectEqualStrings("0,10,0.5,or_greater", extra.string());
+
+    const choice = hintOf(obj, "choice") orelse return error.PropertyMissing;
+    try testing.expectEqual(@as(i64, @intFromEnum(gdzig.global.PropertyHint.property_hint_enum)), choice.hint);
+    try testing.expectEqualStrings("Low,High:5", choice.string());
+
+    const bits = hintOf(obj, "bits") orelse return error.PropertyMissing;
+    try testing.expectEqualStrings("Fire:1,Ice:2", bits.string());
+
+    const file = hintOf(obj, "texture_path") orelse return error.PropertyMissing;
+    try testing.expectEqualStrings("*.png", file.string());
+
+    // Hint-free constructors: the hint carries the meaning, not the string.
+    const note = hintOf(obj, "note") orelse return error.PropertyMissing;
+    try testing.expectEqual(@as(i64, @intFromEnum(gdzig.global.PropertyHint.property_hint_multiline_text)), note.hint);
+    try testing.expectEqualStrings("", note.string());
+
+    const mask = hintOf(obj, "mask") orelse return error.PropertyMissing;
+    try testing.expectEqual(@as(i64, @intFromEnum(gdzig.global.PropertyHint.property_hint_layers_2d_physics)), mask.hint);
+
+    // `storage` is a usage change, so it must NOT carry the editor bit.
+    const hidden = hintOf(obj, "hidden") orelse return error.PropertyMissing;
+    try testing.expectEqual(@as(i64, 2), hidden.usage);
+}
+
+test "a group's prefix reaches the inspector" {
+    ensureRegistered();
+
+    const obj = try PropertyNode.create();
+    defer obj.destroy();
+
+    // Godot lists a group as an entry of its own, carrying the prefix in the
+    // hint string. Reading it back is the only way to tell the prefix was
+    // passed rather than dropped -- it was hardcoded empty until now.
+    const group = hintOf(obj, "Stats") orelse return error.GroupMissing;
+    try testing.expectEqualStrings("stat_", group.string());
+
+    const subgroup = hintOf(obj, "Combat") orelse return error.SubgroupMissing;
+    try testing.expectEqualStrings("", subgroup.string());
+}
+
 const PropertyNode = struct {
     base: *Object,
 
@@ -161,6 +294,16 @@ const PropertyNode = struct {
 
     // Read-only property
     read_only: i64 = 999,
+
+    // Backing for the `@export_*` constructors.
+    ranged: i64 = 0,
+    ranged_extra: f64 = 0,
+    choice: i64 = 0,
+    bits: i64 = 0,
+    texture_path: i64 = 0,
+    note: i64 = 0,
+    hidden: i64 = 0,
+    mask: i64 = 0,
 
     // Custom getter/setter backing storage
     custom_backing: i64 = 0,
@@ -219,3 +362,5 @@ const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Object = gdzig.class.Object;
 const StringName = gdzig.builtin.StringName;
+const String = gdzig.builtin.String;
+const Dictionary = gdzig.builtin.Dictionary;

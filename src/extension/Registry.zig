@@ -233,10 +233,10 @@ pub fn Class(comptime T: type) type {
         }
 
         /// Create a property group. Use the returned Group to add properties to it.
-        pub fn createGroup(self: *Self, name: [:0]const u8) *Group(T) {
+        pub fn createGroup(self: *Self, name: [:0]const u8, options: Group(T).CreateOptions) *Group(T) {
             const alloc = self.allocator();
             const grp = alloc.create(Group(T)) catch @panic("OOM");
-            grp.* = Group(T).init(self, name);
+            grp.* = Group(T).init(self, name, options);
             self.groups.append(alloc, grp) catch @panic("OOM");
             return grp;
         }
@@ -526,14 +526,133 @@ pub fn Property(comptime T: type, comptime name: [:0]const u8) type {
             setter: Accessor(T) = .auto,
             /// Property hint.
             hint: PropertyHint = .property_hint_none,
-            /// Hint string.
-            hint_string: String = .empty,
+            /// Hint string, in whatever format `hint` expects.
+            ///
+            /// A plain slice rather than a `String`: these are literals, and a
+            /// `String` here would have to be built by the caller and outlive
+            /// the call, with nothing to release it. `register` builds one and
+            /// frees it, since the engine copies what it is given.
+            hint_string: [:0]const u8 = "",
             /// Usage flags.
             usage: PropertyUsageFlags = .property_usage_default,
             /// Index for indexed properties.
             index: ?i64 = null,
 
             pub const auto: CreateOptions = .{};
+
+            // The `@export_*` family. Each is the hint plus the hint-string
+            // format Godot expects, so the annotation you know from GDScript
+            // maps to a constructor of the same name rather than to a pair of
+            // fields you have to get right by hand.
+
+            /// `@export_range`. `extra` takes Godot's modifiers verbatim, e.g.
+            /// `"or_greater"`, `"exp"`, `"suffix:m"`, comma-separated.
+            pub fn range(comptime min: comptime_float, comptime max: comptime_float, comptime step: comptime_float, comptime extra: [:0]const u8) CreateOptions {
+                const base = std.fmt.comptimePrint("{d},{d},{d}", .{ min, max, step });
+                return .{ .hint = .property_hint_range, .hint_string = if (extra.len == 0) base else base ++ "," ++ extra };
+            }
+
+            /// `@export_enum`. Names, or `"Name:value"` pairs.
+            pub fn enumOf(comptime entries: []const [:0]const u8) CreateOptions {
+                return .{ .hint = .property_hint_enum, .hint_string = comptime join(entries) };
+            }
+
+            /// `@export_flags`. Entries are `"Name:bit"`.
+            pub fn flags(comptime entries: []const [:0]const u8) CreateOptions {
+                return .{ .hint = .property_hint_flags, .hint_string = comptime join(entries) };
+            }
+
+            /// `@export_file`. `filter` is e.g. `"*.png"`, or empty for any.
+            pub fn file(comptime filter: [:0]const u8) CreateOptions {
+                return .{ .hint = .property_hint_file, .hint_string = filter };
+            }
+
+            /// `@export_global_file`.
+            pub fn globalFile(comptime filter: [:0]const u8) CreateOptions {
+                return .{ .hint = .property_hint_global_file, .hint_string = filter };
+            }
+
+            /// `@export_dir`.
+            pub fn dir() CreateOptions {
+                return .{ .hint = .property_hint_dir };
+            }
+
+            /// `@export_global_dir`.
+            pub fn globalDir() CreateOptions {
+                return .{ .hint = .property_hint_global_dir };
+            }
+
+            /// `@export_multiline`.
+            pub fn multiline() CreateOptions {
+                return .{ .hint = .property_hint_multiline_text };
+            }
+
+            /// `@export_placeholder`.
+            pub fn placeholder(comptime text: [:0]const u8) CreateOptions {
+                return .{ .hint = .property_hint_placeholder_text, .hint_string = text };
+            }
+
+            /// `@export_color_no_alpha`.
+            pub fn colorNoAlpha() CreateOptions {
+                return .{ .hint = .property_hint_color_no_alpha };
+            }
+
+            /// `@export_node_path`. Restricts the picker to these node types.
+            pub fn nodePath(comptime types: []const [:0]const u8) CreateOptions {
+                return .{ .hint = .property_hint_node_path_valid_types, .hint_string = comptime join(types) };
+            }
+
+            /// `@export_exp_easing`. `mode` is `""`, `"attenuation"`, or
+            /// `"positive_only"`.
+            pub fn expEasing(comptime mode: [:0]const u8) CreateOptions {
+                return .{ .hint = .property_hint_exp_easing, .hint_string = mode };
+            }
+
+            /// `@export_tool_button`. `hint_string` is `"Label"` or
+            /// `"Label,IconName"`.
+            pub fn toolButton(comptime label: [:0]const u8) CreateOptions {
+                return .{ .hint = .property_hint_tool_button, .hint_string = label };
+            }
+
+            /// `@export_storage`: saved with the scene, hidden from the
+            /// inspector. A usage change rather than a hint.
+            pub fn storage() CreateOptions {
+                return .{ .usage = .property_usage_no_editor };
+            }
+
+            /// `@export_flags_2d_physics` and its six siblings. `which` names
+            /// the layer set, so one constructor covers all of them.
+            pub fn layers(comptime which: Layers) CreateOptions {
+                return .{ .hint = switch (which) {
+                    .physics_2d => .property_hint_layers_2d_physics,
+                    .render_2d => .property_hint_layers_2d_render,
+                    .navigation_2d => .property_hint_layers_2d_navigation,
+                    .physics_3d => .property_hint_layers_3d_physics,
+                    .render_3d => .property_hint_layers_3d_render,
+                    .navigation_3d => .property_hint_layers_3d_navigation,
+                    .avoidance => .property_hint_layers_avoidance,
+                } };
+            }
+
+            pub const Layers = enum {
+                physics_2d,
+                render_2d,
+                navigation_2d,
+                physics_3d,
+                render_3d,
+                navigation_3d,
+                avoidance,
+            };
+
+            fn join(comptime entries: []const [:0]const u8) [:0]const u8 {
+                comptime {
+                    var out: [:0]const u8 = "";
+                    for (entries, 0..) |entry, i| {
+                        out = if (i == 0) entry else out ++ "," ++ entry;
+                    }
+                    return out;
+                }
+            }
         };
 
         any: AnyProperty,
@@ -596,11 +715,16 @@ pub fn Property(comptime T: type, comptime name: [:0]const u8) type {
             var getter_name: StringName = if (self.resolved_getter) |g| .fromLatin1(g.name, true) else .empty;
             var setter_name: StringName = if (self.resolved_setter) |s| .fromLatin1(s.name, true) else .empty;
 
+            // Built here and released after registering: the engine copies
+            // what it is handed, so nothing needs to keep this alive.
+            var hint_string: String = .fromLatin1(self.options.hint_string);
+            defer hint_string.deinit();
+
             const info: classdb.PropertyInfo = .{
                 .type = prop_type,
                 .name = &property_name,
                 .hint = self.options.hint,
-                .hint_string = &self.options.hint_string,
+                .hint_string = &hint_string,
                 .usage = self.options.usage,
             };
 
@@ -629,7 +753,17 @@ pub fn Property(comptime T: type, comptime name: [:0]const u8) type {
             methods: *std.ArrayList(*Method(T)),
         ) ?*const Method(T) {
             return switch (getter) {
-                .auto => if (can_auto_getter) autoDetectGetter(alloc, methods) else unreachable,
+                // Not `@compileError`: `getter` is a runtime value, so every
+                // arm of this switch is analysed even when the caller passed
+                // `.method`, and a compile error here fires for properties that
+                // are perfectly well formed. It stays a runtime failure, but
+                // one that says which property and what was looked for --
+                // `unreachable` said neither.
+                .auto => if (can_auto_getter) autoDetectGetter(alloc, methods) else @panic(
+                    "property '" ++ name ++ "' on " ++ @typeName(T) ++ " has no readable source. " ++
+                        "Looked for a field '" ++ name ++ "' or '" ++ camel ++ "', or a method '" ++ getter_decl ++ "'. " ++
+                        "Name one with .getter = .{ .method = ... }, or use .getter = .none for a write-only property.",
+                ),
                 .none => null,
                 .method => |m| m,
             };
@@ -641,7 +775,11 @@ pub fn Property(comptime T: type, comptime name: [:0]const u8) type {
             methods: *std.ArrayList(*Method(T)),
         ) ?*const Method(T) {
             return switch (setter) {
-                .auto => if (can_auto_setter) autoDetectSetter(alloc, methods) else unreachable,
+                .auto => if (can_auto_setter) autoDetectSetter(alloc, methods) else @panic(
+                    "property '" ++ name ++ "' on " ++ @typeName(T) ++ " has no writable target. " ++
+                        "Looked for a field '" ++ name ++ "' or '" ++ camel ++ "', or a method '" ++ setter_decl ++ "'. " ++
+                        "Name one with .setter = .{ .method = ... }, or use .setter = .none for a read-only property.",
+                ),
                 .none => null,
                 .method => |m| m,
             };
@@ -749,14 +887,24 @@ pub fn Group(comptime T: type) type {
             subgroup: *Subgroup(T),
         };
 
+        /// Options for a property group.
+        pub const CreateOptions = struct {
+            /// Shared prefix stripped from member names in the inspector, the
+            /// second argument to GDScript's `@export_group`. A group "Stats"
+            /// with prefix "stat_" shows `stat_health` as just "Health".
+            prefix: [:0]const u8 = "",
+        };
+
         class: *Class(T),
         name: [:0]const u8,
+        prefix: [:0]const u8,
         entries: std.ArrayList(Entry),
 
-        pub fn init(class: *Class(T), name: [:0]const u8) Self {
+        pub fn init(class: *Class(T), name: [:0]const u8, options: CreateOptions) Self {
             return .{
                 .class = class,
                 .name = name,
+                .prefix = options.prefix,
                 .entries = .empty,
             };
         }
@@ -776,20 +924,23 @@ pub fn Group(comptime T: type) type {
         }
 
         /// Add a subgroup within this group.
-        pub fn createSubgroup(self: *Self, subgroup_name: [:0]const u8) *Subgroup(T) {
+        pub fn createSubgroup(self: *Self, subgroup_name: [:0]const u8, options: Subgroup(T).CreateOptions) *Subgroup(T) {
             const alloc = self.class.allocator();
             const subgrp = alloc.create(Subgroup(T)) catch @panic("OOM");
-            subgrp.* = Subgroup(T).init(self.class, subgroup_name);
+            subgrp.* = Subgroup(T).init(self.class, subgroup_name, options);
             self.entries.append(alloc, .{ .subgroup = subgrp }) catch @panic("OOM");
             return subgrp;
         }
 
         pub fn register(self: *const Self) void {
             const class_name = StringName.fromType(T);
-            const group_string: String = .fromLatin1(self.name);
-            const empty_prefix: String = .empty;
+            // Both are freed after registering; the engine copies them.
+            var group_string: String = .fromLatin1(self.name);
+            defer group_string.deinit();
+            var prefix: String = .fromLatin1(self.prefix);
+            defer prefix.deinit();
 
-            classdb.registerPropertyGroup(class_name, &group_string, &empty_prefix);
+            classdb.registerPropertyGroup(class_name, &group_string, &prefix);
         }
 
         /// Resolve all properties in this group (creates auto-detected methods).
@@ -823,14 +974,21 @@ pub fn Subgroup(comptime T: type) type {
     return struct {
         const Self = @This();
 
+        /// Options for a property subgroup. See `Group(T).CreateOptions`.
+        pub const CreateOptions = struct {
+            prefix: [:0]const u8 = "",
+        };
+
         class: *Class(T),
         name: [:0]const u8,
+        prefix: [:0]const u8,
         properties: std.ArrayList(*AnyProperty),
 
-        pub fn init(class: *Class(T), subgroup_name: [:0]const u8) Self {
+        pub fn init(class: *Class(T), subgroup_name: [:0]const u8, options: CreateOptions) Self {
             return .{
                 .class = class,
                 .name = subgroup_name,
+                .prefix = options.prefix,
                 .properties = .empty,
             };
         }
@@ -851,10 +1009,12 @@ pub fn Subgroup(comptime T: type) type {
 
         pub fn register(self: *const Self) void {
             const class_name = StringName.fromType(T);
-            const subgroup_string: String = .fromLatin1(self.name);
-            const empty_prefix: String = .empty;
+            var subgroup_string: String = .fromLatin1(self.name);
+            defer subgroup_string.deinit();
+            var prefix: String = .fromLatin1(self.prefix);
+            defer prefix.deinit();
 
-            classdb.registerPropertySubgroup(class_name, &subgroup_string, &empty_prefix);
+            classdb.registerPropertySubgroup(class_name, &subgroup_string, &prefix);
         }
 
         /// Resolve all properties in this subgroup (creates auto-detected methods).

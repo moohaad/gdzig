@@ -15,7 +15,7 @@ pub fn register(r: *Registry) void {
     class.addSignal(Signal3);
 
     // Groups organize properties in the inspector
-    const colors = class.createGroup("Colors");
+    const colors = class.createGroup("Colors", .{});
     colors.addProperty("colors_signal2", .auto);
     colors.addProperty("colors_signal3", .auto);
 }
@@ -71,25 +71,25 @@ pub fn _enterTree(self: *SignalNode) void {
     signal1_btn.setPosition(.initXY(100, 20), .{});
     signal1_btn.setSize(.initXY(100, 50), .{});
     signal1_btn.setText(.fromLatin1("Signal1"));
-    self.base.addChild(.upcast(signal1_btn), .{});
+    self.base.addChild(signal1_btn, .{});
 
     var signal2_btn = Button.init();
     signal2_btn.setPosition(.initXY(250, 20), .{});
     signal2_btn.setSize(.initXY(100, 50), .{});
     signal2_btn.setText(.fromLatin1("Signal2"));
-    self.base.addChild(.upcast(signal2_btn), .{});
+    self.base.addChild(signal2_btn, .{});
 
     var signal3_btn = Button.init();
     signal3_btn.setPosition(.initXY(400, 20), .{});
     signal3_btn.setSize(.initXY(100, 50), .{});
     signal3_btn.setText(.fromLatin1("Signal3"));
-    self.base.addChild(.upcast(signal3_btn), .{});
+    self.base.addChild(signal3_btn, .{});
 
     self.color_rect = ColorRect.init();
     self.color_rect.setPosition(.initXY(400, 400), .{});
     self.color_rect.setSize(.initXY(100, 100), .{});
     self.color_rect.setColor(.initRGBA(1, 0, 0, 1));
-    self.base.addChild(.upcast(self.color_rect), .{});
+    self.base.addChild(self.color_rect, .{});
 
     signal1_btn.connect(Button.Pressed, self, &emitSignal1) catch {};
     signal2_btn.connect(Button.Pressed, self, &emitSignal2) catch {};
