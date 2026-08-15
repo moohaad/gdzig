@@ -57,7 +57,7 @@ test "instantiateAs narrows the scene root" {
     // asset: pack a Node2d and instantiate it back.
     const source = Node2d.init();
     defer source.destroy();
-    source.setName(.fromComptimeLatin1("Root"));
+    source.setName(StringName.fromComptimeLatin1("Root").*);
 
     var scene = PackedScene.init();
     defer scene.deinit();
@@ -102,3 +102,4 @@ const Resource = godot.class.Resource;
 const Timer = godot.class.Timer;
 const ResourceSaver = godot.class.ResourceSaver;
 const String = godot.builtin.String;
+const StringName = godot.builtin.StringName;

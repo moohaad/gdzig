@@ -745,7 +745,7 @@ pub fn MethodInfo(comptime Userdata: type) type {
     return if (Userdata != void)
         struct {
             userdata: *Userdata,
-            name: *StringName,
+            name: *const StringName,
             flags: MethodFlags = .{},
             return_value_info: ?*PropertyInfo = null,
             return_value_metadata: MethodArgumentMetadata = .none,
@@ -755,7 +755,7 @@ pub fn MethodInfo(comptime Userdata: type) type {
         }
     else
         struct {
-            name: *StringName,
+            name: *const StringName,
             flags: MethodFlags = .{},
             return_value_info: ?*PropertyInfo = null,
             return_value_metadata: MethodArgumentMetadata = .none,
@@ -1128,7 +1128,10 @@ pub inline fn registerMethod(
         raw.library,
         @ptrCast(class_name),
         &c.GDExtensionClassMethodInfo{
-            .name = @ptrCast(info.name),
+            // The C field is a non-const `GDExtensionStringNamePtr`, but the
+            // engine only reads it -- same cast the virtual-method info below
+            // has always needed.
+            .name = @ptrCast(@constCast(info.name)),
             .method_userdata = userdata,
             .call_func = if (callbacks.call) |f| wrapCall(T, Userdata, f) else null,
             .ptrcall_func = if (callbacks.ptr_call) |f| wrapPtrCall(T, Userdata, f) else null,

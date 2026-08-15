@@ -28,7 +28,7 @@ test "method with opaque class pointer parameter can be registered and called" {
     defer other_node.destroy();
 
     // This should work: call processNode with a Node parameter
-    _ = Object.call(.upcast(node), .fromComptimeLatin1("process_node"), .{other_node});
+    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("process_node").*, .{other_node});
 }
 
 const TestNode = struct {
@@ -58,3 +58,4 @@ const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;
+const StringName = gdzig.builtin.StringName;

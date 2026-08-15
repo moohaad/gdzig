@@ -63,18 +63,17 @@ pub fn _process(self: *Player, delta: f64) void {
         const normalized = velocity.normalized();
         velocity = .{ .x = normalized.x * self.speed, .y = normalized.y * self.speed };
 
-        // `fromComptimeLatin1` returns a cached *static* StringName. It must
-        // not be deinited -- doing so drops a shared refcount and Godot reports
-        // "Unreferenced static string to 0" once per frame.
-        const animation: StringName = if (velocity.x != 0) blk: {
+        // `fromComptimeLatin1` borrows from the intern cache, so this is a
+        // `*const StringName` and `.*` copies the handle for `play`.
+        const animation = if (velocity.x != 0) blk: {
             sprite.setFlipV(false);
             sprite.setFlipH(velocity.x < 0);
-            break :blk .fromComptimeLatin1("right");
+            break :blk StringName.fromComptimeLatin1("right");
         } else blk: {
             sprite.setFlipV(velocity.y > 0);
-            break :blk .fromComptimeLatin1("up");
+            break :blk StringName.fromComptimeLatin1("up");
         };
-        sprite.play(.{ .name = animation });
+        sprite.play(.{ .name = animation.* });
     } else {
         sprite.stop();
     }
@@ -95,10 +94,10 @@ pub fn onPlayerBodyEntered(self: *Player, _: *Node2d) void {
 
     // Deferred: the body is mid-collision-response, and Godot refuses to change
     // shape state during physics resolution.
-    const property: StringName = .fromComptimeLatin1("disabled");
+    const property = StringName.fromComptimeLatin1("disabled");
     var value: Variant = .init(bool, true);
     defer value.deinit();
-    shape.setDeferred(property, value);
+    shape.setDeferred(property.*, value);
 }
 
 pub fn start(self: *Player, pos: Vector2) void {
@@ -111,7 +110,7 @@ pub fn start(self: *Player, pos: Vector2) void {
 }
 
 fn pressed(comptime action: [:0]const u8) bool {
-    return Input.isActionPressed(.fromComptimeLatin1(action), .{});
+    return Input.isActionPressed(StringName.fromComptimeLatin1(action).*, .{});
 }
 
 const std = @import("std");

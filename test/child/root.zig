@@ -65,7 +65,7 @@ const WithoutReady = struct {
 /// staged the way a game would do it; the notification reaches the same virtual.
 fn stage(owner: *Node) !*Node {
     const marker = Node.init();
-    marker.setName(.fromComptimeLatin1("Marker"));
+    marker.setName(StringName.fromComptimeLatin1("Marker").*);
     owner.addChild(marker, .{});
     owner.notification(Node.NOTIFICATION_READY, .{});
     return marker;
@@ -115,3 +115,4 @@ const gdzig = @import("gdzig");
 const Child = gdzig.Child;
 const allocator = gdzig.testing.allocator;
 const Node = gdzig.class.Node;
+const StringName = gdzig.builtin.StringName;

@@ -15,8 +15,8 @@ pub inline fn setTyped(
 ) void {
     const key_tag = Variant.Tag.forType(K);
     const value_tag = Variant.Tag.forType(V);
-    const key_class_name: StringName = .fromType(K);
-    const value_class_name: StringName = .fromType(V);
+    const key_class_name = StringName.fromType(K);
+    const value_class_name = StringName.fromType(V);
 
     raw.dictionarySetTyped(
         self.ptr(),

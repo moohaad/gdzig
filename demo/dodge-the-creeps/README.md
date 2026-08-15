@@ -55,9 +55,11 @@ though -- see below.
 
 Three smaller notes, the first two places where this port initially went wrong:
 
-* `StringName.fromComptimeLatin1` returns a cached **static** name. Deiniting it
-  drops a shared refcount, and Godot reports `Unreferenced static string to 0`
-  once per frame. `fromLatin1` is the owned one that does need releasing.
+* `StringName.fromComptimeLatin1` borrows from an intern cache and so returns
+  `*const StringName`. That is deliberate: deiniting it would drop a refcount
+  the caller never took, and the `*const` makes that a compile error. Use `.*`
+  where an engine call wants a value. `fromLatin1` is the owned one that does
+  need releasing.
 * Engine classes downcast with `T.downcast(node)`; a class defined here is a
   plain struct reached through `asInstance(T)` on its base. `class.castTo(T, v)`
   hides that difference, and is what `nodeAs` uses.

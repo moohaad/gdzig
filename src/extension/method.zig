@@ -22,11 +22,11 @@ const Registry = @import("Registry.zig");
 /// godot.registerMethod(MyClass, .decl(.myMethod));
 /// ```
 pub fn registerMethod(comptime Class: type, comptime config: MethodConfig(Class)) void {
-    var class_name: StringName = .fromType(Class);
-    var method_name: StringName = .fromComptimeLatin1(config.name);
+    const class_name = StringName.fromType(Class);
+    const method_name = StringName.fromComptimeLatin1(config.name);
 
-    classdb.registerMethod(Class, void, &class_name, .{
-        .name = &method_name,
+    classdb.registerMethod(Class, void, class_name, .{
+        .name = method_name,
         .flags = config.flags,
         .return_value_info = config.return_value_info,
         .return_value_metadata = config.return_value_metadata,

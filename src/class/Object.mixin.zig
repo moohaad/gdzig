@@ -27,7 +27,7 @@ pub fn downcast(value: anytype) ?*Self {
         else => @compileError("downcasted value should be a pointer, found '" ++ @typeName(@TypeOf(value)) ++ "'"),
     };
     comptime class.assertIsA(T, Self);
-    const tag = raw.classdbGetClassTag(@ptrCast(&StringName.fromComptimeLatin1(self_name)));
+    const tag = raw.classdbGetClassTag(@ptrCast(StringName.fromComptimeLatin1(self_name)));
     const result = raw.objectCastTo(@ptrCast(value), tag);
     if (result) |p| {
         if (class.isOpaqueClass(T)) {
@@ -58,7 +58,7 @@ pub fn setInstance(self: *Self, comptime T: type, instance_: *T) void {
 
     const token = comptime typeToken(T);
 
-    raw.objectSetInstance(@ptrCast(self), @ptrCast(&StringName.fromType(T)), @ptrCast(instance_));
+    raw.objectSetInstance(@ptrCast(self), @ptrCast(StringName.fromType(T)), @ptrCast(instance_));
     raw.objectSetInstanceBinding(@ptrCast(self), token, @ptrCast(instance_), &struct {
         const callbacks = c.GDExtensionInstanceBindingCallbacks{
             .create_callback = create_callback,
@@ -100,8 +100,8 @@ fn typeToken(comptime T: type) *anyopaque {
 
 /// Connects a signal to a callable.
 pub fn connect(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
-    const signal_name: StringName = .fromSignal(S);
-    const result = self.connectRaw(signal_name, callable, .{});
+    const signal_name = StringName.fromSignal(S);
+    const result = self.connectRaw(signal_name.*, callable, .{});
     if (result != .ok) return ConnectError.AlreadyConnected;
 }
 
@@ -123,16 +123,16 @@ pub fn connect(self: *Self, comptime S: type, callable: Callable) ConnectError!v
 /// That is the one case `await` genuinely buys something, and it is not worth a
 /// coroutine runtime to get.
 pub fn once(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
-    const signal_name: StringName = .fromSignal(S);
+    const signal_name = StringName.fromSignal(S);
     const flags: Object.ConnectFlags = .{ .connect_one_shot = true };
-    const result = self.connectRaw(signal_name, callable, .{ .flags = @bitCast(flags) });
+    const result = self.connectRaw(signal_name.*, callable, .{ .flags = @bitCast(flags) });
     if (result != .ok) return ConnectError.AlreadyConnected;
 }
 
 /// Disconnects a signal from a callable.
 pub fn disconnect(self: *Self, comptime S: type, callable: Callable) void {
-    const signal_name: StringName = .fromSignal(S);
-    self.disconnectRaw(signal_name, callable);
+    const signal_name = StringName.fromSignal(S);
+    self.disconnectRaw(signal_name.*, callable);
 }
 
 /// Emits a signal. Guarantees no allocations when calling across the FFI. Passing Transform2D, AABB, Basis, Transform3D, or Projection is a compile error; use the Alloc variant.
@@ -141,19 +141,19 @@ pub fn disconnect(self: *Self, comptime S: type, callable: Callable) void {
 /// to avoid shadowing the `Signal` builtin, which classes import whenever their
 /// API mentions it (`Tween.tweenAwait` in Godot 4.7+).
 pub fn emit(self: *Self, comptime S: type, signal: AssertNonAllocating(S)) EmitError!void {
-    const signal_name: StringName = .fromSignal(S);
+    const signal_name = StringName.fromSignal(S);
     const fields = @typeInfo(S).@"struct".fields;
     var args: [fields.len]Variant = undefined;
     inline for (fields, 0..) |field, i| {
         args[i] = Variant.init(field.type, @field(signal, field.name));
     }
     // No defer needed - non-allocating types don't need cleanup
-    return emitImpl(self, signal_name, args);
+    return emitImpl(self, signal_name.*, args);
 }
 
 /// Emits a signal. Will necessarily allocate when calling across the FFI with Transform2d, Aabb, Basis, Transform3d, or Projection.
 pub fn emitAlloc(self: *Self, comptime S: type, signal: S) EmitError!void {
-    const signal_name: StringName = .fromSignal(S);
+    const signal_name = StringName.fromSignal(S);
     const fields = @typeInfo(S).@"struct".fields;
     var args: [fields.len]Variant = undefined;
     inline for (fields, 0..) |field, i| {
@@ -162,7 +162,7 @@ pub fn emitAlloc(self: *Self, comptime S: type, signal: S) EmitError!void {
     defer inline for (&args, fields) |*arg, field| {
         if (allocatesAsVariant(field.type)) arg.deinit();
     };
-    return emitImpl(self, signal_name, args);
+    return emitImpl(self, signal_name.*, args);
 }
 
 fn emitImpl(self: *Self, signal_name: StringName, args: anytype) EmitError!void {

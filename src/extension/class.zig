@@ -1,13 +1,13 @@
 pub fn registerClass(comptime T: type, info: ClassInfo4(ClassUserdataOf(T))) void {
-    const class_name: StringName = .fromType(T);
-    const base_name: StringName = .fromType(class.BaseOf(T));
+    const class_name = StringName.fromType(T);
+    const base_name = StringName.fromType(class.BaseOf(T));
     const callbacks = comptime makeClassCallbacks(T);
     const Userdata = ClassUserdataOf(T);
 
     // gdzig targets Godot 4.7, so only the newest registration entry point is
     // reachable. `registerClass1` through `registerClass3` remain available in
     // `ClassDb.mixin.zig` as bindings to the corresponding engine functions.
-    classdb.registerClass4(T, Userdata, void, &class_name, &base_name, if (Userdata != void) .{
+    classdb.registerClass4(T, Userdata, void, class_name, base_name, if (Userdata != void) .{
         .userdata = info.userdata,
         .is_virtual = info.is_virtual,
         .is_abstract = info.is_abstract,

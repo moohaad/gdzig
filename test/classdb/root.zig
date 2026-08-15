@@ -25,15 +25,15 @@ test "create custom class and call methods" {
     const node = try TestNode.create();
     defer node.base.destroy();
 
-    _ = Object.call(.upcast(node), .fromComptimeLatin1("increment"), .{});
+    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("increment").*, .{});
 
-    var result = Object.call(.upcast(node), .fromComptimeLatin1("get_counter"), .{});
+    var result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_counter").*, .{});
     try testing.expectEqual(@as(i64, 1), result.as(i64).?);
 
-    result = Object.call(.upcast(node), .fromComptimeLatin1("add_value"), .{@as(i64, 10)});
+    result = Object.call(.upcast(node), StringName.fromComptimeLatin1("add_value").*, .{@as(i64, 10)});
     try testing.expectEqual(@as(i64, 11), result.as(i64).?);
 
-    result = Object.call(.upcast(node), .fromComptimeLatin1("get_counter"), .{});
+    result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_counter").*, .{});
     try testing.expectEqual(@as(i64, 11), result.as(i64).?);
 }
 
@@ -43,12 +43,12 @@ test "custom class properties" {
     const node = try TestNode.create();
     defer node.base.destroy();
 
-    var result = Object.call(.upcast(node), .fromComptimeLatin1("get_my_property"), .{});
+    var result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_my_property").*, .{});
     try testing.expectEqual(@as(i64, 42), result.as(i64).?);
 
-    _ = Object.call(.upcast(node), .fromComptimeLatin1("set_my_property"), .{@as(i64, 100)});
+    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("set_my_property").*, .{@as(i64, 100)});
 
-    result = Object.call(.upcast(node), .fromComptimeLatin1("get_my_property"), .{});
+    result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_my_property").*, .{});
     try testing.expectEqual(@as(i64, 100), result.as(i64).?);
 }
 
@@ -61,12 +61,12 @@ test "indexed properties" {
     const node = try TestNode.create();
     defer node.base.destroy();
 
-    var result = Object.call(.upcast(node), .fromComptimeLatin1("get_indexed_value"), .{@as(i64, 1)});
+    var result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_indexed_value").*, .{@as(i64, 1)});
     try testing.expectEqual(@as(i64, 200), result.as(i64).?);
 
-    _ = Object.call(.upcast(node), .fromComptimeLatin1("set_indexed_value"), .{ @as(i64, 1), @as(i64, 999) });
+    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("set_indexed_value").*, .{ @as(i64, 1), @as(i64, 999) });
 
-    result = Object.call(.upcast(node), .fromComptimeLatin1("get_indexed_value"), .{@as(i64, 1)});
+    result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_indexed_value").*, .{@as(i64, 1)});
     try testing.expectEqual(@as(i64, 999), result.as(i64).?);
 }
 
@@ -129,3 +129,4 @@ const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;
+const StringName = gdzig.builtin.StringName;

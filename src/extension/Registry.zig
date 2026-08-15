@@ -70,8 +70,8 @@ pub fn removeModule(self: *Registry, comptime Module: type) void {
 /// Inheritors must be unregistered before their parents.
 pub fn removeClass(self: *Registry, comptime T: type) void {
     _ = self;
-    const class_name: StringName = .fromType(T);
-    classdb.unregisterClass(&class_name);
+    const class_name = StringName.fromType(T);
+    classdb.unregisterClass(class_name);
 }
 
 /// Add lifecycle callbacks.
@@ -379,11 +379,11 @@ pub fn Class(comptime T: type) type {
             }
 
             // 7. Register constants (enums, flags, standalone constants)
-            const class_name: StringName = .fromType(T);
+            const class_name = StringName.fromType(T);
             for (self.constants.items) |constant| {
                 var enum_name: StringName = .fromLatin1(constant.enum_name, true);
                 var const_name: StringName = .fromLatin1(constant.name, true);
-                classdb.registerIntegerConstant(&class_name, &enum_name, &const_name, constant.value, constant.is_bitfield);
+                classdb.registerIntegerConstant(class_name, &enum_name, &const_name, constant.value, constant.is_bitfield);
             }
         }
 
@@ -590,7 +590,7 @@ pub fn Property(comptime T: type, comptime name: [:0]const u8) type {
                 .nil;
 
             // Register the property
-            const class_name: StringName = .fromType(T);
+            const class_name = StringName.fromType(T);
             var property_name: StringName = .fromLatin1(name, true);
 
             var getter_name: StringName = if (self.resolved_getter) |g| .fromLatin1(g.name, true) else .empty;
@@ -605,9 +605,9 @@ pub fn Property(comptime T: type, comptime name: [:0]const u8) type {
             };
 
             if (self.options.index) |idx| {
-                classdb.registerPropertyIndexed(&class_name, &info, &setter_name, &getter_name, idx);
+                classdb.registerPropertyIndexed(class_name, &info, &setter_name, &getter_name, idx);
             } else {
-                classdb.registerProperty(&class_name, &info, &setter_name, &getter_name);
+                classdb.registerProperty(class_name, &info, &setter_name, &getter_name);
             }
         }
 
@@ -719,21 +719,21 @@ pub fn Signal(comptime T: type, comptime S: type) type {
         }
 
         fn doRegister(_: *AnySignal) void {
-            const class_name: StringName = .fromType(T);
-            const signal_name: StringName = .fromSignal(S);
+            const class_name = StringName.fromType(T);
+            const signal_name = StringName.fromSignal(S);
 
             const fields = @typeInfo(S).@"struct".fields;
             var arg_info: [fields.len]classdb.PropertyInfo = undefined;
-            var names: [fields.len]StringName = undefined;
+            var names: [fields.len]*const StringName = undefined;
             inline for (fields, 0..) |field, i| {
-                names[i] = .fromComptimeLatin1(field.name);
+                names[i] = StringName.fromComptimeLatin1(field.name);
                 arg_info[i] = .{
                     .type = Variant.Tag.forType(field.type),
-                    .name = &names[i],
+                    .name = names[i],
                 };
             }
 
-            classdb.registerSignal(&class_name, &signal_name, &arg_info);
+            classdb.registerSignal(class_name, signal_name, &arg_info);
         }
     };
 }
@@ -785,11 +785,11 @@ pub fn Group(comptime T: type) type {
         }
 
         pub fn register(self: *const Self) void {
-            const class_name: StringName = .fromType(T);
+            const class_name = StringName.fromType(T);
             const group_string: String = .fromLatin1(self.name);
             const empty_prefix: String = .empty;
 
-            classdb.registerPropertyGroup(&class_name, &group_string, &empty_prefix);
+            classdb.registerPropertyGroup(class_name, &group_string, &empty_prefix);
         }
 
         /// Resolve all properties in this group (creates auto-detected methods).
@@ -850,11 +850,11 @@ pub fn Subgroup(comptime T: type) type {
         }
 
         pub fn register(self: *const Self) void {
-            const class_name: StringName = .fromType(T);
+            const class_name = StringName.fromType(T);
             const subgroup_string: String = .fromLatin1(self.name);
             const empty_prefix: String = .empty;
 
-            classdb.registerPropertySubgroup(&class_name, &subgroup_string, &empty_prefix);
+            classdb.registerPropertySubgroup(class_name, &subgroup_string, &empty_prefix);
         }
 
         /// Resolve all properties in this subgroup (creates auto-detected methods).

@@ -53,11 +53,11 @@ test "field-based property" {
 
     const obj = Object.upcast(node);
 
-    var result = obj.get(.fromComptimeLatin1("field_value"));
+    var result = obj.get(StringName.fromComptimeLatin1("field_value").*);
     try testing.expectEqual(@as(i64, 42), result.as(i64).?);
 
-    obj.set(.fromComptimeLatin1("field_value"), .init(i64, 100));
-    result = obj.get(.fromComptimeLatin1("field_value"));
+    obj.set(StringName.fromComptimeLatin1("field_value").*, .init(i64, 100));
+    result = obj.get(StringName.fromComptimeLatin1("field_value").*);
     try testing.expectEqual(@as(i64, 100), result.as(i64).?);
 }
 
@@ -69,7 +69,7 @@ test "read-only property" {
 
     const obj = Object.upcast(node);
 
-    const result = obj.get(.fromComptimeLatin1("read_only"));
+    const result = obj.get(StringName.fromComptimeLatin1("read_only").*);
     try testing.expectEqual(@as(i64, 999), result.as(i64).?);
 }
 
@@ -81,11 +81,11 @@ test "explicit getter/setter property" {
 
     const obj = Object.upcast(node);
 
-    var result = obj.get(.fromComptimeLatin1("custom"));
+    var result = obj.get(StringName.fromComptimeLatin1("custom").*);
     try testing.expectEqual(@as(i64, 0), result.as(i64).?);
 
-    obj.set(.fromComptimeLatin1("custom"), .init(i64, 555));
-    result = obj.get(.fromComptimeLatin1("custom"));
+    obj.set(StringName.fromComptimeLatin1("custom").*, .init(i64, 555));
+    result = obj.get(StringName.fromComptimeLatin1("custom").*);
     try testing.expectEqual(@as(i64, 555), result.as(i64).?);
 }
 
@@ -97,10 +97,10 @@ test "grouped properties" {
 
     const obj = Object.upcast(node);
 
-    var result = obj.get(.fromComptimeLatin1("health"));
+    var result = obj.get(StringName.fromComptimeLatin1("health").*);
     try testing.expectEqual(@as(i64, 100), result.as(i64).?);
 
-    result = obj.get(.fromComptimeLatin1("mana"));
+    result = obj.get(StringName.fromComptimeLatin1("mana").*);
     try testing.expectEqual(@as(i64, 50), result.as(i64).?);
 }
 
@@ -112,10 +112,10 @@ test "subgrouped properties" {
 
     const obj = Object.upcast(node);
 
-    var result = obj.get(.fromComptimeLatin1("armor"));
+    var result = obj.get(StringName.fromComptimeLatin1("armor").*);
     try testing.expectEqual(@as(i64, 10), result.as(i64).?);
 
-    result = obj.get(.fromComptimeLatin1("damage"));
+    result = obj.get(StringName.fromComptimeLatin1("damage").*);
     try testing.expectEqual(@as(i64, 25), result.as(i64).?);
 }
 
@@ -131,25 +131,25 @@ test "indexed properties" {
     const obj = Object.upcast(node);
 
     // Check initial values
-    var result = obj.get(.fromComptimeLatin1("slot_0"));
+    var result = obj.get(StringName.fromComptimeLatin1("slot_0").*);
     try testing.expectEqual(@as(i64, 100), result.as(i64).?);
 
-    result = obj.get(.fromComptimeLatin1("slot_1"));
+    result = obj.get(StringName.fromComptimeLatin1("slot_1").*);
     try testing.expectEqual(@as(i64, 200), result.as(i64).?);
 
-    result = obj.get(.fromComptimeLatin1("slot_2"));
+    result = obj.get(StringName.fromComptimeLatin1("slot_2").*);
     try testing.expectEqual(@as(i64, 300), result.as(i64).?);
 
     // Modify via indexed property
-    obj.set(.fromComptimeLatin1("slot_1"), .init(i64, 999));
-    result = obj.get(.fromComptimeLatin1("slot_1"));
+    obj.set(StringName.fromComptimeLatin1("slot_1").*, .init(i64, 999));
+    result = obj.get(StringName.fromComptimeLatin1("slot_1").*);
     try testing.expectEqual(@as(i64, 999), result.as(i64).?);
 
     // Verify other slots unchanged
-    result = obj.get(.fromComptimeLatin1("slot_0"));
+    result = obj.get(StringName.fromComptimeLatin1("slot_0").*);
     try testing.expectEqual(@as(i64, 100), result.as(i64).?);
 
-    result = obj.get(.fromComptimeLatin1("slot_2"));
+    result = obj.get(StringName.fromComptimeLatin1("slot_2").*);
     try testing.expectEqual(@as(i64, 300), result.as(i64).?);
 }
 
@@ -218,3 +218,4 @@ const testing = std.testing;
 const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Object = gdzig.class.Object;
+const StringName = gdzig.builtin.StringName;

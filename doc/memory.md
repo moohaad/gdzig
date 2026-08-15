@@ -44,7 +44,7 @@ Godot `String`s are stored in UTF-32, are reference counted, and are copy-on-wri
 
 `StringName` is a deduplicated (interned), reference counted, UTF-32 string. Initializing a `StringName` the first time will allocate, and any additional initializations of the same string will just increment the reference count.
 
-Godot has a feature to create a `StringName` from data with a static lifetime (will exist for the entire lifetime of the application). gdzig offers a convenience function `StringName.fromComptimeLatin1` that takes a comptime string parameter. This guarantees the string literal lives in static memory, and also caches the resulting `StringName` in a static variable. The first call allocates Godot's internal `_Data` struct; subsequent calls return the cached value without even calling into Godot.
+Godot has a feature to create a `StringName` from data with a static lifetime (will exist for the entire lifetime of the application). gdzig offers a convenience function `StringName.fromComptimeLatin1` that takes a comptime string parameter. This guarantees the string literal lives in static memory, and also caches the resulting `StringName` in a static variable. The first call allocates Godot's internal `_Data` struct; subsequent calls return the cached value without even calling into Godot. It returns `*const StringName` rather than a copy, because the cache holds the name's single reference: a copy would share it without incrementing, so destroying one would release a reference the caller never took. The `*const` puts that beyond reach of `deinit`. Where an engine call wants a value, `.*` copies the handle out -- that copy is a borrow too.
 
 ## Variant
 

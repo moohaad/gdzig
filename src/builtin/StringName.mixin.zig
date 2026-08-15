@@ -17,17 +17,25 @@ pub inline fn fromLatin1(str: [:0]const u8, is_static: bool) StringName {
     return viaString(str);
 }
 
-/// Creates a StringName from a comptime Latin-1 encoded C string.
+/// Interns a comptime Latin-1 string once and borrows the cached result.
 ///
-/// The string is treated as static and the result is cached per unique string.
+/// The name is created static, so the engine keeps it for the life of the
+/// process and the cache holds its single reference. You get a `*const` to that
+/// reference rather than a copy of it, which is the whole point: the pointer
+/// cannot be passed to `deinit`, so the reference cannot be released by anyone
+/// who does not own it.
 ///
-/// **Never call `deinit` on what this returns.** The cache holds exactly one
-/// engine reference and hands out bitwise copies of it without incrementing, so
-/// destroying a copy releases the cache's own reference. Godot then reports
-/// `BUG: Unreferenced static string to 0`, frees the entry, and the next intern
-/// takes the vacated slot -- leaving the cache handing back a name that is now
-/// some other string. Pass the value on, or take its address, and let it be.
-pub fn fromComptimeLatin1(comptime str: [:0]const u8) StringName {
+/// It used to return a value. A copy shares the cache's `_data` without
+/// incrementing, so destroying one released a reference the caller never took;
+/// Godot answers that with `BUG: Unreferenced static string to 0`, frees the
+/// entry, and lets the next intern take the vacated slot -- after which the
+/// cache hands back a name that is some other string. `Callable.fromClosure`
+/// did exactly that. Now it will not compile.
+///
+/// Pass it straight to anything wanting a `*const StringName`. Where a value is
+/// wanted, `.*` copies one out; that copy is a borrow too, so still do not
+/// destroy it.
+pub fn fromComptimeLatin1(comptime str: [:0]const u8) *const StringName {
     const S = struct {
         const key = str;
         var value: StringName = undefined;
@@ -40,7 +48,7 @@ pub fn fromComptimeLatin1(comptime str: [:0]const u8) StringName {
         var state: std.atomic.Value(u8) = .init(0);
     };
 
-    if (S.state.load(.acquire) == 2) return S.value;
+    if (S.state.load(.acquire) == 2) return &S.value;
 
     if (S.state.cmpxchgStrong(0, 1, .acquire, .monotonic) == null) {
         // This thread owns the initialisation.
@@ -50,13 +58,13 @@ pub fn fromComptimeLatin1(comptime str: [:0]const u8) StringName {
             S.value = viaString(str);
         }
         S.state.store(2, .release);
-        return S.value;
+        return &S.value;
     }
 
     // Another thread got there first; wait for it to publish. Construction is a
     // single engine call, so spinning beats any machinery to sleep on.
     while (S.state.load(.acquire) != 2) std.atomic.spinLoopHint();
-    return S.value;
+    return &S.value;
 }
 
 /// Creates a StringName from a UTF-8 encoded string.
@@ -88,45 +96,45 @@ pub inline fn fromNullTerminatedUtf8(str: [:0]const u8) StringName {
     return viaString(str);
 }
 
-pub fn fromType(comptime T: type) StringName {
+pub fn fromType(comptime T: type) *const StringName {
     return fromTypeName(typeShortName(T));
 }
 
-pub fn fromSignal(comptime S: type) StringName {
+pub fn fromSignal(comptime S: type) *const StringName {
     return fromSignalName(typeShortName(S));
 }
 
-pub fn fromTypeName(comptime name: []const u8) StringName {
+pub fn fromTypeName(comptime name: []const u8) *const StringName {
     const converted = comptime casez.comptimeConvert(godot_case.type, name);
     return fromComptimeLatin1(converted);
 }
 
-pub fn fromConstantName(comptime name: []const u8) StringName {
+pub fn fromConstantName(comptime name: []const u8) *const StringName {
     const converted = comptime casez.comptimeConvert(godot_case.constant, name);
     return fromComptimeLatin1(converted);
 }
 
-pub fn fromFunctionName(comptime name: []const u8) StringName {
+pub fn fromFunctionName(comptime name: []const u8) *const StringName {
     const converted = comptime casez.comptimeConvert(godot_case.func, name);
     return fromComptimeLatin1(converted);
 }
 
-pub fn fromMethodName(comptime name: []const u8) StringName {
+pub fn fromMethodName(comptime name: []const u8) *const StringName {
     const converted = comptime casez.comptimeConvert(godot_case.method, name);
     return fromComptimeLatin1(converted);
 }
 
-pub fn fromPropertyName(comptime name: []const u8) StringName {
+pub fn fromPropertyName(comptime name: []const u8) *const StringName {
     const converted = comptime casez.comptimeConvert(godot_case.field, name);
     return fromComptimeLatin1(converted);
 }
 
-pub fn fromSignalName(comptime name: []const u8) StringName {
+pub fn fromSignalName(comptime name: []const u8) *const StringName {
     const converted = comptime casez.comptimeConvert(godot_case.signal, name);
     return fromComptimeLatin1(converted);
 }
 
-pub fn fromVirtualMethodName(comptime name: []const u8) StringName {
+pub fn fromVirtualMethodName(comptime name: []const u8) *const StringName {
     const converted = comptime casez.comptimeConvert(godot_case.virtual_method, name);
     return fromComptimeLatin1(converted);
 }

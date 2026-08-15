@@ -35,7 +35,7 @@ test "ClassA: call method through Godot dispatch" {
     const a = try ClassA.create();
     defer a.base.destroy();
 
-    const result = Object.call(.upcast(a), .fromComptimeLatin1("get_value_a"), .{});
+    const result = Object.call(.upcast(a), StringName.fromComptimeLatin1("get_value_a").*, .{});
     try testing.expectEqual(@as(i64, 1), result.as(i64).?);
 }
 
@@ -45,7 +45,7 @@ test "ClassB: call own method through Godot dispatch" {
     const b = try ClassB.create();
     defer Object.upcast(b).destroy();
 
-    const result = Object.call(.upcast(b), .fromComptimeLatin1("get_value_b"), .{});
+    const result = Object.call(.upcast(b), StringName.fromComptimeLatin1("get_value_b").*, .{});
     try testing.expectEqual(@as(i64, 2), result.as(i64).?);
 }
 
@@ -55,7 +55,7 @@ test "ClassB: call inherited ClassA method through Godot dispatch" {
     const b = try ClassB.create();
     defer Object.upcast(b).destroy();
 
-    const result = Object.call(.upcast(b), .fromComptimeLatin1("get_value_a"), .{});
+    const result = Object.call(.upcast(b), StringName.fromComptimeLatin1("get_value_a").*, .{});
     try testing.expectEqual(@as(i64, 1), result.as(i64).?);
 }
 
@@ -65,7 +65,7 @@ test "ClassC: call own method through Godot dispatch" {
     const c_ = try ClassC.create();
     defer Object.upcast(c_).destroy();
 
-    const result = Object.call(.upcast(c_), .fromComptimeLatin1("get_value_c"), .{});
+    const result = Object.call(.upcast(c_), StringName.fromComptimeLatin1("get_value_c").*, .{});
     try testing.expectEqual(@as(i64, 3), result.as(i64).?);
 }
 
@@ -75,7 +75,7 @@ test "ClassC: call inherited ClassB method through Godot dispatch" {
     const c_ = try ClassC.create();
     defer Object.upcast(c_).destroy();
 
-    const result = Object.call(.upcast(c_), .fromComptimeLatin1("get_value_b"), .{});
+    const result = Object.call(.upcast(c_), StringName.fromComptimeLatin1("get_value_b").*, .{});
     try testing.expectEqual(@as(i64, 2), result.as(i64).?);
 }
 
@@ -85,7 +85,7 @@ test "ClassC: call inherited ClassA method through Godot dispatch" {
     const c_ = try ClassC.create();
     defer Object.upcast(c_).destroy();
 
-    const result = Object.call(.upcast(c_), .fromComptimeLatin1("get_value_a"), .{});
+    const result = Object.call(.upcast(c_), StringName.fromComptimeLatin1("get_value_a").*, .{});
     try testing.expectEqual(@as(i64, 1), result.as(i64).?);
 }
 
@@ -159,3 +159,4 @@ const testing = std.testing;
 const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Object = gdzig.class.Object;
+const StringName = gdzig.builtin.StringName;

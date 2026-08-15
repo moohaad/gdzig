@@ -70,8 +70,8 @@ pub fn downcast(comptime T: type, value: anytype) ?*std.meta.Child(T) {
         return null;
     }
 
-    const name: StringName = .fromType(Target);
-    const tag = raw.classdbGetClassTag(@ptrCast(&name));
+    const name = StringName.fromType(Target);
+    const tag = raw.classdbGetClassTag(@ptrCast(name));
     const result = raw.objectCastTo(@ptrCast(value), tag);
 
     if (result) |ptr| {

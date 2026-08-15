@@ -25,6 +25,12 @@
 //! Past the free the loop keeps calling `fromClosure`, which reads the dangling
 //! cache -- so on a regression this crashes inside Godot rather than reaching
 //! the assertion below. A crash here is the failure, not an unrelated fault.
+//!
+//! `fromComptimeLatin1` now returns `*const StringName`, so the form that
+//! caused this -- calling `deinit` on the borrowed name -- no longer compiles.
+//! What is left for this test to catch is the deliberate version, copying the
+//! handle out with `.*` and destroying that. Kept because the type stops the
+//! accident, not the intent.
 
 const std = @import("std");
 const testing = std.testing;
@@ -75,7 +81,7 @@ test "fromClosure leaves the cached method name intact" {
     var decoy: StringName = .fromLatin1("gdzig_static_strings_decoy", false);
     defer decoy.deinit();
 
-    const cached: StringName = .fromComptimeLatin1("on_beeped");
+    const cached = StringName.fromComptimeLatin1("on_beeped");
     try testing.expect(!cached.eql(decoy));
 }
 

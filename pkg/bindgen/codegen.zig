@@ -232,7 +232,7 @@ fn writeBuiltinMethod(w: *CodeWriter, builtin_name: []const u8, method: *const C
     try w.printLine(
         \\var _bind = {0s}_ptr.load(.monotonic);
         \\if (_bind == null) {{
-        \\    _bind = raw.variantGetPtrBuiltinMethod(@intFromEnum(Variant.Tag.forType({3s})), @ptrCast(&StringName.fromComptimeLatin1("{1s}")), {2d}).?;
+        \\    _bind = raw.variantGetPtrBuiltinMethod(@intFromEnum(Variant.Tag.forType({3s})), @ptrCast(StringName.fromComptimeLatin1("{1s}")), {2d}).?;
         \\    {0s}_ptr.store(_bind, .monotonic);
         \\}}
         \\_bind.?({4s}, @ptrCast(&args), {5s}, args.len);
@@ -417,7 +417,7 @@ fn writeClass(w: *CodeWriter, class: *const Context.Class, ctx: *const Context) 
                 \\/// `release` if you need to store it somewhere a handle cannot go,
                 \\/// such as a class's `base` field.
                 \\pub fn init() Gd({0s}) {{
-                \\    const self: *{0s} = @ptrCast(raw.classdbConstructObject(@ptrCast(&StringName.fromComptimeLatin1("{1s}"))).?);
+                \\    const self: *{0s} = @ptrCast(raw.classdbConstructObject(@ptrCast(StringName.fromComptimeLatin1("{1s}"))).?);
                 \\    _ = self.initRef();
                 \\    return .adopt(self);
                 \\}}
@@ -427,7 +427,7 @@ fn writeClass(w: *CodeWriter, class: *const Context.Class, ctx: *const Context) 
             try w.printLine(
                 \\/// Allocates an empty {0s}.
                 \\pub fn init() *{0s} {{
-                \\    return @ptrCast(raw.classdbConstructObject(@ptrCast(&StringName.fromComptimeLatin1("{1s}"))).?);
+                \\    return @ptrCast(raw.classdbConstructObject(@ptrCast(StringName.fromComptimeLatin1("{1s}"))).?);
                 \\}}
                 \\
             , .{ class.name, class.name_api });
@@ -521,7 +521,7 @@ fn writeClassFunction(w: *CodeWriter, class: *const Context.Class, function: *co
         try w.writeLine(
             \\var _singleton = instance.load(.monotonic);
             \\if (_singleton == null) {
-            \\    _singleton = @ptrCast(raw.globalGetSingleton(@ptrCast(&StringName.fromComptimeLatin1(self_name))).?);
+            \\    _singleton = @ptrCast(raw.globalGetSingleton(@ptrCast(StringName.fromComptimeLatin1(self_name))).?);
             \\    instance.store(_singleton, .monotonic);
             \\}
         );
@@ -530,7 +530,7 @@ fn writeClassFunction(w: *CodeWriter, class: *const Context.Class, function: *co
     try w.printLine(
         \\var _bind = {0s}_ptr.load(.monotonic);
         \\if (_bind == null) {{
-        \\    _bind = raw.classdbGetMethodBind(@ptrCast(&StringName.fromComptimeLatin1("{2s}")), @ptrCast(&StringName.fromComptimeLatin1("{1s}")), {3d});
+        \\    _bind = raw.classdbGetMethodBind(@ptrCast(StringName.fromComptimeLatin1("{2s}")), @ptrCast(StringName.fromComptimeLatin1("{1s}")), {3d});
         \\    {0s}_ptr.store(_bind, .monotonic);
         \\}}
     , .{
@@ -760,7 +760,7 @@ fn writeFunctionAlloc(w: *CodeWriter, function: *const Context.Function, class: 
             try w.writeLine("var _singleton = instance.load(.monotonic);");
             try w.writeLine("if (_singleton == null) {");
             w.indent += 1;
-            try w.writeLine("_singleton = @ptrCast(raw.globalGetSingleton(@ptrCast(&StringName.fromComptimeLatin1(self_name))).?);");
+            try w.writeLine("_singleton = @ptrCast(raw.globalGetSingleton(@ptrCast(StringName.fromComptimeLatin1(self_name))).?);");
             try w.writeLine("instance.store(_singleton, .monotonic);");
             w.indent -= 1;
             try w.writeLine("}");
@@ -769,7 +769,7 @@ fn writeFunctionAlloc(w: *CodeWriter, function: *const Context.Function, class: 
         try w.printLine("var _bind = {0s}Alloc_ptr.load(.monotonic);", .{function.name});
         try w.writeLine("if (_bind == null) {");
         w.indent += 1;
-        try w.printLine("_bind = raw.classdbGetMethodBind(@ptrCast(&StringName.fromComptimeLatin1(\"{0s}\")), @ptrCast(&StringName.fromComptimeLatin1(\"{1s}\")), {2d});", .{
+        try w.printLine("_bind = raw.classdbGetMethodBind(@ptrCast(StringName.fromComptimeLatin1(\"{0s}\")), @ptrCast(StringName.fromComptimeLatin1(\"{1s}\")), {2d});", .{
             function.base.?,
             function.name_api,
             function.hash.?,
@@ -786,7 +786,7 @@ fn writeFunctionAlloc(w: *CodeWriter, function: *const Context.Function, class: 
         try w.printLine("var _bind = {0s}Alloc_ptr.load(.monotonic);", .{function.name});
         try w.writeLine("if (_bind == null) {");
         w.indent += 1;
-        try w.printLine("_bind = raw.variantGetPtrUtilityFunction(@ptrCast(@constCast(&StringName.fromComptimeLatin1(\"{0s}\"))), {1d});", .{
+        try w.printLine("_bind = raw.variantGetPtrUtilityFunction(@ptrCast(@constCast(StringName.fromComptimeLatin1(\"{0s}\"))), {1d});", .{
             function.name_api,
             function.hash.?,
         });
@@ -1950,7 +1950,7 @@ fn writeModuleFunction(w: *CodeWriter, function: *const Context.Function, ctx: *
     try w.printLine(
         \\var _bind = {0s}_ptr.load(.monotonic);
         \\if (_bind == null) {{
-        \\    _bind = raw.variantGetPtrUtilityFunction(@ptrCast(@constCast(&StringName.fromComptimeLatin1("{1s}"))), {2d});
+        \\    _bind = raw.variantGetPtrUtilityFunction(@ptrCast(@constCast(StringName.fromComptimeLatin1("{1s}"))), {2d});
         \\    {0s}_ptr.store(_bind, .monotonic);
         \\}}
         \\_bind.?({3s}, @ptrCast(&args), @intCast(args.len));
