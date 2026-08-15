@@ -107,24 +107,34 @@ So the fault is in Godot's teardown after gdzig has handed control back, and it
 needs both a registered class and a fresh import to appear. Localising it
 further wants a native debugger, which is where this stopped.
 
-**Quitting while a sound is playing leaks the stream.** Godot reports
-`AudioStreamWAV` and `AudioStreamPlaybackWAV` leaked, each with one reference,
-plus `res://art/gameover.wav still in use`. It is the engine's shutdown path,
-not this port:
+**Quitting while a sound is playing leaks that stream.** Every stream still
+playing at exit leaks its own objects, and what leaks depends on the codec
+rather than on the game:
 
-| quit after | leaks |
-| ---: | ---: |
-| 20 frames (before playback starts) | none |
-| 40 frames (mid-playback) | 2 |
-| 600 frames (playback finished) | none |
+| playing at exit | leaked at exit |
+| --- | --- |
+| nothing | none |
+| `gameover.wav` | 2 objects, 1 resource -- `AudioStreamWAV`, `AudioStreamPlaybackWAV`, and the `.wav` itself |
+| the music `.ogg` | 4 objects, 2 resources -- `AudioStreamOggVorbis`, `AudioStreamPlaybackOggVorbis`, `OggPacketSequence`, `OggPacketSequencePlayback`, and two of the `.ogg`'s sub-resources |
+| both | the two sets added together |
 
-The same code plays the same sound in all three; only whether audio is still
-running at exit changes. Mobs were ruled out first -- instrumenting `_ready` and
-`destroy` showed six created and six destroyed. Nothing here holds a reference
-to a stream, and removing the two `play` calls removes the leak entirely.
+So the number you see depends on when you quit relative to the round: during
+play the music is running, and after a death `gameOver` stops it while the
+death sound plays on, which is the 2-object case.
+
+An earlier version of this table indexed the same thing by frame count and was
+wrong. It has no such shape -- measured with a round auto-started so headless
+runs have audio at all, `--quit-after 600` gave 4, 4, 4 and then 2 across four
+runs, because whether the player has been hit yet depends on random mob spawns.
+Without input nothing ever plays and nothing leaks at any frame count, which is
+what made the old numbers look reproducible.
+
+Mobs were ruled out first -- instrumenting `_ready` and `destroy` showed six
+created and six destroyed. Nothing here holds a reference to a stream, and
+removing the two `play` calls removes the leak entirely.
 
 Not cross-checked against the Rust original, so "engine, not gdzig" rests on
-that timing correlation rather than on a side-by-side run.
+that correlation rather than on a side-by-side run.
 
 ## What this port drove into gdzig
 
@@ -136,13 +146,14 @@ uses all of them.
 and gdzig resolves it just before `_ready`:
 
 ```zig
+player: Child(Player, "Player") = .pending,
 hud: Child(Hud, "Hud") = .pending,
-music: Child(AudioStreamPlayer, "Music") = .pending,
 ```
 
 That deleted the four-line lookup block from `Main._ready`. A class with these
 fields gets a `_ready` whether or not it declares one, and a missing path logs
-which field failed rather than crashing.
+which field failed rather than crashing. `Scene` below covers most of what this
+was reaching for; these two are the pair it cannot.
 
 **`godot.load(T, path)`** replaces ten lines with one. `ResourceLoader.load`
 returns the base type, so narrowing it used to mean unwrapping the handle,
@@ -168,8 +179,8 @@ if (self.children.CollisionShape2D.get()) |shape| shape.setDisabled(false);
 
 All four classes use it. That removed fourteen `nodeAs` calls, the twelve path
 strings behind them that had to agree with the editor, and the `nodes.zig`
-helper the port started with. Renaming a node now fails the build rather than logging at
-runtime.
+helper the port started with. Renaming a node now fails the build rather than
+logging at runtime.
 
 `@embedFile` cannot reach outside its own module, and the scenes live in the
 Godot project rather than beside the Zig source, so they have to be named as
