@@ -32,6 +32,12 @@ zig build -Dgodot-version=4.7
 zig build -Dgodot-path=/absolute/path/to/godot   # must be absolute
 ```
 
+## Threading
+
+Engine calls are safe from any thread; the scene tree is still main-thread only.
+See [doc/threading.md](doc/threading.md) for the contract and the
+`callDeferred` pattern.
+
 ## Code Sample:
 
 https://github.com/gdzig/gdzig/blob/1cdfec61d185a9440e6419b122a08e003ad3dcde/example/src/GuiNode.zig#L1-L56

@@ -91,9 +91,36 @@ sanitizer.
 
 ---
 
+## Status
+
+Phase 1 and phase 2 are done. The contract now lives in
+[`threading.md`](threading.md); this file keeps the reasoning and records where
+the work diverged from the plan.
+
+Four things turned out differently:
+
+* **The plan undercounted.** It named five emission sites and 162,750 caches.
+  There were eight sites and **162,905** caches: the five, plus the vararg
+  wrapper, plus the non-vararg module utility function (114), plus the
+  singleton pointers (41). Singletons are the same lazy-init shape and race the
+  same way, so they are in.
+* **Each site keeps its own C type** inside `std.atomic.Value`, rather than the
+  `?*anyopaque` the plan suggested. They are distinct optional function-pointer
+  types and collapsing them would need a cast at every call.
+* **The load is hoisted into a local.** Rewriting each use as
+  `x_ptr.load(.monotonic)` costs a redundant reload the optimiser is not
+  allowed to elide — two atomic loads must each observe memory. Reading once
+  into `_bind` restores instruction-for-instruction parity with the code this
+  replaced, measured on x86-64 `-OReleaseFast`.
+* **Zig 0.16 has no io-free blocking mutex.** `std.once` is gone,
+  `std.Thread` has no `Mutex`, `std.Io.Mutex` wants an `Io` a shared library
+  with no `main` cannot supply, and `std.atomic.Mutex` is try-only. So 1.2 is a
+  hand-rolled three-state once and 1.3 is a spin lock. Both critical sections
+  are a single engine call or a pool slot, so spinning is the right trade.
+
 ## Steps
 
-### 1.1 Atomic method-bind caches
+### 1.1 Atomic method-bind caches — done
 
 Change the five emission sites in `pkg/bindgen/codegen.zig` (lines 192, 213,
 229, 258 and 541, plus 829 for the vararg wrapper) to emit
@@ -106,7 +133,7 @@ x86-64 and aarch64 the generated code is the same load and store it is today.
 
 One change covers all 162,750 sites, and it is the largest item only by count.
 
-### 1.2 Once-init for `StringName.fromComptimeLatin1`
+### 1.2 Once-init for `StringName.fromComptimeLatin1` — done
 
 Replace the `value`/`init` pair with a real once, so the string is published
 after it is fully constructed. `std.once` is the obvious tool; the per-literal
@@ -115,7 +142,7 @@ after it is fully constructed. `std.once` is the obvious tool; the per-literal
 This one is not optional in the way 1.1 is: the failure mode is a `StringName`
 read while half-written, which is a crash rather than a sanitizer complaint.
 
-### 1.3 Lock the instance-binding pool
+### 1.3 Lock the instance-binding pool — done
 
 `DestroyInstanceBinding.create` and `free` are called by the engine from
 arbitrary threads. Either put a `std.Thread.Mutex` around the pool, or drop the
@@ -126,13 +153,13 @@ Preferring the second is tempting — it deletes code and the GPA-leak assert wi
 it — but the pool exists because these are small, frequent, uniform allocations.
 Measure before trading it away.
 
-### 1.4 Atomic `dispatch_depth`
+### 1.4 Atomic `dispatch_depth` — done
 
 The free-while-dispatching guard added in `d529321` increments a plain `u16`.
 Under threads it can tear, which turns a debugging aid into a source of false
 panics. `std.atomic.Value(u16)` with monotonic add and sub.
 
-### 2 State the contract
+### 2 State the contract — done
 
 gdzig currently says nothing about threads, so users cannot tell what is
 supported. Document the same rules Godot documents, because they are the rules:
