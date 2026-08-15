@@ -64,9 +64,11 @@ pub fn showGameOver(self: *Hud) void {
     var timer = tree.createTimer(2.0, .{}) orelse return;
     defer timer.deinit();
 
-    // The Rust demo connects this by method name; gdzig's typed `connect` takes
-    // the signal type and a closure, which needs no string and is checked.
-    timer.get().connect(SceneTreeTimer.Timeout, .fromClosure(self, &showStartButton)) catch {};
+    // "Wait two seconds, then show the button" -- the shape GDScript writes as
+    // `await`. `once` is the primitive underneath it: a connection Godot drops
+    // after the first emission.
+    timer.get().once(SceneTreeTimer.Timeout, .fromClosure(self, &showStartButton)) catch |e|
+        std.log.err("once SceneTreeTimer.Timeout: {s}", .{@errorName(e)});
 }
 
 pub fn showStartButton(self: *Hud) void {

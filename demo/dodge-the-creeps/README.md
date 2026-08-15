@@ -143,6 +143,13 @@ that each repeated the cleanup, now `scene.instantiateAs(Mob) orelse return`.
 **`Weak(T).empty`** lets a field be `Weak(T)` instead of `?Weak(T)`, so reaching
 the object is one unwrap rather than two asking the same question.
 
+**`once(S, callable)`** connects for a single emission. `Hud.showGameOver` waits
+two seconds and then shows the start button -- the shape GDScript writes as
+`await`. GDExtension has no `await`, and neither does the engine's own C++; a
+one-shot connection is the primitive underneath it. A *sequence* of waits still
+needs explicit state, which is the one thing `await` genuinely buys and not
+worth a coroutine runtime to get in a language with no coroutines.
+
 Between them `Main.zig` lost about 25 lines, all of it ceremony.
 
 ## What using gdzig for real turned up

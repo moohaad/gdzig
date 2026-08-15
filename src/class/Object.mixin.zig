@@ -105,6 +105,30 @@ pub fn connect(self: *Self, comptime S: type, callable: Callable) ConnectError!v
     if (result != .ok) return ConnectError.AlreadyConnected;
 }
 
+/// Connects a signal to a callable for one emission, after which Godot
+/// disconnects it.
+///
+/// This is the shape most "wait for X, then do Y" code wants, and the one
+/// GDScript spells `await`. GDExtension has no `await` -- neither does the
+/// engine's own C++, which uses signals throughout -- so a one-shot connection
+/// is the primitive underneath it:
+///
+/// ```zig
+/// var timer = tree.createTimer(2.0, .{}).?;
+/// defer timer.deinit();
+/// try timer.get().once(SceneTreeTimer.Timeout, .fromClosure(self, &showStartButton));
+/// ```
+///
+/// A sequence of waits still needs explicit state, the way the engine does it.
+/// That is the one case `await` genuinely buys something, and it is not worth a
+/// coroutine runtime to get.
+pub fn once(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
+    const signal_name: StringName = .fromSignal(S);
+    const flags: Object.ConnectFlags = .{ .connect_one_shot = true };
+    const result = self.connectRaw(signal_name, callable, .{ .flags = @bitCast(flags) });
+    if (result != .ok) return ConnectError.AlreadyConnected;
+}
+
 /// Disconnects a signal from a callable.
 pub fn disconnect(self: *Self, comptime S: type, callable: Callable) void {
     const signal_name: StringName = .fromSignal(S);
