@@ -5,6 +5,170 @@ pub fn generate(ctx: *Context) !void {
     try writeNativeStructures(ctx);
     try writeDispatchTable(ctx);
     try writeModules(ctx);
+    try writeSurfaceGeneric(ctx);
+}
+
+/// Writes `surface_generic.zig`, which instantiates every generic method at its
+/// declared signature.
+///
+/// `surface.zig` sweeps the binding by referencing each declaration, and skips
+/// generic functions -- a generic function has no value until instantiated, and
+/// the sweep has no way to invent arguments. That was 13,684 vararg methods, and
+/// became 21,849 once class parameters were made `anytype` so callers need no
+/// upcast. Leaving them out would mean the ergonomics were bought by dropping an
+/// eighth of the surface out of the only check that type-checks method bodies.
+///
+/// Here the argument types are known, because they are the ones the signature
+/// used to state. `@TypeOf` forces a generic body to be analysed without
+/// emitting a call, so one line per method restores the coverage.
+fn writeSurfaceGeneric(ctx: *const Context) !void {
+    var buf: [1024]u8 = undefined;
+
+    const file = try ctx.config.output.createFile(ctx.config.io, "surface_generic.zig", .{});
+    defer file.close(ctx.config.io);
+
+    var file_writer = file.writer(ctx.config.io, &buf);
+    var writer = &file_writer.interface;
+    var w = CodeWriter.init(writer);
+
+    try w.writeLine(
+        \\//! Instantiates every generic method so `surface.zig` can analyse it.
+        \\//!
+        \\//! Generated. See `writeSurfaceGeneric` in bindgen for why this exists.
+        \\
+        \\const gdzig = @import("gdzig.zig");
+        \\
+    );
+
+    var groups: usize = 0;
+    for (ctx.classes.values()) |*class| {
+        var wrote_header = false;
+        for (class.functions.values()) |*function| {
+            if (function.skip) continue;
+            if (!isGenericFunction(function, ctx)) continue;
+
+            if (!wrote_header) {
+                // Takes a runtime `Variant` so a vararg tuple built from it is a
+                // runtime value. A comptime tuple makes the callee's `&args[i]`
+                // a "reference to comptime var" the moment it reaches the
+                // ptrcall.
+                try w.printLine("fn {s}(v: gdzig.builtin.Variant) void {{", .{class.module});
+                w.indent += 1;
+                // Discarded only when nothing here is variadic; discarding a
+                // parameter that is also used is itself an error.
+                var uses_v = false;
+                for (class.functions.values()) |*f| {
+                    if (!f.skip and f.mode == .final and f.is_vararg) {
+                        uses_v = true;
+                        break;
+                    }
+                }
+                if (!uses_v) try w.writeLine("_ = v;");
+                wrote_header = true;
+                groups += 1;
+            }
+            try writeInstantiation(&w, function, class, ctx, "");
+            if (function.is_vararg) try writeInstantiation(&w, function, class, ctx, "Alloc");
+        }
+        if (wrote_header) {
+            w.indent -= 1;
+            try w.writeLine("}");
+            try w.writeLine("");
+        }
+    }
+
+    try w.writeLine("pub fn all() void {");
+    w.indent += 1;
+    for (ctx.classes.values()) |*class| {
+        var any = false;
+        for (class.functions.values()) |*function| {
+            if (function.skip) continue;
+            if (isGenericFunction(function, ctx)) {
+                any = true;
+                break;
+            }
+        }
+        // `&` not `()`: referencing forces the body to be analysed, calling it
+        // would run every method in the binding against undefined arguments.
+        if (any) try w.printLine("_ = &{s};", .{class.module});
+    }
+    w.indent -= 1;
+    try w.writeLine("}");
+
+    try writer.flush();
+}
+
+/// Whether the emitted signature contains an `anytype`, and so is skipped by the
+/// declaration sweep.
+fn isGenericFunction(function: *const Context.Function, ctx: *const Context) bool {
+    // Virtuals are for the user to implement; no callable decl is emitted.
+    if (function.mode != .final) return false;
+    if (function.is_vararg) return true;
+    for (function.parameters.values()) |param| {
+        if (param.default != null) break; // optional params keep concrete types
+        if (param.type == .class) return true;
+        _ = ctx;
+    }
+    return false;
+}
+
+/// One `@TypeOf` call, with the argument types the signature used to state.
+/// Values are `undefined` throughout: nothing runs, only the body is analysed.
+fn writeInstantiation(w: *CodeWriter, function: *const Context.Function, class: *const Context.Class, ctx: *const Context, suffix: []const u8) !void {
+    if (function.return_type != .void) try w.writeAll("_ = ");
+    try w.print("gdzig.class.{s}.", .{class.name});
+    if (std.zig.Token.keywords.has(function.name) and suffix.len == 0) {
+        try w.print("@\"{s}\"(", .{function.name});
+    } else {
+        try w.print("{s}{s}(", .{ function.name, suffix });
+    }
+
+    var is_first = true;
+    switch (function.self) {
+        .static, .singleton => {},
+        else => {
+            try w.writeAll("undefined");
+            is_first = false;
+        },
+    }
+
+    var opt: usize = function.parameters.count();
+    for (function.parameters.values(), 0..) |param, i| {
+        if (param.default != null) {
+            opt = i;
+            break;
+        }
+        if (!is_first) try w.writeAll(", ");
+        if (function.is_vararg and param.type.allocatesAsVariant(ctx)) {
+            // Declared `Variant` rather than `anytype` on the vararg path.
+            try w.writeAll("undefined");
+        } else if (param.type == .class) {
+            // The one argument whose type the signature no longer carries.
+            // Fully qualified: this file imports `gdzig` and nothing else.
+            const api_name = param.type.class;
+            const name = if (ctx.classes.get(api_name)) |c| c.name else api_name;
+            try w.print("@as(*gdzig.class.{s}, undefined)", .{name});
+        } else {
+            try w.writeAll("undefined");
+        }
+        is_first = false;
+    }
+
+    if (function.is_vararg) {
+        if (!is_first) try w.writeAll(", ");
+        // Not `.{}`: with no required parameters either, `args` would be a
+        // zero-length array and the Alloc path's `&args[0]` is then a comptime
+        // out-of-bounds index. One Variant keeps it in range.
+        try w.writeAll(".{v}");
+        is_first = false;
+    }
+
+    if (opt < function.parameters.count()) {
+        if (!is_first) try w.writeAll(", ");
+        try w.writeAll(".{}");
+    }
+
+    try w.writeLine(");");
 }
 
 fn writeBuiltins(ctx: *const Context) !void {
@@ -709,6 +873,18 @@ fn writeFunctionAlloc(w: *CodeWriter, function: *const Context.Function, class: 
                 try writeTypeAtParameter(w, &param.type, class, ctx);
                 try w.printLine(", {s}));", .{param.name});
                 try w.printLine("defer args[{d}].deinit();", .{i});
+            } else if (param.type == .class) {
+                // `Variant.wrap` needs a type, and a class parameter's declared
+                // type is now `anytype`. Narrow it first, as the ptrcall path
+                // does, then wrap the narrowed local.
+                try w.print("const arg{d}_obj: ", .{i});
+                try writeClassPointerType(w, param.type.class, class, ctx);
+                try w.print(" = gdzig.class.upcast(", .{});
+                try writeClassPointerType(w, param.type.class, class, ctx);
+                try w.printLine(", {s});", .{param.name});
+                try w.print("args[{d}] = @constCast(&Variant.wrap(", .{i});
+                try writeClassPointerType(w, param.type.class, class, ctx);
+                try w.printLine(", &arg{d}_obj));", .{i});
             } else {
                 try w.print("args[{d}] = @constCast(&Variant.wrap(", .{i});
                 try writeTypeAtParameter(w, &param.type, class, ctx);
@@ -1416,11 +1592,11 @@ fn writeFunctionHeader(w: *CodeWriter, function: *const Context.Function, class:
     if (!function.is_vararg and function.operator_name == null and !function.can_init_directly) {
         try w.printLine("var args: [{d}]c.GDExtensionConstTypePtr = undefined;", .{function.parameters.count()});
         for (function.parameters.values()[0..opt], 0..) |param, i| {
-            try writeArgSlot(w, i, &param, null, ctx);
+            try writeArgSlot(w, i, &param, null, class, ctx);
         }
         for (function.parameters.values()[opt..], opt..) |param, i| {
             const materialized = param.needsRuntimeInit(ctx) or optNullMaterializer(&param, ctx) != null;
-            try writeArgSlot(w, i, &param, materialized, ctx);
+            try writeArgSlot(w, i, &param, materialized, class, ctx);
         }
     }
 
@@ -1551,12 +1727,27 @@ fn wideSlot(@"type": *const Context.Type, ctx: *const Context) WideSlot {
 /// address is passed instead of the narrow value's. `materialized` selects the value
 /// expression: `null` for a plain required parameter (`p_name`), `true`/`false` for an
 /// optional parameter's runtime-materialized (`actual_name`) or as-passed (`opt.name`) form.
-fn writeArgSlot(w: *CodeWriter, i: usize, param: *const Context.Function.Parameter, materialized: ?bool, ctx: *const Context) !void {
+fn writeArgSlot(w: *CodeWriter, i: usize, param: *const Context.Function.Parameter, materialized: ?bool, class: ?*const Context.Class, ctx: *const Context) !void {
     var buf: [128]u8 = undefined;
     const src = if (materialized) |use_actual|
         try std.fmt.bufPrint(&buf, "{s}{s}", .{ if (use_actual) "actual_" else "opt.", param.name })
     else
         param.name;
+
+    // A required class parameter arrives as `anytype`, so narrow it to the
+    // declared base here. `upcast` is comptime-checked and names both types if
+    // the argument is not a subclass. Optional class parameters keep their
+    // concrete type -- they live in a struct, whose fields cannot be `anytype`
+    // -- so they need no conversion.
+    if (materialized == null and param.type == .class) {
+        try w.print("const arg{d}_obj: ", .{i});
+        try writeClassPointerType(w, param.type.class, class, ctx);
+        try w.print(" = gdzig.class.upcast(", .{});
+        try writeClassPointerType(w, param.type.class, class, ctx);
+        try w.printLine(", {s});", .{src});
+        try w.printLine("args[{d}] = @ptrCast(&arg{d}_obj);", .{ i, i });
+        return;
+    }
 
     switch (wideSlot(&param.type, ctx)) {
         .none => try w.printLine("args[{d}] = @ptrCast(&{s});", .{ i, src }),
@@ -2188,17 +2379,27 @@ fn writeTypeAtReturn(w: *CodeWriter, @"type": *const Context.Type, class: ?*cons
 
 /// Writes out a Type for a function parameter. Used to provide `anytype` where we do comptime type
 /// checks and coercions.
+/// The concrete `*Class` a parameter accepts, which its signature no longer
+/// states. Used by the body's upcast and by the generated surface
+/// instantiations.
+fn writeClassPointerType(w: *CodeWriter, api_name: []const u8, class: ?*const Context.Class, ctx: *const Context) !void {
+    const name = if (ctx.classes.get(api_name)) |c| c.name else api_name;
+    if (class) |cl| if (cl.hasCollision(name)) {
+        try w.print("*gdzig.class.{0s}", .{name});
+        return;
+    };
+    try w.print("*{0s}", .{name});
+}
+
 fn writeTypeAtParameter(w: *CodeWriter, @"type": *const Context.Type, class: ?*const Context.Class, ctx: *const Context) !void {
     switch (@"type".*) {
         .array => try w.writeAll("Array"),
-        .class => |api_name| {
-            const name = if (ctx.classes.get(api_name)) |c| c.name else api_name;
-            if (class) |cl| if (cl.hasCollision(name)) {
-                try w.print("*gdzig.class.{0s}", .{name});
-                return;
-            };
-            try w.print("*{0s}", .{name});
-        },
+        // `anytype` so a subclass can be passed without the caller writing an
+        // upcast: Zig has no implicit pointer conversion between distinct
+        // struct types, and no way to spell "pointer to any subclass of Node"
+        // as a concrete type. The body upcasts, which is where the base class
+        // is enforced and named in the error.
+        .class => try w.writeAll("anytype"),
         .node_path => try w.writeAll("NodePath"),
         .pointer => |child| {
             try w.writeAll("*");

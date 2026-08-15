@@ -73,7 +73,7 @@ pub fn _ready(self: *SpriteNode) void {
         spr.gd_sprite.setRotation(self.randfRange(f32, 0, std.math.pi));
         spr.gd_sprite.setScale(spr.scale);
         spr.size = spr.gd_sprite.getRect().size;
-        self.base.addChild(.upcast(spr.gd_sprite), .{});
+        self.base.addChild(spr.gd_sprite, .{});
         self.sprites.append(godot.engine_allocator, spr) catch |err| {
             std.log.err("Failed to append sprite: {}", .{err});
         };

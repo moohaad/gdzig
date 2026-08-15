@@ -43,13 +43,13 @@ pub fn _enterTree(self: *GuiNode) void {
     if (Engine.isEditorHint()) return;
 
     var normal_btn = Button.init();
-    self.base.addChild(.upcast(normal_btn), .{});
+    self.base.addChild(normal_btn, .{});
     normal_btn.setPosition(Vector2.initXY(100, 20), .{});
     normal_btn.setSize(Vector2.initXY(100, 50), .{});
     normal_btn.setText(.fromLatin1("Press Me"));
 
     var toggle_btn = CheckBox.init();
-    self.base.addChild(.upcast(toggle_btn), .{});
+    self.base.addChild(toggle_btn, .{});
     toggle_btn.setPosition(.initXY(320, 20), .{});
     toggle_btn.setSize(.initXY(100, 50), .{});
     toggle_btn.setText(.fromLatin1("Toggle Me"));
@@ -66,7 +66,7 @@ pub fn _enterTree(self: *GuiNode) void {
     self.sprite.setTexture(Texture2D.downcast(texture.get()).?);
     self.sprite.setPosition(.initXY(400, 300));
     self.sprite.setScale(.initXY(0.6, 0.6));
-    self.base.addChild(.upcast(self.sprite), .{});
+    self.base.addChild(self.sprite, .{});
 }
 
 pub fn _exitTree(self: *GuiNode) void {

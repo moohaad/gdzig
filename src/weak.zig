@@ -80,10 +80,15 @@ pub fn Weak(comptime T: type) type {
 
         /// Records `ptr` and its current instance ID. The object must be alive
         /// now; reading the ID is a dereference.
-        pub fn init(ptr: *T) Self {
-            const obj = oopz.upcast(*Object, ptr);
+        ///
+        /// `anytype` for the same reason the generated class methods take it: a
+        /// subclass pointer coerces here without the caller writing an upcast,
+        /// which Zig cannot do implicitly.
+        pub fn init(ptr: anytype) Self {
+            const narrowed = oopz.upcast(*T, ptr);
+            const obj = oopz.upcast(*Object, narrowed);
             return .{
-                .ptr = ptr,
+                .ptr = narrowed,
                 .obj = obj,
                 .id = gdzig.raw.objectGetInstanceId(@ptrCast(obj)),
             };

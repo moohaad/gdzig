@@ -130,7 +130,7 @@ pub fn onMobTimerTimeout(self: *Main) void {
         random.randfRange(-spread, spread);
     mob.base.setRotation(direction);
 
-    self.base.addChild(Node.upcast(mob.base), .{});
+    self.base.addChild(mob.base, .{});
 
     const speed = random.randfRange(mob.min_speed, mob.max_speed);
     const velocity: Vector2 = .{ .x = @floatCast(speed), .y = 0 };

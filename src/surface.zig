@@ -11,13 +11,22 @@
 //! compile time and catches signature-level breakage across the entire API --
 //! the class of defect that the `Signal`-shadowing bug belonged to.
 //!
-//! Generic declarations are skipped: a generic function has no value until it
-//! is instantiated, and instantiating every one would require inventing
-//! plausible arguments for each.
+//! Generic declarations are skipped by the sweep below: a generic function has
+//! no value until it is instantiated, and the sweep has no way to invent
+//! arguments. For the generated ones bindgen does know the argument types --
+//! they are the ones the signature stated before class parameters became
+//! `anytype` -- so it emits `surface_generic.zig`, which instantiates each at
+//! its declared signature. Calling that covers more than the sweep ever did on
+//! its own: vararg methods were always skipped and are now analysed too.
+//!
+//! What stays uncovered is the mixins' own generics -- `upcast`, `downcast`,
+//! `connect`, `once`, `disconnect` -- whose signatures are hand-written and so
+//! invisible to bindgen.
 
 const std = @import("std");
 
 const gdzig = @import("gdzig.zig");
+const surface_generic = @import("surface_generic.zig");
 
 /// Namespaces whose members are swept. Each is a container of types (classes,
 /// builtins, global enums and flags) plus free functions.
@@ -74,4 +83,9 @@ test "every generated declaration type-checks" {
             refDecl(ns, decl.name);
         }
     }
+}
+
+test "every generic generated method type-checks" {
+    @setEvalBranchQuota(20_000_000);
+    surface_generic.all();
 }

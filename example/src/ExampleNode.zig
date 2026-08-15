@@ -50,7 +50,7 @@ pub fn create(allocator: *Allocator) !*ExampleNode {
     };
     self.base.setInstance(ExampleNode, self);
 
-    self.base.addChild(.upcast(self.fps_counter), .{});
+    self.base.addChild(self.fps_counter, .{});
     self.fps_counter.setPosition(.{ .x = 50, .y = 50 }, .{});
 
     return self;
@@ -113,9 +113,8 @@ pub fn onItemFocused(self: *ExampleNode, idx: i64) void {
     switch (idx) {
         inline 0...Examples.len - 1 => |i| {
             const n = Examples[i].T.create(&self.allocator) catch unreachable;
-            const node: *Node = .upcast(n);
-            self.example_node = .init(node);
-            self.panel.addChild(node, .{});
+            self.example_node = .init(n);
+            self.panel.addChild(n, .{});
             self.panel.grabFocus(.{});
         },
         else => {},
@@ -166,9 +165,9 @@ pub fn _enterTree(self: *ExampleNode) void {
     self.panel.setVSizeFlags(.{ .size_fill = true });
     self.panel.setFocusMode(.focus_all);
 
-    sp.addChild(.upcast(itemList), .{});
-    sp.addChild(.upcast(self.panel), .{});
-    self.base.addChild(.upcast(sp), .{});
+    sp.addChild(itemList, .{});
+    sp.addChild(self.panel, .{});
+    self.base.addChild(sp, .{});
 
     const vprt = self.base.getViewport().?;
 
