@@ -28,6 +28,7 @@ src/global.zig
 src/general.zig
 src/math.zig
 src/random.zig
+src/surface_generic.zig
 .claude/settings.local.json
 
 
