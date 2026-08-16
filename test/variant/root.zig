@@ -238,6 +238,47 @@ test "Godot stores a double in the Variant float slot, whatever the build precis
     try testing.expectEqual(@as(f64, 1.5), raw.*);
 }
 
+test "an optional builtin round-trips, present and absent" {
+    // Bindgen gives most signal parameters this shape -- 561 fields across the
+    // generated classes are `?i64`, `?String`, `?StringName` and friends -- so
+    // before this worked, no engine signal carrying a scalar could be emitted
+    // or awaited at all.
+    inline for (.{ init_path, wrap_path }) |build| {
+        const present = build(@as(?i64, 7));
+        defer present.deinit();
+        try testing.expectEqual(Variant.Tag.int, present.tag);
+        try testing.expectEqual(@as(?i64, 7), present.as(?i64) orelse return error.CastFailed);
+
+        // Absent is NIL, matching how a null object is spelled, and reads back
+        // as a present null rather than a failed cast.
+        const absent = build(@as(?i64, null));
+        defer absent.deinit();
+        try testing.expectEqual(Variant.Tag.nil, absent.tag);
+        try testing.expectEqual(@as(?i64, null), absent.as(?i64) orelse return error.CastFailed);
+    }
+}
+
+fn init_path(value: ?i64) Variant {
+    return Variant.init(?i64, value);
+}
+
+fn wrap_path(value: ?i64) Variant {
+    return Variant.wrap(?i64, &value);
+}
+
+test "an optional heap builtin survives the round trip" {
+    var text: String = .fromLatin1("wave");
+    defer text.deinit();
+
+    const boxed = Variant.init(?String, text);
+    defer boxed.deinit();
+    try testing.expectEqual(Variant.Tag.string, boxed.tag);
+
+    var out = (boxed.as(?String) orelse return error.CastFailed) orelse return error.WasNull;
+    defer out.deinit();
+    try testing.expectEqual(@as(i64, 4), out.length());
+}
+
 test "wrap round-trips a float through the engine" {
     // `wrap` writes the union field directly instead of going through Godot's
     // constructor, so it is the one path where our declared width has to match

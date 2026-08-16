@@ -28,6 +28,19 @@ pub const Variant = extern struct {
         // bitwise duplicate of a Variant holding heap data would be freed twice.
         if (comptime T == Variant) return value.clone();
 
+        // An optional of anything that is not a class pointer: absent is NIL,
+        // present is just the value. The object case below does this too, but
+        // has to unwrap after the tag check rather than before, because it
+        // needs the pointer to read an instance id off.
+        //
+        // Bindgen gives most signal parameters this shape -- `?i64`,
+        // `?String`, `?StringName` -- so without this branch no engine signal
+        // carrying a scalar can be emitted or awaited at all.
+        if (comptime @typeInfo(T) == .optional and !class.isClassPtr(@typeInfo(T).optional.child)) {
+            const inner = value orelse return .nil;
+            return init(@typeInfo(T).optional.child, inner);
+        }
+
         const tag = comptime Tag.forType(T);
 
         if (tag == .object) {
@@ -79,12 +92,18 @@ pub const Variant = extern struct {
     pub fn wrap(comptime T: type, value: *const T) Variant {
         const tag = comptime Tag.forType(T);
 
-        // Objects are settled before the switch, because `Tag.forType` gives
-        // `?*Class` the same `.object` tag as `*Class` and a null one is not an
-        // object Variant at all -- Godot spells it NIL, which is what `as`
-        // reads back as a present null. `init` has always done this; `wrap` did
-        // not, so any nullable object reaching a vararg `call` failed to
-        // compile inside `Object.upcast`.
+        // Optionals are settled before the switch, both kinds of them, because
+        // an absent one is not a Variant of its own type at all -- Godot spells
+        // it NIL, which is what `as` reads back as a present null.
+        if (comptime @typeInfo(T) == .optional and !class.isClassPtr(@typeInfo(T).optional.child)) {
+            const Inner = @typeInfo(T).optional.child;
+            const inner = value.* orelse return .nil;
+            return wrap(Inner, &inner);
+        }
+
+        // `Tag.forType` gives `?*Class` the same `.object` tag as `*Class`.
+        // `init` has always unwrapped that; `wrap` did not, so any nullable
+        // object reaching a vararg `call` failed to compile inside `upcast`.
         if (comptime tag == .object) {
             const obj_ptr = if (comptime @typeInfo(T) == .optional) (value.* orelse return .nil) else value.*;
             const obj = Object.upcast(obj_ptr);
@@ -159,6 +178,16 @@ pub const Variant = extern struct {
     }
 
     pub fn as(self: Variant, comptime T: type) ?T {
+        // An optional of a non-class type: NIL reads back as a present null,
+        // anything else decodes as the value inside. Split out because the
+        // decode below writes through a `*T`, and a `?StringName` is not laid
+        // out like the `StringName` the engine is about to construct.
+        if (comptime @typeInfo(T) == .optional and !class.isClassPtr(@typeInfo(T).optional.child)) {
+            const Inner = @typeInfo(T).optional.child;
+            if (self.tag == .nil) return @as(T, null);
+            return self.as(Inner) orelse null;
+        }
+
         const tag = comptime Tag.forType(T);
 
         // A NIL variant is how Godot spells a null object, so it converts to
@@ -636,7 +665,7 @@ pub const Variant = extern struct {
                         // is as ordinary a parameter type as `*Node`, and
                         // registering a method that takes one used to be a
                         // compile error.
-                        .optional => |o| if (class.isClassPtr(o.child)) .object else null,
+                        .optional => |o| if (class.isClassPtr(o.child)) .object else forType(o.child),
                         else => null,
                     };
                 },
