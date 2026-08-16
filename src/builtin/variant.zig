@@ -19,6 +19,15 @@ pub const Variant = extern struct {
 
     /// Copies the value in, returning an owned Variant. This must be coupled with a call to `deinit`.
     pub fn init(comptime T: type, value: T) Variant {
+        // A `Variant` is already one. Without this the tag resolves to NIL and
+        // the NIL "constructor" is null, which crashes -- reached by any
+        // registered method or property whose type is `Variant`, since the
+        // generated accessor boxes its result through here.
+        //
+        // A copy, not the value: the caller owns what it gets back, and a
+        // bitwise duplicate of a Variant holding heap data would be freed twice.
+        if (comptime T == Variant) return value.clone();
+
         const tag = comptime Tag.forType(T);
 
         if (tag == .object) {

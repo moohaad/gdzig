@@ -3,6 +3,7 @@ pub fn register(r: *gdzig.extension.Registry) void {
 
     // Field-based property with auto-detected getter/setter
     class.addProperty("field_value", .auto);
+    class.addProperty("anything", .auto);
 
     // Read-only property (getter only, no setter)
     class.addProperty("read_only", .{ .setter = .none });
@@ -270,6 +271,32 @@ test "the export constructors reach Godot with the hint string intact" {
     try testing.expectEqual(@as(i64, 2), hidden.usage);
 }
 
+test "a Variant property registers as any-type" {
+    ensureRegistered();
+
+    const node = try PropertyNode.create();
+    defer node.destroy();
+
+    // NIL plus the nil-is-variant bit: NIL alone means "no type", and Godot
+    // rejects the property outright with "Getting Variant conversion function
+    // with invalid type". gdzig did not set the bit until now.
+    const reported = hintOf(node, "anything") orelse return error.PropertyMissing;
+    try testing.expect(reported.usage & 131072 != 0);
+
+    // Boxing a `Variant` used to crash: `Variant.init` resolved the tag to NIL
+    // and called the NIL constructor, which is null. Any registered method
+    // returning a `Variant` hit this, property or not.
+    var boxed: Variant = .init(Variant, .init(i64, 7));
+    defer boxed.deinit();
+    try testing.expectEqual(@as(i64, 7), boxed.as(i64) orelse -1);
+
+    // NOT yet working, and deliberately not asserted: reading and writing the
+    // property through Godot. `obj.set` leaves the field untouched, so the
+    // engine is not dispatching to the accessor even though the registration
+    // above is correct. Whatever is left is below the usage flag, in how a
+    // NIL-typed argument marshals through the generated accessor.
+}
+
 test "a group's prefix reaches the inspector" {
     ensureRegistered();
 
@@ -294,6 +321,10 @@ const PropertyNode = struct {
 
     // Read-only property
     read_only: i64 = 999,
+
+    /// A `Variant` property: any type, which Godot spells as the NIL type plus
+    /// the nil-is-variant usage flag.
+    anything: Variant = .nil,
 
     // Backing for the `@export_*` constructors.
     ranged: i64 = 0,
@@ -327,6 +358,10 @@ const PropertyNode = struct {
     }
 
     pub fn destroy(self: *PropertyNode) void {
+        // A `Variant` field owns whatever it holds; without this the String
+        // written to `anything` outlives the node and Godot reports pages in
+        // use in its Variant pool at exit.
+        self.anything.deinit();
         self.base.destroy();
         allocator.destroy(self);
     }
@@ -364,3 +399,4 @@ const Object = gdzig.class.Object;
 const StringName = gdzig.builtin.StringName;
 const String = gdzig.builtin.String;
 const Dictionary = gdzig.builtin.Dictionary;
+const Variant = gdzig.builtin.Variant;

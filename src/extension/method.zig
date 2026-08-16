@@ -21,6 +21,15 @@ const Registry = @import("Registry.zig");
 /// ```
 /// godot.registerMethod(MyClass, .decl(.myMethod));
 /// ```
+/// A `Variant` argument or return is typed NIL, which Godot otherwise reads as
+/// "no type" rather than "any type" -- the method then never gets called. The
+/// flag is what distinguishes the two, and it is needed on the method's own
+/// `PropertyInfo`s, not only on a property that happens to wrap them.
+fn variantUsage(comptime T: type) gdzig.global.PropertyUsageFlags {
+    if (T == gdzig.builtin.Variant) return .{ .property_usage_nil_is_variant = true };
+    return .{};
+}
+
 pub fn registerMethod(comptime Class: type, comptime config: MethodConfig(Class)) void {
     const class_name = StringName.fromType(Class);
     const method_name = StringName.fromComptimeLatin1(config.name);
@@ -65,13 +74,14 @@ pub fn MethodConfig(comptime Class: type) type {
 
             const return_value: classdb.PropertyInfo = .{
                 .type = .forType(ReturnType),
+                .usage = variantUsage(ReturnType),
             };
 
             const arg_infos: [arg_count]classdb.PropertyInfo = comptime blk: {
                 var infos: [arg_count]classdb.PropertyInfo = undefined;
                 for (0..arg_count) |i| {
                     const ArgType = Args[i + 1].type.?;
-                    infos[i] = .{ .type = .forType(ArgType) };
+                    infos[i] = .{ .type = .forType(ArgType), .usage = variantUsage(ArgType) };
                 }
                 break :blk infos;
             };
@@ -155,7 +165,10 @@ pub fn MethodConfig(comptime Class: type) type {
         pub fn getter(comptime name: [:0]const u8, comptime field_name: [:0]const u8) Self {
             const FieldType = @FieldType(Class, field_name);
 
-            const return_value: classdb.PropertyInfo = .{ .type = .forType(FieldType) };
+            const return_value: classdb.PropertyInfo = .{
+                .type = .forType(FieldType),
+                .usage = variantUsage(FieldType),
+            };
 
             const Callbacks = struct {
                 fn call(instance: *Class, _: []const *const Variant) gdzig.CallError!Variant {
@@ -188,7 +201,10 @@ pub fn MethodConfig(comptime Class: type) type {
         pub fn setter(comptime name: [:0]const u8, comptime field_name: [:0]const u8) Self {
             const FieldType = @FieldType(Class, field_name);
 
-            const arg_info: [1]classdb.PropertyInfo = .{.{ .type = .forType(FieldType) }};
+            const arg_info: [1]classdb.PropertyInfo = .{.{
+                .type = .forType(FieldType),
+                .usage = variantUsage(FieldType),
+            }};
             const arg_meta: [1]classdb.MethodArgumentMetadata = .{.none};
 
             const Callbacks = struct {

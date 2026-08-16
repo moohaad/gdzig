@@ -737,12 +737,26 @@ pub fn Property(comptime T: type, comptime name: [:0]const u8) type {
             var hint_string: String = .fromLatin1(self.options.hint_string);
             defer hint_string.deinit();
 
+            // A `Variant` property is typed NIL, which Godot otherwise reads
+            // as "no type at all" -- it then fails to find a conversion
+            // function and rejects the property with "Getting Variant
+            // conversion function with invalid type". The flag is what says
+            // NIL means "any type" here.
+            //
+            // Guarded on an accessor existing, because `prop_type` is also NIL
+            // when neither a getter nor a setter resolved, and that property is
+            // broken for a different reason.
+            var usage = self.options.usage;
+            if (prop_type == .nil and (self.resolved_getter != null or self.resolved_setter != null)) {
+                usage.property_usage_nil_is_variant = true;
+            }
+
             const info: classdb.PropertyInfo = .{
                 .type = prop_type,
                 .name = &property_name,
                 .hint = self.options.hint,
                 .hint_string = &hint_string,
-                .usage = self.options.usage,
+                .usage = usage,
             };
 
             if (self.options.index) |idx| {
