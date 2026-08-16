@@ -3,7 +3,8 @@
 //! The prototype these grew from proved the basic question: a registered method
 //! can park mid-execution, hand control back to Godot, and resume from inside a
 //! later emission. These cover what it did not -- several coroutines at once,
-//! one awaiting inside another, and the awaited object dying while parked.
+//! one awaiting inside another, the awaited object dying while parked, a frame
+//! larger than the committed stack, and `join`.
 //!
 //! Windows-only, like `coro` itself.
 
@@ -70,7 +71,7 @@ test "a coroutine parks and resumes" {
     defer emitter.destroy();
     trace = .{};
 
-    _ = try coro.spawn(allocator, waitOnce, .{ emitter, &trace.a });
+    try coro.spawn(allocator, waitOnce, .{ emitter, &trace.a });
     try testing.expectEqual(@as(u8, 1), trace.a);
 
     try emitter.base.emit(Ping, .{});
@@ -90,8 +91,8 @@ test "two coroutines park on the same signal and both resume" {
     trace = .{};
 
     // Each needs its own stack; the second must not disturb the first.
-    _ = try coro.spawn(allocator, waitOnce, .{ emitter, &trace.a });
-    _ = try coro.spawn(allocator, waitOnce, .{ emitter, &trace.b });
+    try coro.spawn(allocator, waitOnce, .{ emitter, &trace.a });
+    try coro.spawn(allocator, waitOnce, .{ emitter, &trace.b });
     try testing.expectEqual(@as(u8, 1), trace.a);
     try testing.expectEqual(@as(u8, 1), trace.b);
 
@@ -105,7 +106,7 @@ fn outer(emitter: *Emitter) void {
     trace.nested_outer = 1;
     // Spawning from inside a coroutine: the inner one runs to its own park,
     // then control comes back here and this one parks too.
-    _ = coro.spawn(allocator, inner, .{emitter}) catch return;
+    coro.spawn(allocator, inner, .{emitter}) catch return;
     coro.awaitSignal(emitter.base, Ping);
     trace.nested_outer = 2;
 }
@@ -124,13 +125,52 @@ test "a coroutine spawned inside another parks independently" {
     defer emitter.destroy();
     trace = .{};
 
-    _ = try coro.spawn(allocator, outer, .{emitter});
+    try coro.spawn(allocator, outer, .{emitter});
     try testing.expectEqual(@as(u8, 1), trace.nested_outer);
     try testing.expectEqual(@as(u8, 1), trace.nested_inner);
 
     // They wait on different signals, so each resumes on its own.
     try emitter.base.emit(Pong, .{});
     try testing.expectEqual(@as(u8, 2), trace.nested_inner);
+    try testing.expectEqual(@as(u8, 1), trace.nested_outer);
+
+    try emitter.base.emit(Ping, .{});
+    try testing.expectEqual(@as(u8, 2), trace.nested_outer);
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+}
+
+/// The GDScript this ports from writes `await _fade_to(1.0)` -- awaiting a call
+/// rather than a signal. Nothing here says `await`: `fadeStep` parks the
+/// coroutine it is running on, which is this one, and the plain call resumes
+/// where it left off. Stackless languages need `await` at every level because
+/// each function is its own state machine; a stack does not.
+fn fadeStep(emitter: *Emitter, slot: *u8) void {
+    slot.* = 1;
+    coro.awaitSignal(emitter.base, Ping);
+    slot.* = 2;
+}
+
+fn fadeSequence(emitter: *Emitter) void {
+    fadeStep(emitter, &trace.nested_inner);
+    trace.nested_outer = 1;
+    fadeStep(emitter, &trace.nested_inner);
+    trace.nested_outer = 2;
+}
+
+test "awaiting a call needs no primitive: the callee parks its caller" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const emitter = try Emitter.create();
+    defer emitter.destroy();
+    trace = .{};
+
+    try coro.spawn(allocator, fadeSequence, .{emitter});
+    try testing.expectEqual(@as(u8, 1), trace.nested_inner);
+    try testing.expectEqual(@as(u8, 0), trace.nested_outer);
+
+    // First call returns, the sequence advances, the second call parks again.
+    try emitter.base.emit(Ping, .{});
     try testing.expectEqual(@as(u8, 1), trace.nested_outer);
 
     try emitter.base.emit(Ping, .{});
@@ -163,12 +203,108 @@ test "a coroutine can use more stack than it commits" {
     defer emitter.destroy();
     trace = .{};
 
-    _ = try coro.spawn(allocator, deepFrame, .{ emitter, &trace.a });
+    try coro.spawn(allocator, deepFrame, .{ emitter, &trace.a });
     try testing.expectEqual(@as(u8, 1), trace.a);
 
     // 2 rather than 1 means the 128 KiB came back byte-for-byte across the park.
     try emitter.base.emit(Ping, .{});
     try testing.expectEqual(@as(u8, 2), trace.a);
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+}
+
+/// The other shape: work started to run *alongside*, collected later. A plain
+/// call cannot express this -- it would run to its first park before the
+/// caller got to do anything else.
+fn joiner(handle: coro.Handle, slot: *u8) void {
+    slot.* = 1;
+    handle.join();
+    slot.* = 2;
+}
+
+test "join parks until the joined coroutine finishes" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const emitter = try Emitter.create();
+    defer emitter.destroy();
+    trace = .{};
+
+    const work = try coro.spawnJoinable(allocator, waitOnce, .{ emitter, &trace.a });
+    defer work.deinit();
+    try testing.expectEqual(@as(u8, 1), trace.a);
+    try testing.expect(!work.isDone());
+
+    // Started while the first is still parked, which is the point.
+    try coro.spawn(allocator, joiner, .{ work, &trace.b });
+    try testing.expectEqual(@as(u8, 1), trace.b);
+
+    try emitter.base.emit(Ping, .{});
+    try testing.expectEqual(@as(u8, 2), trace.a);
+    try testing.expectEqual(@as(u8, 2), trace.b);
+    try testing.expect(work.isDone());
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+}
+
+test "joining an already finished coroutine returns immediately" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const emitter = try Emitter.create();
+    defer emitter.destroy();
+    trace = .{};
+
+    const work = try coro.spawnJoinable(allocator, waitOnce, .{ emitter, &trace.a });
+    defer work.deinit();
+    try emitter.base.emit(Ping, .{});
+    try testing.expect(work.isDone());
+
+    // The handle outlives the coroutine: reading it here must not touch freed
+    // memory, and joining must not park on something that will never wake.
+    try coro.spawn(allocator, joiner, .{ work, &trace.b });
+    try testing.expectEqual(@as(u8, 2), trace.b);
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+}
+
+test "several coroutines join one handle and all resume" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const emitter = try Emitter.create();
+    defer emitter.destroy();
+    trace = .{};
+
+    const work = try coro.spawnJoinable(allocator, waitOnce, .{ emitter, &trace.a });
+    defer work.deinit();
+
+    try coro.spawn(allocator, joiner, .{ work, &trace.b });
+    try coro.spawn(allocator, joiner, .{ work, &trace.nested_inner });
+    try coro.spawn(allocator, joiner, .{ work, &trace.nested_outer });
+
+    try emitter.base.emit(Ping, .{});
+    try testing.expectEqual(@as(u8, 2), trace.b);
+    try testing.expectEqual(@as(u8, 2), trace.nested_inner);
+    try testing.expectEqual(@as(u8, 2), trace.nested_outer);
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+}
+
+test "a joiner wakes when the joined coroutine is cancelled, not just finished" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const emitter = try Emitter.create();
+    trace = .{};
+
+    const work = try coro.spawnJoinable(allocator, waitOnce, .{ emitter, &trace.a });
+    defer work.deinit();
+    try coro.spawn(allocator, joiner, .{ work, &trace.b });
+    try testing.expectEqual(@as(u8, 1), trace.b);
+
+    // `waitOnce` never resumes -- its signal dies with the emitter. The joiner
+    // still has to come back, or it waits forever on something already gone.
+    emitter.destroy();
+    try testing.expectEqual(@as(u8, 1), trace.a);
+    try testing.expectEqual(@as(u8, 2), trace.b);
+    try testing.expect(work.isDone());
     try testing.expectEqual(@as(usize, 0), coro.liveCount());
 }
 
@@ -179,7 +315,7 @@ test "a coroutine whose awaited object dies is reclaimed, not leaked" {
     const emitter = try Emitter.create();
     trace = .{};
 
-    _ = try coro.spawn(allocator, waitOnce, .{ emitter, &trace.a });
+    try coro.spawn(allocator, waitOnce, .{ emitter, &trace.a });
     try testing.expectEqual(@as(u8, 1), trace.a);
 
     // The signal will never fire. Destroying the emitter drops the connection,

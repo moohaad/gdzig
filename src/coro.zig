@@ -31,6 +31,18 @@
 //! `default_stack_reserve` of address space. Fine for a handful of
 //! transitions; think before giving one to every entity in a crowd.
 //!
+//! ## Awaiting a call
+//!
+//! GDScript also writes `await` in front of calls -- `await fade_to(1.0)` --
+//! and that shape needs nothing here. Call the function. If it parks, it parks
+//! the coroutine it is running on, which is the caller's, and the call returns
+//! where it left off. Stackless languages need `await` at every level because
+//! each function compiles to its own state machine; a stack composes for free.
+//!
+//! `spawnJoinable` and `Handle.join` are for the shape GDScript cannot write:
+//! starting work that runs *alongside* the caller, and collecting it later. A
+//! plain call would run to its first park before the caller did anything else.
+//!
 //! ## Why the dispatch guard survives
 //!
 //! Suspending switches stacks, so Godot's dispatch frame unwinds normally --
@@ -136,6 +148,13 @@ pub const Coro = struct {
     frame: *anyopaque,
     run: *const fn (frame: *anyopaque) void,
     free_frame: *const fn (allocator: std.mem.Allocator, frame: *anyopaque) void,
+    /// Present only when spawned through `spawnJoinable`; this is what outlives
+    /// the coroutine so a later `join` has something to read.
+    task: ?*Task = null,
+    /// Intrusive list link, threaded through the `Task` this coroutine is
+    /// parked on. A coroutine can only wait on one thing at a time, so one
+    /// link is enough and no allocation is needed to queue up.
+    next_joiner: ?*Coro = null,
 
     pub const State = enum {
         /// Created, not yet started.
@@ -158,10 +177,107 @@ pub const Coro = struct {
     }
 };
 
+/// What a `Handle` points at, and the reason it is not just a `*Coro`: this
+/// record outlives the coroutine. A handle held past the body returning has to
+/// be able to answer "already finished" rather than read freed memory.
+///
+/// Referenced by the handle and, while it runs, by the coroutine.
+const Task = struct {
+    allocator: std.mem.Allocator,
+    refs: u8,
+    done: bool = false,
+    /// Coroutines parked in `join`, waiting for this one to finish.
+    joiners: ?*Coro = null,
+
+    fn release(self: *Task) void {
+        self.refs -= 1;
+        if (self.refs == 0) self.allocator.destroy(self);
+    }
+};
+
+/// A spawned coroutine that something can wait for.
+///
+/// Release it exactly once with `deinit`, whether or not it was ever joined --
+/// the record behind it is not reclaimed until both the coroutine has finished
+/// and the handle is gone.
+pub const Handle = struct {
+    task: *Task,
+
+    /// Parks the running coroutine until this one finishes, returning at once
+    /// if it already has.
+    ///
+    /// Several coroutines may join the same handle; all of them resume. Does
+    /// not release the handle -- `deinit` still has to be called.
+    ///
+    /// Panics if called outside a coroutine, or on a handle to the coroutine
+    /// doing the joining, which would wait on itself forever.
+    pub fn join(self: Handle) void {
+        const coro = current orelse @panic(
+            "gdzig.coro.Handle.join called outside a coroutine; there is no frame to park",
+        );
+        if (coro.task == self.task) @panic("gdzig.coro: a coroutine cannot join itself");
+
+        if (self.task.done) return;
+
+        coro.next_joiner = self.task.joiners;
+        self.task.joiners = coro;
+        coro.state = .suspended;
+
+        SwitchToFiber(coro.caller.?);
+    }
+
+    /// Whether the body has returned. False for a coroutine that is merely
+    /// parked; true also for one cancelled by its awaited object dying.
+    pub fn isDone(self: Handle) bool {
+        return self.task.done;
+    }
+
+    pub fn deinit(self: Handle) void {
+        self.task.release();
+    }
+};
+
 /// Starts `func(args...)` as a coroutine and runs it until it finishes or
 /// parks. Returns once one of those happens, so the caller -- usually a Godot
 /// dispatch -- carries on normally.
+///
+/// Nothing is handed back: a coroutine that never parks is already gone by the
+/// time this returns. Use `spawnJoinable` to wait for one.
+///
+/// Note that a coroutine does not need this to wait for *a function it calls*.
+/// Calling one that parks parks this coroutine, and the call returns where it
+/// left off -- that is what a stack buys over a state machine. `spawnJoinable`
+/// is for the other shape: starting work that runs alongside, and collecting it
+/// later.
 pub fn spawn(
+    allocator: std.mem.Allocator,
+    comptime func: anytype,
+    args: std.meta.ArgsTuple(@TypeOf(func)),
+) !void {
+    enter(try create(allocator, func, args));
+}
+
+/// `spawn`, but returns a `Handle` that something can `join`.
+pub fn spawnJoinable(
+    allocator: std.mem.Allocator,
+    comptime func: anytype,
+    args: std.meta.ArgsTuple(@TypeOf(func)),
+) !Handle {
+    const task = try allocator.create(Task);
+    // Two references: this handle, and the coroutine itself until it finishes.
+    task.* = .{ .allocator = allocator, .refs = 2 };
+
+    const coro = create(allocator, func, args) catch |e| {
+        allocator.destroy(task);
+        return e;
+    };
+    coro.task = task;
+
+    enter(coro);
+    return .{ .task = task };
+}
+
+fn create(
     allocator: std.mem.Allocator,
     comptime func: anytype,
     args: std.meta.ArgsTuple(@TypeOf(func)),
@@ -210,7 +326,6 @@ pub fn spawn(
     };
 
     live_count += 1;
-    enter(coro);
     return coro;
 }
 
@@ -226,7 +341,35 @@ fn enter(coro: *Coro) void {
     current = previous;
     // Reclaimed here rather than inside the fiber: a fiber cannot delete
     // itself while it is the one executing.
-    if (coro.state == .done or coro.state == .cancelled) coro.destroy();
+    if (coro.state == .done or coro.state == .cancelled) finish(coro);
+}
+
+/// Reclaims a coroutine that will not run again, and releases whatever was
+/// waiting on it.
+///
+/// Both endings come through here -- the body returning, and the awaited object
+/// dying while parked -- because a joiner has to be woken either way. A join
+/// that only handled the first would hang forever on the second.
+fn finish(coro: *Coro) void {
+    const task = coro.task;
+    var joiners: ?*Coro = null;
+    if (task) |t| {
+        t.done = true;
+        joiners = t.joiners;
+        t.joiners = null;
+    }
+
+    coro.destroy();
+    if (task) |t| t.release();
+
+    // After the destroy, so a joiner resuming here sees the coroutine it waited
+    // on already gone rather than half-torn-down. Each is unlinked before being
+    // entered: it may park again immediately, on something else.
+    while (joiners) |j| {
+        joiners = j.next_joiner;
+        j.next_joiner = null;
+        enter(j);
+    }
 }
 
 fn entry(param: ?*anyopaque) callconv(.winapi) void {
@@ -350,7 +493,9 @@ fn resumeCallable(waiter: *Waiter) Callable {
             // so reclaim the fiber and its stack instead of leaking them.
             if (w.take()) |target| {
                 target.state = .cancelled;
-                target.destroy();
+                // Through `finish`, not `destroy`: anything joined to this
+                // coroutine is still waiting, and cancelling is an ending too.
+                finish(target);
             }
             w.allocator.destroy(w);
         }
