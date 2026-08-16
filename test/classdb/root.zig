@@ -7,6 +7,7 @@ pub fn register(r: *gdzig.extension.Registry) void {
     class.addMethod("set_my_property", .auto);
     class.addMethod("get_indexed_value", .auto);
     class.addMethod("set_indexed_value", .auto);
+    class.addMethod("take_optional_node", .auto);
 }
 
 fn ensureRegistered() void {
@@ -91,6 +92,13 @@ const TestNode = struct {
         self.counter += 1;
     }
 
+    /// A nullable object parameter, which is ordinary in Godot -- an object
+    /// Variant is nullable by nature -- and used to be a compile error to
+    /// register.
+    pub fn takeOptionalNode(self: *TestNode, node: ?*Node) void {
+        self.counter = if (node == null) -1 else 1;
+    }
+
     pub fn getCounter(self: *TestNode) i64 {
         return self.counter;
     }
@@ -125,8 +133,29 @@ const TestNode = struct {
 const std = @import("std");
 const testing = std.testing;
 
+test "a registered method accepts a nullable object, null included" {
+    ensureRegistered();
+
+    const node = try TestNode.create();
+    defer node.base.destroy();
+
+    // A real object arrives as itself.
+    const other = Node.init();
+    defer other.destroy();
+    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("take_optional_node").*, .{other});
+    try testing.expectEqual(@as(i64, 1), node.counter);
+
+    // And null arrives as null, rather than being rejected as an unconvertible
+    // argument, which is what made this worth fixing.
+    var nil: Variant = .nil;
+    defer nil.deinit();
+    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("take_optional_node").*, .{nil});
+    try testing.expectEqual(@as(i64, -1), node.counter);
+}
+
 const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;
 const StringName = gdzig.builtin.StringName;
+const Variant = gdzig.builtin.Variant;

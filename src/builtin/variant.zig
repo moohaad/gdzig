@@ -22,13 +22,17 @@ pub const Variant = extern struct {
         const tag = comptime Tag.forType(T);
 
         if (tag == .object) {
+            // A null object is NIL, not an object Variant holding nothing, so
+            // unwrap before anything tries to read an instance id off it.
+            const obj_ptr = if (comptime @typeInfo(T) == .optional) (value orelse return .nil) else value;
+
             // For RefCounted objects, manually construct the Variant and call reference()
             // to share ownership. We bypass variantFromType because it uses init_ref()
             // which only works correctly for first-time ownership transfer.
-            if (comptime class.isRefCountedPtr(T)) {
-                _ = RefCounted.upcast(value).reference();
+            if (comptime class.isRefCountedPtr(@TypeOf(obj_ptr))) {
+                _ = RefCounted.upcast(obj_ptr).reference();
             }
-            const obj = Object.upcast(value);
+            const obj = Object.upcast(obj_ptr);
             return .{
                 .tag = .object,
                 .data = .{
@@ -137,6 +141,13 @@ pub const Variant = extern struct {
     pub fn as(self: Variant, comptime T: type) ?T {
         const tag = comptime Tag.forType(T);
 
+        // A NIL variant is how Godot spells a null object, so it converts to
+        // any `?*Class` -- as a present null, not as a failed cast. Checked
+        // before compatibility, which compares tags and would reject it.
+        if (comptime @typeInfo(T) == .optional and tag == .object) {
+            if (self.tag == .nil) return @as(T, null);
+        }
+
         if (!self.isCompatibleCast(tag)) {
             return null;
         }
@@ -148,15 +159,23 @@ pub const Variant = extern struct {
             variantToType(@ptrCast(&result), @ptrCast(@constCast(&self)));
             return result;
         } else {
+            // `T` may be `?*Class`, which a registered method uses for a
+            // nullable object parameter. The cast below needs the pointer type
+            // underneath it, and a null object has to come back as a *present*
+            // null rather than as "no value" -- callers like `method.zig` read
+            // an absent result as a failed conversion and reject the call.
+            const optional = comptime @typeInfo(T) == .optional;
+            const Ptr = if (optional) @typeInfo(T).optional.child else T;
+
             var object: ?*Object = null;
             variantToType(@ptrCast(&object), @ptrCast(@constCast(&self)));
-            if (object == null) return null;
-            if (comptime class.isOpaqueClassPtr(T)) {
-                return @ptrCast(@alignCast(object));
+            if (object == null) return if (comptime optional) @as(T, null) else null;
+            if (comptime class.isOpaqueClassPtr(Ptr)) {
+                return @as(Ptr, @ptrCast(@alignCast(object)));
             } else {
-                const Base = class.BaseOf(Child(T));
+                const Base = class.BaseOf(Child(Ptr));
                 const base: *Base = @ptrCast(object);
-                return base.asInstance(Child(T));
+                return base.asInstance(Child(Ptr));
             }
         }
     }
@@ -592,6 +611,12 @@ pub const Variant = extern struct {
                         .@"enum" => .int,
                         .@"struct" => |info| if (info.backing_integer != null) .int else null,
                         .pointer => |p| if (class.isClassPtr(T)) .object else forType(p.child),
+                        // A nullable object. Godot's object Variant is nullable
+                        // by nature -- a null one is simply NIL -- so `?*Node`
+                        // is as ordinary a parameter type as `*Node`, and
+                        // registering a method that takes one used to be a
+                        // compile error.
+                        .optional => |o| if (class.isClassPtr(o.child)) .object else null,
                         else => null,
                     };
                 },
