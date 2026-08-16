@@ -163,6 +163,18 @@ fn registerWide(r: *gdzig.extension.Registry) void {
     wide.addSignal(WideNode.S4);
 }
 
+/// Never called. Taking its address forces the body to be analysed, which
+/// instantiates `Weak(WideNode).init` and makes it walk the `base` chain from a
+/// struct class down to the engine type at the bottom -- the comptime work that
+/// needs the raised quota. Doing it this way needs no instance.
+fn weakenWide(node: *WideNode) gdzig.Weak(WideNode) {
+    return .init(node);
+}
+
+test "a Weak over a deeply derived class compiles" {
+    _ = &weakenWide;
+}
+
 test "a class with dozens of registered members still compiles" {
     ensureRegistered();
 

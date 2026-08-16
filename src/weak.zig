@@ -85,6 +85,12 @@ pub fn Weak(comptime T: type) type {
         /// subclass pointer coerces here without the caller writing an upcast,
         /// which Zig cannot do implicitly.
         pub fn init(ptr: anytype) Self {
+            // `upcast` asks oopz whether these are class pointers, and for a
+            // struct class that walks the whole `base` chain to the engine type
+            // at the bottom. Deep enough, and the default 1000 backwards
+            // branches runs out mid-walk.
+            @setEvalBranchQuota(10_000);
+
             const narrowed = oopz.upcast(*T, ptr);
             const obj = oopz.upcast(*Object, narrowed);
             return .{
