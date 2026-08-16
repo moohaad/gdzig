@@ -3,8 +3,9 @@
 //! The prototype these grew from proved the basic question: a registered method
 //! can park mid-execution, hand control back to Godot, and resume from inside a
 //! later emission. These cover what it did not -- several coroutines at once,
-//! one awaiting inside another, the awaited object dying while parked, a frame
-//! larger than the committed stack, and `join`.
+//! one awaiting inside another, the awaited object dying while parked, the
+//! coroutine's *own* object dying while parked, a frame larger than the
+//! committed stack, and `join`.
 //!
 //! Windows-only, like `coro` itself.
 
@@ -305,6 +306,55 @@ test "a joiner wakes when the joined coroutine is cancelled, not just finished" 
     try testing.expectEqual(@as(u8, 1), trace.a);
     try testing.expectEqual(@as(u8, 2), trace.b);
     try testing.expect(work.isDone());
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+}
+
+/// `owner` is the object the body belongs to -- the `self` of a node method.
+/// It is a different object from the one being awaited, so the signal still
+/// fires normally; the question is whether the body runs against a corpse.
+fn ownedWait(owner: *Emitter, emitter: *Emitter, slot: *u8) void {
+    _ = owner.base.getInstanceId();
+    slot.* = 1;
+    coro.awaitSignal(emitter.base, Ping);
+    slot.* = 2;
+}
+
+test "a coroutine is not resumed into a frame whose object was freed" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const owner = try Emitter.create();
+    const emitter = try Emitter.create();
+    defer emitter.destroy();
+    trace = .{};
+
+    try coro.spawn(allocator, ownedWait, .{ owner, emitter, &trace.a });
+    try testing.expectEqual(@as(u8, 1), trace.a);
+
+    owner.destroy();
+
+    // The emitter is alive and the signal fires as normal. Staying at 1 is the
+    // point: the rest of the body would have been touching freed memory.
+    try emitter.base.emit(Ping, .{});
+    try testing.expectEqual(@as(u8, 1), trace.a);
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+}
+
+test "a live object argument does not stop a coroutine resuming" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const owner = try Emitter.create();
+    defer owner.destroy();
+    const emitter = try Emitter.create();
+    defer emitter.destroy();
+    trace = .{};
+
+    // The guard must not be so eager that it cancels a healthy coroutine --
+    // without this, "never resume anything" would pass the test above.
+    try coro.spawn(allocator, ownedWait, .{ owner, emitter, &trace.a });
+    try emitter.base.emit(Ping, .{});
+    try testing.expectEqual(@as(u8, 2), trace.a);
     try testing.expectEqual(@as(usize, 0), coro.liveCount());
 }
 

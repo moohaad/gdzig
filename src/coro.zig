@@ -43,6 +43,24 @@
 //! starting work that runs *alongside* the caller, and collecting it later. A
 //! plain call would run to its first park before the caller did anything else.
 //!
+//! ## When the object dies first
+//!
+//! A parked coroutine holds its arguments across the park, and a node can be
+//! freed while it waits -- `queue_free` halfway through its own animation is
+//! ordinary. Resuming would run the rest of the body against freed memory.
+//!
+//! So the object arguments are noted at `spawn` (their instance IDs, read while
+//! they are certainly alive) and checked before every resume. If any has been
+//! freed the coroutine is dropped instead of resumed, quietly: an entity dying
+//! mid-wait is normal, and an error per death would be noise. `liveCount` still
+//! accounts for it, and anything joined to it still wakes.
+//!
+//! The guard sees arguments, so it covers the `self` a method was called on and
+//! anything else passed in. It cannot see an object a body fetches *after* it
+//! starts -- a `getNode` result held in a local across a park is still yours to
+//! reason about. Pass objects in rather than fetching them mid-body and the
+//! guard covers you.
+//!
 //! ## Why the dispatch guard survives
 //!
 //! Suspending switches stacks, so Godot's dispatch frame unwinds normally --
@@ -148,6 +166,8 @@ pub const Coro = struct {
     frame: *anyopaque,
     run: *const fn (frame: *anyopaque) void,
     free_frame: *const fn (allocator: std.mem.Allocator, frame: *anyopaque) void,
+    /// Whether the object arguments this body was given are still alive.
+    owners_alive: *const fn (frame: *anyopaque) bool,
     /// Present only when spawned through `spawnJoinable`; this is what outlives
     /// the coroutine so a later `join` has something to read.
     task: ?*Task = null,
@@ -277,6 +297,21 @@ pub fn spawnJoinable(
     return .{ .task = task };
 }
 
+fn isObjectArg(comptime T: type) bool {
+    if (gdzig.class.isClassPtr(T)) return true;
+    return switch (@typeInfo(T)) {
+        .optional => |o| gdzig.class.isClassPtr(o.child),
+        else => false,
+    };
+}
+
+fn instanceIdOf(value: anytype) u64 {
+    if (comptime @typeInfo(@TypeOf(value)) == .optional) {
+        return if (value) |v| instanceIdOf(v) else 0;
+    }
+    return gdzig.class.upcast(*Object, value).getInstanceId();
+}
+
 fn create(
     allocator: std.mem.Allocator,
     comptime func: anytype,
@@ -290,8 +325,23 @@ fn create(
     );
 
     const Args = @TypeOf(args);
+
+    // Which arguments are Godot objects, and so which ones the body would be
+    // touching after a park.
+    const owners = comptime blk: {
+        var found: []const usize = &.{};
+        for (@typeInfo(Args).@"struct".fields, 0..) |field, i| {
+            if (isObjectArg(field.type)) found = found ++ [_]usize{i};
+        }
+        break :blk found;
+    };
+
     const Frame = struct {
         args: Args,
+        /// Instance IDs of the object arguments, read once here. Reading them
+        /// off the pointers at resume time would be the very use-after-free
+        /// this is meant to catch.
+        owner_ids: [owners.len]u64,
 
         fn run(erased: *anyopaque) void {
             const frame: *@This() = @ptrCast(@alignCast(erased));
@@ -302,10 +352,22 @@ fn create(
             const frame: *@This() = @ptrCast(@alignCast(erased));
             alloc.destroy(frame);
         }
+
+        fn ownersAlive(erased: *anyopaque) bool {
+            const frame: *@This() = @ptrCast(@alignCast(erased));
+            for (frame.owner_ids) |id| {
+                // Zero is a null argument, which was never an object to lose.
+                if (id != 0 and !gdzig.general.isInstanceIdValid(@intCast(id))) return false;
+            }
+            return true;
+        }
     };
 
     const frame = try allocator.create(Frame);
-    frame.* = .{ .args = args };
+    frame.* = .{ .args = args, .owner_ids = undefined };
+    inline for (owners, 0..) |arg_index, slot| {
+        frame.owner_ids[slot] = instanceIdOf(args[arg_index]);
+    }
 
     const coro = try allocator.create(Coro);
     coro.* = .{
@@ -313,6 +375,7 @@ fn create(
         .frame = @ptrCast(frame),
         .run = Frame.run,
         .free_frame = Frame.free,
+        .owners_alive = Frame.ownersAlive,
     };
 
     if (main_fiber == null) {
@@ -331,6 +394,19 @@ fn create(
 
 /// Switches into `coro` and runs it until it parks or finishes.
 fn enter(coro: *Coro) void {
+    // A parked coroutine holds its arguments across the park, and a Godot
+    // object among them can be freed in the meantime -- a node that gets
+    // `queue_free`d halfway through its own animation. Resuming would run the
+    // rest of the body against freed memory, so it is dropped instead.
+    //
+    // Deliberately quiet: an entity dying mid-wait is ordinary in a game, and
+    // an error per death would be noise. `liveCount` still accounts for it.
+    if (!coro.owners_alive(coro.frame)) {
+        coro.state = .cancelled;
+        finish(coro);
+        return;
+    }
+
     const previous = current;
     current = coro;
     coro.state = .running;
