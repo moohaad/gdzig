@@ -290,6 +290,16 @@ fn virtualMethodNames(comptime T: type) []const []const u8 {
     };
 
     const decls = @typeInfo(T).@"struct".decls;
+
+    // The quota is a budget for a whole comptime evaluation, not for one loop,
+    // and registering a real class spends it from three directions at once:
+    // width (a few dozen properties, methods and signals), depth (a base seven
+    // levels down chains that many vtable extensions), and the scan below,
+    // where every `_`-prefixed decl is compared against every callback name.
+    // Together they pass the default 1000, and it surfaces here because this is
+    // simply where the counter runs out.
+    @setEvalBranchQuota(@max(1000, decls.len * callbacks.len * 4));
+
     var names: [decls.len][]const u8 = undefined;
     var count: usize = 0;
 
