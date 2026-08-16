@@ -32,6 +32,7 @@ pub const Gd = @import("gd.zig").Gd;
 pub const Weak = @import("weak.zig").Weak;
 pub const Child = @import("child.zig").Child;
 pub const Scene = @import("scene.zig").Scene;
+pub const rpc = @import("rpc.zig");
 pub const load = @import("load.zig").load;
 
 const DispatchTable = @import("DispatchTable.zig");

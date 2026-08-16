@@ -33,16 +33,26 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
         fn findMethod(comptime method_name: []const u8) c.GDExtensionClassCallVirtual {
             @setEvalBranchQuota(100_000);
 
-            // A class with `Child` fields needs a `_ready` whether or not it
-            // wrote one, since that is where the fields get filled in. The
-            // user's own `_ready`, if present, runs straight after.
-            if (comptime std.mem.eql(u8, method_name, "_ready") and child.hasAny(T)) {
+            // `_ready` is always wrapped, because two things have to happen
+            // there whether or not the class wrote one: `Child` fields get
+            // filled in, and RPC configs get applied. The first is a comptime
+            // property of `T` and could have been tested for; the second is
+            // recorded on a runtime `Registry` that this comptime lookup cannot
+            // see, so there is nothing to test. The wrapper is a no-op for a
+            // class with neither -- an atomic increment and two empty loops --
+            // and the user's own `_ready`, if present, still runs last.
+            //
+            // Gated on `T` being a Node because that is what both jobs need --
+            // `getNode` for children, `rpcConfig` for RPCs -- and because the
+            // vtable's own unit tests build one over a plain struct.
+            if (comptime std.mem.eql(u8, method_name, "_ready") and class.isA(class.Node, T)) {
                 const Wrapper = struct {
                     fn call(p_instance: c.GDExtensionClassInstancePtr, _: [*]const c.GDExtensionConstTypePtr, _: c.GDExtensionTypePtr) callconv(.c) void {
                         const instance: *T = @ptrCast(@alignCast(p_instance));
                         const guard = DispatchGuard.enter(instance);
                         defer guard.leave();
                         child.resolveAll(T, instance);
+                        rpc.configureAll(T, instance);
                         if (comptime @hasDecl(T, "_ready")) T._ready(instance);
                     }
                 };
@@ -391,4 +401,5 @@ const godot_case = common.godot_case;
 const class = gdzig.class;
 const ptrcall = @import("ptrcall.zig");
 const child = @import("../child.zig");
+const rpc = @import("../rpc.zig");
 const DispatchGuard = gdzig.extension.DispatchGuard;

@@ -70,6 +70,8 @@ pub fn removeModule(self: *Registry, comptime Module: type) void {
 /// Inheritors must be unregistered before their parents.
 pub fn removeClass(self: *Registry, comptime T: type) void {
     _ = self;
+    // The slice lives in the arena, which is about to be reset.
+    rpc.Table(T).entries = &.{};
     const class_name = StringName.fromType(T);
     classdb.unregisterClass(class_name);
 }
@@ -196,6 +198,16 @@ pub fn Class(comptime T: type) type {
         /// Auto-detects the Zig decl from snake_case name.
         pub fn createMethod(self: *Self, comptime name: [:0]const u8, comptime options: Method(T).CreateOptions) *Method(T) {
             const alloc = self.allocator();
+
+            // Recorded where the vtable can reach it: the `_ready` wrapper is
+            // chosen from `T` alone and cannot see this registry.
+            if (comptime options.rpc) |config| {
+                const grown = alloc.alloc(rpc.Entry, rpc.Table(T).entries.len + 1) catch @panic("OOM");
+                @memcpy(grown[0..rpc.Table(T).entries.len], rpc.Table(T).entries);
+                grown[grown.len - 1] = .{ .name = name, .config = config };
+                rpc.Table(T).entries = grown;
+            }
+
             const method = alloc.create(Method(T)) catch @panic("OOM");
             method.* = Method(T).fromName(name, options);
             self.methods.append(alloc, method) catch @panic("OOM");
@@ -424,6 +436,11 @@ pub fn Method(comptime T: type) type {
             flags: MethodFlags = .{},
             /// Default argument values.
             default_arguments: []const *const Variant = &.{},
+            /// Makes the method callable over the network, the equivalent of
+            /// GDScript's `@rpc(...)` on the function. Applied per instance in
+            /// `_ready`, since `Node.rpcConfig` configures a node rather than a
+            /// class. See `src/rpc.zig`.
+            rpc: ?rpc.Config = null,
 
             pub const auto: CreateOptions = .{};
         };
@@ -1094,6 +1111,7 @@ const godot_case = common.godot_case;
 
 const gdzig = @import("gdzig");
 const classdb = gdzig.class.ClassDb;
+const rpc = @import("../rpc.zig");
 const MethodFlags = gdzig.global.MethodFlags;
 const PropertyHint = gdzig.global.PropertyHint;
 const PropertyUsageFlags = gdzig.global.PropertyUsageFlags;
