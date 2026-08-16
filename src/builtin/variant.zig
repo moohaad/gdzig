@@ -717,7 +717,12 @@ pub const Variant = extern struct {
         callable: Callable,
         color: Color,
         dictionary: *Dictionary,
-        float: if (mem.eql(u8, precision, "double")) f64 else f32,
+        /// Always `f64`, never `real_t`. Building for single precision narrows
+        /// `Vector2`, `Transform2D` and friends, but Godot's Variant union
+        /// holds a plain `double` in every build -- so narrowing this made
+        /// `Tag.forType(f64) == .float` unrepresentable and `wrap` refused to
+        /// compile for any float.
+        float: f64,
         int: i64,
         nil: void,
         node_path: NodePath,

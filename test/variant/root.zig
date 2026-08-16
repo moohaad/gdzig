@@ -226,6 +226,29 @@ test "operators - power" {
     try testing.expectEqual(@as(i64, 8), pow_val);
 }
 
+test "Godot stores a double in the Variant float slot, whatever the build precision" {
+    // The engine constructs this one, so what it writes is the truth about the
+    // layout -- which is the question our own `Data.float` declaration can only
+    // guess at. `real_t` governs Vector2 and Transform2D; the Variant union
+    // holds a plain double, and reading the same eight bytes back proves it.
+    var v = Variant.init(f64, 1.5);
+    defer v.deinit();
+
+    const raw: *const f64 = @ptrCast(@alignCast(&v.data));
+    try testing.expectEqual(@as(f64, 1.5), raw.*);
+}
+
+test "wrap round-trips a float through the engine" {
+    // `wrap` writes the union field directly instead of going through Godot's
+    // constructor, so it is the one path where our declared width has to match
+    // the engine's. Too narrow and this reads back garbage -- or, as it did,
+    // fails to compile at all.
+    const value: f64 = 1.5;
+    const wrapped = Variant.wrap(f64, &value);
+    try testing.expectEqual(Variant.Tag.float, wrapped.tag);
+    try testing.expectEqual(@as(f64, 1.5), wrapped.as(f64) orelse return error.CastFailed);
+}
+
 test "wrap accepts a nullable object, like init" {
     // `Tag.forType` gives `?*Class` the same `.object` tag as `*Class`, so
     // `wrap` has to unwrap it -- otherwise it hands an optional to `upcast` and
