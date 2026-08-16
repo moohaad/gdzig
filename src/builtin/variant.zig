@@ -78,6 +78,22 @@ pub const Variant = extern struct {
     /// Calling `deinit` on the returned value is illegal behavior.
     pub fn wrap(comptime T: type, value: *const T) Variant {
         const tag = comptime Tag.forType(T);
+
+        // Objects are settled before the switch, because `Tag.forType` gives
+        // `?*Class` the same `.object` tag as `*Class` and a null one is not an
+        // object Variant at all -- Godot spells it NIL, which is what `as`
+        // reads back as a present null. `init` has always done this; `wrap` did
+        // not, so any nullable object reaching a vararg `call` failed to
+        // compile inside `Object.upcast`.
+        if (comptime tag == .object) {
+            const obj_ptr = if (comptime @typeInfo(T) == .optional) (value.* orelse return .nil) else value.*;
+            const obj = Object.upcast(obj_ptr);
+            return .{
+                .tag = .object,
+                .data = .{ .object = .{ .id = @enumFromInt(obj.getInstanceId()), .object = obj } },
+            };
+        }
+
         return .{
             .tag = tag,
             .data = switch (tag) {
@@ -113,13 +129,8 @@ pub const Variant = extern struct {
                 .array => .{ .array = @constCast(value) },
                 .dictionary => .{ .dictionary = @constCast(value) },
 
-                // Object
-                .object => .{
-                    .object = .{
-                        .id = @enumFromInt(Object.upcast(value.*).getInstanceId()),
-                        .object = Object.upcast(value.*),
-                    },
-                },
+                // Handled above, before this switch.
+                .object => unreachable,
 
                 // Packed arrays cannot be wrapped - they require heap-allocated PackedArrayRef
                 .packed_byte_array,

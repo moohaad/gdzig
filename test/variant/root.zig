@@ -226,9 +226,31 @@ test "operators - power" {
     try testing.expectEqual(@as(i64, 8), pow_val);
 }
 
+test "wrap accepts a nullable object, like init" {
+    // `Tag.forType` gives `?*Class` the same `.object` tag as `*Class`, so
+    // `wrap` has to unwrap it -- otherwise it hands an optional to `upcast` and
+    // fails to compile. That is not hypothetical: it is what a vararg `call`
+    // does with any nullable object argument.
+    const node = Node.init();
+    defer node.destroy();
+
+    const present: ?*Node = node;
+    const wrapped = Variant.wrap(?*Node, &present);
+    try testing.expectEqual(Variant.Tag.object, wrapped.tag);
+    try testing.expectEqual(node, wrapped.as(?*Node) orelse return error.CastFailed);
+
+    // A null object is NIL, which is how Godot spells one and how `as` reads
+    // it back -- as a present null rather than a failed cast.
+    const absent: ?*Node = null;
+    const empty = Variant.wrap(?*Node, &absent);
+    try testing.expectEqual(Variant.Tag.nil, empty.tag);
+    try testing.expectEqual(@as(?*Node, null), empty.as(?*Node) orelse return error.CastFailed);
+}
+
 const std = @import("std");
 const testing = std.testing;
 
 const gdzig = @import("gdzig");
+const Node = gdzig.class.Node;
 const String = gdzig.builtin.String;
 const Variant = gdzig.builtin.Variant;
