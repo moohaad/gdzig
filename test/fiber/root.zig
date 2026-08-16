@@ -5,7 +5,7 @@
 //! later emission. These cover what it did not -- several coroutines at once,
 //! one awaiting inside another, the awaited object dying while parked, the
 //! coroutine's *own* object dying while parked, a frame larger than the
-//! committed stack, and `join`.
+//! committed stack, signal arguments, and `join`.
 //!
 //! Windows-only, like `coro` itself.
 
@@ -17,6 +17,7 @@ pub fn register(r: *gdzig.extension.Registry) void {
     const class = r.createClass(Emitter, {}, .auto);
     class.addSignal(Ping);
     class.addSignal(Pong);
+    class.addSignal(Hit);
 }
 
 fn ensureRegistered() void {
@@ -31,6 +32,13 @@ fn ensureRegistered() void {
 
 pub const Ping = struct {};
 pub const Pong = struct {};
+
+/// A signal that carries something, which is the whole point here: `damage`
+/// exercises a scalar and `label` a value the decode has to construct.
+pub const Hit = struct {
+    damage: i64,
+    label: String,
+};
 
 const Emitter = struct {
     base: *Object,
@@ -358,6 +366,36 @@ test "a live object argument does not stop a coroutine resuming" {
     try testing.expectEqual(@as(usize, 0), coro.liveCount());
 }
 
+fn awaitHit(emitter: *Emitter, slot: *u8) void {
+    slot.* = 1;
+
+    var hit = coro.awaitSignal(emitter.base, Hit);
+    // Decoding constructs `label`, so this frame owns it now.
+    defer hit.label.deinit();
+
+    if (hit.damage == 7 and hit.label.length() == 4) slot.* = 2;
+}
+
+test "awaiting a signal yields the arguments it carried" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const emitter = try Emitter.create();
+    defer emitter.destroy();
+    trace = .{};
+
+    try coro.spawn(allocator, awaitHit, .{ emitter, &trace.a });
+    try testing.expectEqual(@as(u8, 1), trace.a);
+
+    var label: String = .fromLatin1("crit");
+    defer label.deinit();
+    try emitter.base.emit(Hit, .{ .damage = 7, .label = label });
+
+    // 2 only if both arguments arrived intact -- a zeroed struct gives 1.
+    try testing.expectEqual(@as(u8, 2), trace.a);
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+}
+
 test "a coroutine whose awaited object dies is reclaimed, not leaked" {
     if (comptime !coro.supported) return error.SkipZigTest;
     ensureRegistered();
@@ -384,3 +422,4 @@ const gdzig = @import("gdzig");
 const coro = gdzig.coro;
 const allocator = gdzig.testing.allocator;
 const Object = gdzig.class.Object;
+const String = gdzig.builtin.String;

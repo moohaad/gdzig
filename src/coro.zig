@@ -16,6 +16,14 @@
 //! `onFadeOutDone` / `onFrameElapsed` / `onFadeInDone` replaces it with when
 //! the language has no coroutines.
 //!
+//! A signal that carries arguments hands them back, as the signal struct:
+//!
+//! ```zig
+//! var hit = coro.awaitSignal(enemy, Enemy.Hit);
+//! defer hit.label.deinit();
+//! if (hit.damage > 0) self.flinch();
+//! ```
+//!
 //! ## Why stackful
 //!
 //! Rust and C# get `await` from their compilers, which rewrite the function
@@ -474,6 +482,9 @@ fn entry(param: ?*anyopaque) callconv(.winapi) void {
 const Waiter = struct {
     allocator: std.mem.Allocator,
     coro: ?*Coro,
+    /// Where to put the signal's arguments: an `S` on the parked coroutine's
+    /// own stack, which is alive for exactly as long as this wait is.
+    result: *anyopaque,
 
     /// Claims the parked coroutine, leaving nothing for a later free to act on.
     fn take(self: *Waiter) ?*Coro {
@@ -482,22 +493,79 @@ const Waiter = struct {
     }
 };
 
-/// Parks the running coroutine until `obj` emits `S`.
+/// What awaiting `S` yields: its arguments, or nothing when it carries none.
+///
+/// A signal without arguments stays a statement -- `awaitSignal(t, Timeout);`
+/// -- rather than making every call site discard an empty struct. Give a signal
+/// a field later and its awaits become compile errors, which is the right way
+/// to find out about them.
+pub fn SignalResult(comptime S: type) type {
+    return if (@typeInfo(S).@"struct".fields.len == 0) void else S;
+}
+
+/// Fills `out` from the Variants Godot emitted.
+///
+/// Both mismatches panic rather than substituting a value. A signal struct is
+/// what `addSignal` registers the parameter types from, so disagreeing with the
+/// emission means the declaration is wrong -- and a fabricated argument turns
+/// that into a puzzle somewhere further along instead.
+fn decodeArgs(
+    comptime S: type,
+    out: *S,
+    argv: [*c]const c.GDExtensionConstVariantPtr,
+    argc: c.GDExtensionInt,
+) void {
+    inline for (@typeInfo(S).@"struct".fields, 0..) |field, i| {
+        if (i >= argc) std.debug.panic(
+            "gdzig.coro: {s} declares {d} argument(s) but the emission carried {d}",
+            .{ @typeName(S), @typeInfo(S).@"struct".fields.len, argc },
+        );
+        const variant: *const Variant = @ptrCast(@alignCast(argv[i]));
+        @field(out, field.name) = variant.as(field.type) orelse std.debug.panic(
+            "gdzig.coro: {s}.{s} is declared {s}, which the emitted value is not",
+            .{ @typeName(S), field.name, @typeName(field.type) },
+        );
+    }
+}
+
+/// Parks the running coroutine until `obj` emits `S`, and hands back what the
+/// signal carried.
+///
+/// Arguments that own heap data -- `String`, `Array`, `Dictionary`, the packed
+/// arrays -- come back owned by the caller, because decoding constructs them.
+/// Deinit them like any other value you were handed:
+///
+/// ```zig
+/// var hit = coro.awaitSignal(enemy, Enemy.Hit);
+/// defer hit.label.deinit();
+/// ```
 ///
 /// Panics if called outside a coroutine, which is a programming error rather
 /// than a runtime condition: the caller has no frame to park.
-pub fn awaitSignal(obj: anytype, comptime S: type) void {
+pub fn awaitSignal(obj: anytype, comptime S: type) SignalResult(S) {
+    // Split so that neither branch has to be valid for the other's return type:
+    // the storage is an `S` either way, but only one of them returns it.
+    if (comptime SignalResult(S) == void) {
+        var discard: S = undefined;
+        park(obj, S, &discard);
+    } else {
+        var result: S = undefined;
+        park(obj, S, &result);
+        return result;
+    }
+}
+
+fn park(obj: anytype, comptime S: type, result: *S) void {
     const coro = current orelse @panic(
         "gdzig.coro.awaitSignal called outside a coroutine; start one with gdzig.coro.spawn",
     );
 
-    const waiter = coro.allocator.create(Waiter) catch {
-        std.log.err("coro: out of memory awaiting {s}; running on instead of parking", .{@typeName(S)});
-        return;
-    };
-    waiter.* = .{ .allocator = coro.allocator, .coro = coro };
+    const waiter = coro.allocator.create(Waiter) catch @panic(
+        "gdzig.coro: out of memory while parking on a signal",
+    );
+    waiter.* = .{ .allocator = coro.allocator, .coro = coro, .result = @ptrCast(result) };
 
-    var callable = resumeCallable(waiter);
+    var callable = resumeCallable(S, waiter);
 
     // Marked suspended *before* connecting: `is_valid_func` answers from this
     // state, and Godot asks while connecting. Setting it afterwards means the
@@ -506,15 +574,22 @@ pub fn awaitSignal(obj: anytype, comptime S: type) void {
 
     const target = gdzig.class.upcast(*Object, obj);
     target.onceCallable(S, callable) catch |e| {
-        // Nothing will resume it now, so do not park -- that would strand the
-        // fiber forever. Unlink before releasing: dropping the last reference
-        // runs the free hook, which reclaims a coroutine it finds parked, and
-        // this one is still running on its own stack.
+        // Unlink before releasing: dropping the last reference runs the free
+        // hook, which reclaims a coroutine it finds parked, and this one is
+        // still running on its own stack.
         _ = waiter.take();
         coro.state = .running;
         callable.deinit();
-        std.log.err("coro: could not await {s}: {s}", .{ @typeName(S), @errorName(e) });
-        return;
+
+        // A panic rather than running on. Every await gets a freshly allocated
+        // `Waiter`, so no two resume callables are ever the same identity and a
+        // duplicate connection cannot happen -- which leaves "this object has
+        // no such signal" as the reachable cause. Carrying on would mean
+        // inventing the arguments the caller is about to read.
+        std.debug.panic(
+            "gdzig.coro: cannot await {s} ({s}); does this object have that signal?",
+            .{ @typeName(S), @errorName(e) },
+        );
     };
 
     // Released here rather than on scope exit, because scope exit is *after*
@@ -532,12 +607,12 @@ pub fn awaitSignal(obj: anytype, comptime S: type) void {
 /// A callable that resumes the coroutine `waiter` is holding, and cancels it if
 /// dropped first -- which is what happens when the object it is connected to
 /// dies with the signal still pending.
-fn resumeCallable(waiter: *Waiter) Callable {
+fn resumeCallable(comptime S: type, waiter: *Waiter) Callable {
     const Hooks = struct {
         fn call(
             userdata: ?*anyopaque,
-            _: [*c]const c.GDExtensionConstVariantPtr,
-            _: c.GDExtensionInt,
+            argv: [*c]const c.GDExtensionConstVariantPtr,
+            argc: c.GDExtensionInt,
             _: c.GDExtensionVariantPtr,
             err: [*c]c.GDExtensionCallError,
         ) callconv(.c) void {
@@ -553,6 +628,11 @@ fn resumeCallable(waiter: *Waiter) Callable {
             // be destroyed in there, and the free that follows must not find a
             // pointer to it.
             const target = w.take() orelse return;
+
+            // Written before the switch, while still on Godot's stack. The
+            // slot lives on the coroutine's stack, which is parked but intact.
+            decodeArgs(S, @ptrCast(@alignCast(w.result)), argv, argc);
+
             enter(target);
         }
 
