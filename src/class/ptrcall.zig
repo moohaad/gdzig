@@ -24,6 +24,7 @@
 /// call sites need a widened slot in the first place.
 const std = @import("std");
 
+const gd = @import("../gd.zig");
 const gdzig = @import("gdzig");
 const class = gdzig.class;
 
@@ -39,9 +40,20 @@ pub fn readArg(comptime T: type, raw_p_arg: ?*const anyopaque) T {
         .float => @floatCast(@as(*const f64, @ptrCast(@alignCast(p_arg))).*),
         .@"enum" => |info| @enumFromInt(@as(info.tag_type, @intCast(readIntSlot(info.tag_type, p_arg)))),
         .@"struct" => |info| blk: {
+            // An owning handle is not laid out like the object pointer the
+            // engine puts in the slot: reading the struct raw would take the
+            // pointer by luck and `released` from whatever follows it.
+            if (comptime gd.isGd(T)) break :blk T.borrow(readArg(*T.Owns, p_arg));
             if (info.layout != .@"packed") break :blk @as(*const T, @ptrCast(@alignCast(p_arg))).*;
             const Backing = info.backing_integer.?;
             break :blk @bitCast(@as(Backing, @intCast(readIntSlot(Backing, p_arg))));
+        },
+        .optional => blk: {
+            if (comptime gd.OptionalGd(T)) |Handle| {
+                const object = readArg(?*Handle.Owns, p_arg) orelse break :blk null;
+                break :blk Handle.borrow(object);
+            }
+            break :blk @as(*const T, @ptrCast(@alignCast(p_arg))).*;
         },
         else => @as(*const T, @ptrCast(@alignCast(p_arg))).*,
     };

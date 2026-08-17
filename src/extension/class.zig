@@ -216,8 +216,47 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
             destroyImpl(self, {});
         }
 
+        /// Releases the owning handles the instance still holds.
+        ///
+        /// A `Gd` field is a reference someone owes back, and after this the
+        /// instance is gone. Runs *before* the user's `destroy` and clears each
+        /// optional, so a `destroy` that also releases finds nothing left and
+        /// does nothing.
+        ///
+        /// Both paths reach it: the engine freeing the instance, and the user
+        /// calling the class's own `destroy`, which goes out through
+        /// `Object.destroy` and comes back here as the free callback. So a
+        /// `Gd` field is gdzig's to release, and a `destroy` that releases one
+        /// itself is doing work that is already done.
+        fn releaseOwnedFields(self: *T) void {
+            if (comptime @typeInfo(T) != .@"struct") return;
+            // The test decides at comptime and emits nothing for the ordinary
+            // field, so a class with no handles pays nothing. Calling a generic
+            // helper per field instead was enough comptime work on a wide class
+            // to segfault the 0.16 compiler outright.
+            @setEvalBranchQuota(10_000);
+            inline for (@typeInfo(T).@"struct".fields) |field| {
+                if (comptime gd.isGd(field.type)) {
+                    @field(self, field.name).deinit();
+                } else if (comptime gd.OptionalGd(field.type) != null) {
+                    if (@field(self, field.name)) |*handle| {
+                        handle.deinit();
+                        @field(self, field.name) = null;
+                    }
+                }
+            }
+        }
+
         fn destroyImpl(self: *T, userdata: Userdata) void {
             const obj = Object.upcast(self);
+
+            // Before the guard, not after: when the user initiates destruction
+            // `Object.destroy` sets `user_destroying`, and this callback then
+            // returns without running the user's `destroy` again. Releasing
+            // after that check would mean releasing on the engine's path only,
+            // which is the rarer one.
+            releaseOwnedFields(self);
+
             if (DestroyInstanceBinding.get(obj)) |destroy_meta| {
                 destroy_meta.assertNotDispatching();
                 if (destroy_meta.user_destroying) return;
@@ -373,6 +412,7 @@ const builtin = @import("builtin");
 
 const c = @import("gdextension");
 const common = @import("common");
+const gd = @import("../gd.zig");
 const gdzig = @import("gdzig");
 const class = gdzig.class;
 const classdb = gdzig.class.ClassDb;

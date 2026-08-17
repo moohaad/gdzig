@@ -41,6 +41,11 @@ pub const Variant = extern struct {
             return init(@typeInfo(T).optional.child, inner);
         }
 
+        // An owning handle is the object it holds. The object path below
+        // references for `RefCounted`, so the Variant takes its own -- the
+        // caller's handle still owns the one it came with.
+        if (comptime gd.isGd(T)) return init(*T.Owns, value.get());
+
         const tag = comptime Tag.forType(T);
 
         if (tag == .object) {
@@ -186,6 +191,14 @@ pub const Variant = extern struct {
             const Inner = @typeInfo(T).optional.child;
             if (self.tag == .nil) return @as(T, null);
             return self.as(Inner) orelse null;
+        }
+
+        // Decoding to a handle means the caller owns a reference, so take
+        // one. That is the whole difference from `as(*T)`, which borrows: a
+        // property field holding the result has to outlive this Variant.
+        if (comptime gd.isGd(T)) {
+            const object = self.as(*T.Owns) orelse return null;
+            return T.borrow(object);
         }
 
         const tag = comptime Tag.forType(T);
@@ -658,14 +671,22 @@ pub const Variant = extern struct {
                     }
                     break :blk switch (@typeInfo(T)) {
                         .@"enum" => .int,
-                        .@"struct" => |info| if (info.backing_integer != null) .int else null,
+                        .@"struct" => |info| if (gd.isGd(T))
+                            .object
+                        else if (info.backing_integer != null)
+                            .int
+                        else
+                            null,
                         .pointer => |p| if (class.isClassPtr(T)) .object else forType(p.child),
                         // A nullable object. Godot's object Variant is nullable
                         // by nature -- a null one is simply NIL -- so `?*Node`
                         // is as ordinary a parameter type as `*Node`, and
                         // registering a method that takes one used to be a
                         // compile error.
-                        .optional => |o| if (class.isClassPtr(o.child)) .object else forType(o.child),
+                        .optional => |o| if (class.isClassPtr(o.child) or gd.isGd(o.child))
+                            .object
+                        else
+                            forType(o.child),
                         else => null,
                     };
                 },
@@ -918,6 +939,7 @@ const testing = std.testing;
 
 const c = @import("gdextension");
 
+const gd = @import("../gd.zig");
 const gdzig = @import("gdzig");
 const raw = &gdzig.raw;
 const CallError = gdzig.CallError;

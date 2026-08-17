@@ -3,6 +3,7 @@ pub fn register(r: *gdzig.extension.Registry) void {
 
     // Field-based property with auto-detected getter/setter
     class.addProperty("field_value", .auto);
+    class.addProperty("held", .auto);
     class.addProperty("anything", .auto);
 
     // Read-only property (getter only, no setter)
@@ -319,6 +320,10 @@ const PropertyNode = struct {
     // Field-based property
     field_value: i64 = 42,
 
+    /// An owning handle as a property field. gdzig references what it is
+    /// given and releases it again at teardown, so nothing here does.
+    held: ?Gd(Resource) = null,
+
     // Read-only property
     read_only: i64 = 999,
 
@@ -395,8 +400,47 @@ const testing = std.testing;
 
 const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
+const Gd = gdzig.Gd;
+const Resource = gdzig.class.Resource;
+const RefCounted = gdzig.class.RefCounted;
 const Object = gdzig.class.Object;
 const StringName = gdzig.builtin.StringName;
 const String = gdzig.builtin.String;
 const Dictionary = gdzig.builtin.Dictionary;
 const Variant = gdzig.builtin.Variant;
+
+test "an owning property field takes a reference, and gives it back" {
+    ensureRegistered();
+
+    var resource = Resource.init();
+    defer resource.deinit();
+    const target = resource.get();
+    const counted = RefCounted.upcast(target);
+    const before = counted.getReferenceCount();
+
+    {
+        const node = try PropertyNode.create();
+        defer node.destroy();
+
+        const obj = Object.upcast(node);
+
+        // The Variant owns a reference too, and nothing here frees a temporary,
+        // so it has to be released before the count means what the test says.
+        var boxed: Variant = .init(*Resource, target);
+        obj.set(StringName.fromComptimeLatin1("held").*, boxed);
+        boxed.deinit();
+
+        // A reference of its own, not a borrow of the caller's: this is the
+        // difference between `?Gd(T)` and the `?*T` a field used to have to be.
+        try testing.expectEqual(before + 1, counted.getReferenceCount());
+
+        // Setting again releases the first rather than leaking it.
+        var again: Variant = .init(*Resource, target);
+        obj.set(StringName.fromComptimeLatin1("held").*, again);
+        again.deinit();
+        try testing.expectEqual(before + 1, counted.getReferenceCount());
+    }
+
+    // Nothing released it by hand: teardown gave the reference back.
+    try testing.expectEqual(before, counted.getReferenceCount());
+}

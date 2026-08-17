@@ -65,6 +65,47 @@ const track_release = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
 };
 
+/// Whether `T` is some `Gd(U)`.
+///
+/// Marshalling has to tell an owning handle from a borrowed pointer, because
+/// the two mean opposite things about who owes a release. The cheap checks
+/// come first so an unrelated struct that happens to declare `Owns` is
+/// rejected before `Gd` is instantiated on it -- instantiating asserts
+/// `RefCounted` ancestry, which would be a compile error rather than a false.
+pub fn isGd(comptime T: type) bool {
+    if (@typeInfo(T) != .@"struct") return false;
+    if (!@hasDecl(T, "Owns") or !@hasField(T, "ptr")) return false;
+    if (@TypeOf(T.Owns) != type) return false;
+    return T == Gd(T.Owns);
+}
+
+/// `Gd(U)` for a `?Gd(U)`, else null. The optional form is what a property
+/// field wants, since Godot can hand it nothing.
+pub fn OptionalGd(comptime T: type) ?type {
+    const info = @typeInfo(T);
+    if (info != .optional) return null;
+    return if (isGd(info.optional.child)) info.optional.child else null;
+}
+
+/// Releases whatever an owning field holds, and leaves it holding nothing.
+///
+/// For where gdzig owns a reference on the user's behalf: a property field it
+/// filled from a Variant, and that same field again at teardown. Clearing the
+/// optional is the point -- a user `destroy` that also releases must find
+/// nothing left to release. A non-optional `Gd` cannot be cleared, so a second
+/// release there trips the use-after-release panic rather than corrupting,
+/// which is the loudest outcome available.
+pub fn releaseField(comptime T: type, field: *T) void {
+    if (comptime isGd(T)) {
+        field.deinit();
+    } else if (comptime OptionalGd(T) != null) {
+        if (field.*) |*handle| {
+            handle.deinit();
+            field.* = null;
+        }
+    }
+}
+
 /// An owning handle to a reference-counted `T`.
 ///
 /// `T` must inherit from `RefCounted`; anything else is a compile error, since

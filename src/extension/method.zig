@@ -5,6 +5,7 @@ const casez = @import("casez");
 const common = @import("common");
 const godot_case = common.godot_case;
 
+const gd = @import("../gd.zig");
 const gdzig = @import("gdzig");
 const ptrcall = @import("../class/ptrcall.zig");
 const classdb = gdzig.class.ClassDb;
@@ -218,6 +219,9 @@ pub fn MethodConfig(comptime Class: type) type {
                     defer guard.leave();
                     if (args.len < 1) return error.TooFewArguments;
                     const value = args[0].as(FieldType) orelse return error.InvalidArgument;
+                    // An owning field holds a reference; setting it twice would
+                    // leak the first without this.
+                    gd.releaseField(FieldType, &@field(instance, field_name));
                     @field(instance, field_name) = value;
                     return Variant.nil;
                 }
@@ -225,7 +229,9 @@ pub fn MethodConfig(comptime Class: type) type {
                 fn ptrCall(instance: *Class, args: [*]const *const anyopaque, _: ?*anyopaque) void {
                     const guard = DispatchGuard.enter(instance);
                     defer guard.leave();
-                    @field(instance, field_name) = ptrcall.readArg(FieldType, args[0]);
+                    const value = ptrcall.readArg(FieldType, args[0]);
+                    gd.releaseField(FieldType, &@field(instance, field_name));
+                    @field(instance, field_name) = value;
                 }
             };
 
