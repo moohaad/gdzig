@@ -42,6 +42,11 @@
 //! rather than crashing on -- and since the result is a [`Weak`](weak.zig)
 //! handle, `get` stays honest afterwards if the node is freed later.
 //!
+//! ## Autoloads
+//!
+//! [`Autoload(T, "Name")`](#Autoload) is the same field at `/root/Name`,
+//! for the singletons `project.godot` loads before the main scene.
+//!
 //! ## Or let the scene declare them
 //!
 //! [`Scene(@embedFile("Main.tscn"))`](scene.zig) builds a struct of these from
@@ -91,6 +96,32 @@ pub fn Child(comptime T: type, comptime path: [:0]const u8) type {
                 @panic("child '" ++ path ++ "' of type " ++ @typeName(T) ++ " is missing or freed");
         }
     };
+}
+
+/// The autoload named `name`, resolved before `_ready` like any other field.
+///
+/// Godot puts an autoload under `/root` before the main scene loads, so it is
+/// reachable by absolute path from anywhere in the tree -- which makes it a
+/// `Child` whose path happens to start at the root, and this is that spelling:
+///
+/// ```zig
+/// bus: Autoload(EventBusNode, "EventBus") = .pending,
+/// ```
+///
+/// `name` is the one in `project.godot`'s `[autoload]` section, and the
+/// `/root/` prefix is added here rather than at each use site. `T` may be one
+/// of your registered classes or an engine class; an autoload still written in
+/// GDScript resolves as `Node`, which is all `call` and `emit` need.
+///
+/// Ordering is what makes this safe, including the case that looks unsafe:
+/// one autoload reaching another. Godot has every autoload in the tree before
+/// it runs `_ready` on any of them, so resolution does not depend on the order
+/// they are listed in -- measured with an autoload declared *first* resolving
+/// one declared after it, which fails loudly if that ever stops holding.
+pub fn Autoload(comptime T: type, comptime name: [:0]const u8) type {
+    // `comptimePrint` is how a comptime slice gets its sentinel, the same way
+    // `Scene` builds its paths.
+    return Child(T, std.fmt.comptimePrint("/root/{s}", .{name}));
 }
 
 /// Whether `T` declares any `Child` fields, and so needs a `_ready` even if the
@@ -171,6 +202,18 @@ fn lookup(comptime T: type, owner: *Node, comptime path: [:0]const u8) ?*T {
 
     const node = owner.getNode(node_path) orelse return null;
     return class.castTo(T, node);
+}
+
+test "an autoload is a child at an absolute path" {
+    try std.testing.expectEqual(
+        Child(gdzig.class.Node, "/root/EventBus"),
+        Autoload(gdzig.class.Node, "EventBus"),
+    );
+
+    // The part worth pinning: a class whose only resolvable field is an
+    // `Autoload` still gets a `_ready` in its vtable, so the field is filled.
+    const Holder = struct { bus: Autoload(gdzig.class.Node, "EventBus") = .pending };
+    try std.testing.expect(hasAny(Holder));
 }
 
 test "Child is recognised only as itself" {
