@@ -93,9 +93,18 @@ pub fn Gd(comptime T: type) type {
 
         /// Takes a new reference to `ptr` and returns a handle owning it. Use
         /// this for a borrowed pointer that must outlive its current owner.
-        pub fn borrow(ptr: *T) Self {
-            _ = RefCounted.upcast(ptr).reference();
-            return .{ .ptr = ptr };
+        ///
+        /// Takes `anytype` and upcasts, so holding a derived object at a base
+        /// handle -- `Gd(Resource).borrow(some_texture)` -- needs no upcast
+        /// spelled out. That matches the generated methods, which take
+        /// `anytype` for every class parameter and upcast on the way in.
+        /// `adopt` cannot follow: it is called as `Gd(T).adopt(@ptrCast(p))`
+        /// throughout the generated bindings, and `@ptrCast` has no result
+        /// type to infer once the parameter stops being `*T`.
+        pub fn borrow(ptr: anytype) Self {
+            const obj: *T = class.upcast(*T, ptr);
+            _ = RefCounted.upcast(obj).reference();
+            return .{ .ptr = obj };
         }
 
         /// Returns a second handle to the same object, taking a reference for
