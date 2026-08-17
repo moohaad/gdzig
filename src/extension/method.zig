@@ -100,13 +100,18 @@ pub fn MethodConfig(comptime Class: type) type {
                 fn call(instance: *Class, args: []const *const Variant) gdzig.CallError!Variant {
                     const guard = DispatchGuard.enter(instance);
                     defer guard.leave();
+                    // Rejected rather than run short: a missing argument used to
+                    // leave its slot `undefined`, which Debug fills with 0xAA.
+                    // A method taking an `i64` then ran with a huge negative
+                    // number and whatever it did with it -- add it to a score,
+                    // index with it -- failed somewhere else entirely.
+                    if (args.len < arg_count) return error.TooFewArguments;
+
                     var call_args: std.meta.ArgsTuple(MethodType) = undefined;
                     call_args[0] = instance;
                     inline for (1..Args.len) |i| {
                         const ArgType = Args[i].type.?;
-                        if (i - 1 < args.len) {
-                            call_args[i] = args[i - 1].as(ArgType) orelse return error.InvalidArgument;
-                        }
+                        call_args[i] = args[i - 1].as(ArgType) orelse return error.InvalidArgument;
                     }
                     if (ReturnType == void) {
                         @call(.auto, method, call_args);

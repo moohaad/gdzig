@@ -175,6 +175,22 @@ test "a Weak over a deeply derived class compiles" {
     _ = &weakenWide;
 }
 
+test "a method called with too few arguments is rejected, not run on garbage" {
+    ensureRegistered();
+
+    const node = try TestNode.create();
+    defer node.base.destroy();
+
+    // `add_value` takes one argument. Supplying none used to leave the
+    // parameter `undefined` -- 0xAA... in Debug -- and run the body anyway.
+    const before = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_counter").*, .{});
+    var ignored = Object.call(.upcast(node), StringName.fromComptimeLatin1("add_value").*, .{});
+    ignored.deinit();
+
+    const after = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_counter").*, .{});
+    try testing.expectEqual(before.as(i64), after.as(i64));
+}
+
 test "a class with dozens of registered members still compiles" {
     ensureRegistered();
 
