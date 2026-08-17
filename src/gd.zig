@@ -161,7 +161,14 @@ pub fn Gd(comptime T: type) type {
         pub fn deinit(self: *Self) void {
             self.assertLive();
             if (track_release) self.released = true;
-            if (RefCounted.upcast(self.ptr).unreference()) self.ptr.destroy();
+            if (RefCounted.upcast(self.ptr).unreference()) {
+                // Through the object, not `T.destroy`: for one of your own
+                // registered classes that is the user's function and takes an
+                // allocator, so calling it here would not compile. Freeing the
+                // object runs it, with the allocator the registry holds. For an
+                // engine class this is the same call `T.destroy` resolves to.
+                class.Object.upcast(self.ptr).destroy();
+            }
         }
 
         /// Borrows the pointer. The result is valid only while this handle is,
