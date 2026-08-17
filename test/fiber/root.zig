@@ -15,6 +15,7 @@ const testing = std.testing;
 
 pub fn register(r: *gdzig.extension.Registry) void {
     const class = r.createClass(Emitter, {}, .auto);
+    _ = r.createClass(Orphan, {}, .auto);
     class.addSignal(Ping);
     class.addSignal(Pong);
     class.addSignal(Hit);
@@ -50,6 +51,23 @@ const Emitter = struct {
         return self;
     }
     pub fn destroy(self: *Emitter) void {
+        self.base.destroy();
+        allocator.destroy(self);
+    }
+};
+
+/// A `Node`, because `wait` needs one, and deliberately never added to a
+/// tree: `getTree` returns null, which is the branch under test.
+const Orphan = struct {
+    base: *Node,
+
+    pub fn create() !*Orphan {
+        const self = try allocator.create(Orphan);
+        self.* = .{ .base = Node.init() };
+        self.base.setInstance(Orphan, self);
+        return self;
+    }
+    pub fn destroy(self: *Orphan) void {
         self.base.destroy();
         allocator.destroy(self);
     }
@@ -421,5 +439,28 @@ test "a coroutine whose awaited object dies is reclaimed, not leaked" {
 const gdzig = @import("gdzig");
 const coro = gdzig.coro;
 const allocator = gdzig.testing.allocator;
+const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;
 const String = gdzig.builtin.String;
+
+fn waitDetached(orphan: *Orphan, step: *u8) void {
+    step.* = 1;
+    // Sixty seconds, so a regression that actually parks hangs the suite
+    // rather than passing slowly.
+    coro.wait(orphan.base, 60.0, .{});
+    step.* = 2;
+}
+
+test "waiting outside the tree returns instead of parking forever" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const orphan = try Orphan.create();
+    defer orphan.destroy();
+    trace = .{};
+
+    // Runs straight through inside `spawn`: no tree, so no timer to park on.
+    try coro.spawn(allocator, waitDetached, .{ orphan, &trace.a });
+    try testing.expectEqual(@as(u8, 2), trace.a);
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+}

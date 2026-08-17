@@ -96,7 +96,9 @@ const builtin = @import("builtin");
 const c = @import("gdextension");
 const gdzig = @import("gdzig");
 const Callable = gdzig.builtin.Callable;
+const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;
+const SceneTreeTimer = gdzig.class.SceneTreeTimer;
 const StringName = gdzig.builtin.StringName;
 const Variant = gdzig.builtin.Variant;
 
@@ -553,6 +555,40 @@ pub fn awaitSignal(obj: anytype, comptime S: type) SignalResult(S) {
         park(obj, S, &result);
         return result;
     }
+}
+
+/// Parks the calling coroutine for `seconds`: GDScript's
+/// `await get_tree().create_timer(s).timeout`, which is the other half of
+/// waiting once you have [`awaitSignal`](#awaitSignal).
+///
+/// ```zig
+/// coro.wait(self.base, 0.4, .{});
+/// self.sprite.get().?.play(.{ .name = sname("recover") });
+/// ```
+///
+/// The options are Godot's own rather than a policy of ours: leave
+/// `process_always` set and the wait keeps counting while the tree is paused,
+/// clear it and a pause suspends it.
+///
+/// Returns without waiting if `node` is not in a tree, since there is no timer
+/// to park on -- a detached node would otherwise hang its coroutine forever.
+/// Panics outside a coroutine, like `awaitSignal`.
+pub fn wait(node: anytype, seconds: f64, opts: struct {
+    process_always: bool = true,
+    process_in_physics: bool = false,
+    ignore_time_scale: bool = false,
+}) void {
+    const target: *Node = gdzig.class.upcast(*Node, node);
+    const tree = target.getTree() orelse return;
+
+    var timer = tree.createTimer(seconds, .{
+        .process_always = opts.process_always,
+        .process_in_physics = opts.process_in_physics,
+        .ignore_time_scale = opts.ignore_time_scale,
+    }) orelse return;
+    defer timer.deinit();
+
+    awaitSignal(timer.get(), SceneTreeTimer.Timeout);
 }
 
 fn park(obj: anytype, comptime S: type, result: *S) void {
