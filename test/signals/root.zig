@@ -121,4 +121,30 @@ const testing = std.testing;
 const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Callable = gdzig.builtin.Callable;
+
+test "Callable.bind returns a Callable, not a mangled Variant" {
+    // A builtin method always ptrcalls, even with varargs, and a ptrcall writes
+    // the native return type. Generating the result slot as a `Variant` let
+    // Godot write a `Callable` over it; `as(Callable)` then found an
+    // incompatible tag and the `.?` behind it panicked. `bind` is reached by
+    // anything that carries a value into a signal handler.
+    const node = Node.init();
+    defer node.destroy();
+
+    const name = StringName.fromComptimeLatin1("free");
+    var callable = Callable.initObjectMethod(Object.upcast(node), name.*);
+    defer callable.deinit();
+    try testing.expect(callable.isValid());
+
+    var bound = callable.bind(.{@as(i64, 7)});
+    defer bound.deinit();
+
+    // A mangled result reads as invalid with no object behind it.
+    try testing.expect(bound.isValid());
+    try testing.expectEqual(@as(i64, 1), bound.getBoundArgumentsCount());
+}
+
+
 const Object = gdzig.class.Object;
+const Node = gdzig.class.Node;
+const StringName = gdzig.builtin.StringName;

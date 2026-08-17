@@ -1653,10 +1653,16 @@ fn writeFunctionHeader(w: *CodeWriter, function: *const Context.Function, class:
     }
 
     // Return variable
+    //
+    // No vararg special case here, unlike the class-method writer above. A
+    // class method with varargs goes through `object_method_bind_call`, which
+    // really does hand back a Variant. A *builtin* method always ptrcalls, even
+    // with varargs, and a ptrcall writes the native return type -- Godot's
+    // `ptr_bind` encodes a `Callable` into `r_ret`. Declaring the slot as a
+    // Variant let the engine write a `Callable` over it, after which
+    // `result.as(Callable)` found an incompatible tag and returned null.
     if (function.return_type != .void) {
-        if (function.is_vararg) {
-            try w.writeLine("var result: Variant = .nil;");
-        } else {
+        {
             try w.writeAll("var result: ");
             if (function.return_type == .class) {
                 try w.writeLine("?*anyopaque = null;");
@@ -1824,12 +1830,8 @@ fn writeFunctionFooter(w: *CodeWriter, function: *const Context.Function, class:
         // Void does nothing.
         .void => {},
 
-        // Vararg and operator functions cast to the return type, fixed arity return directly.
-        else => if (function.is_vararg) {
-            try w.writeAll("return result.as(");
-            try writeTypeAtReturn(w, &function.return_type, class, ctx);
-            try w.writeLine(").?;");
-        } else switch (wideSlot(&function.return_type, ctx)) {
+        // The result slot is already the native return type, vararg or not.
+        else => switch (wideSlot(&function.return_type, ctx)) {
             // Narrow the int64 result slot back to the declared sub-8-byte return type.
             .none => try w.writeLine("return result;"),
             .int => try w.writeLine("return @intCast(result);"),
