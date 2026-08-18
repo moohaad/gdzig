@@ -15,8 +15,33 @@ pub fn init(backing_allocator: Allocator) Registry {
 }
 
 pub fn deinit(self: *Registry) void {
+    self.unregisterRemaining();
     self.arena.deinit();
     self.* = undefined;
+}
+
+/// Unregisters whatever the extension's own `unregister` did not.
+///
+/// Calling `removeClass` is the extension's job, and an extension with no
+/// `unregister` at all is legal. Anything missed stays in Godot's ClassDB with
+/// its callbacks in a library that is about to go, and its rpc table pointing
+/// into an arena that is about to be freed. On a plain shutdown that is
+/// invisible because the process ends; on a reload it is a class the engine
+/// will happily instantiate into unmapped code.
+///
+/// Reverse order, because an inheritor has to go before its parent and a
+/// subclass is registered after the class it extends.
+///
+/// Asking ClassDB rather than tracking a flag: the same answer covers "the
+/// extension already removed it", and it cannot fall out of step with reality.
+fn unregisterRemaining(self: *Registry) void {
+    var i = self.classes.items.len;
+    while (i > 0) {
+        i -= 1;
+        const any = self.classes.items[i];
+        if (!classdb.classExists(any.name.*)) continue;
+        any.teardown();
+    }
 }
 
 /// The value type that the user passes to addClass.
@@ -70,10 +95,15 @@ pub fn removeModule(self: *Registry, comptime Module: type) void {
 /// Inheritors must be unregistered before their parents.
 pub fn removeClass(self: *Registry, comptime T: type) void {
     _ = self;
+    teardownClass(T);
+}
+
+/// Everything undoing a registration involves, in one place so the sweep in
+/// `deinit` does exactly what an explicit `removeClass` does.
+fn teardownClass(comptime T: type) void {
     // The slice lives in the arena, which is about to be reset.
     rpc.Table(T).entries = &.{};
-    const class_name = StringName.fromType(T);
-    classdb.unregisterClass(class_name);
+    classdb.unregisterClass(StringName.fromType(T));
 }
 
 /// Add lifecycle callbacks.
@@ -114,6 +144,9 @@ pub fn exit(self: *Registry, level: InitializationLevel) void {
 /// Type-erased class handle for heterogeneous storage.
 const AnyClass = struct {
     commit: *const fn (*AnyClass, InitializationLevel) void,
+    /// For the sweep in `deinit`: what to check, and what to do about it.
+    name: *const StringName,
+    teardown: *const fn () void,
 };
 
 pub fn Class(comptime T: type) type {
@@ -164,6 +197,8 @@ pub fn Class(comptime T: type) type {
             return .{
                 .any = .{
                     .commit = @ptrCast(&commit),
+                    .name = StringName.fromType(T),
+                    .teardown = &tearDownSelf,
                 },
                 .registry = registry,
                 .userdata = userdata,
@@ -187,6 +222,10 @@ pub fn Class(comptime T: type) type {
 
         pub fn erased(self: *Self) *AnyClass {
             return &self.any;
+        }
+
+        fn tearDownSelf() void {
+            teardownClass(T);
         }
 
         /// Add a method by name. Auto-detects the Zig decl from snake_case name.

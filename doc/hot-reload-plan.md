@@ -62,10 +62,25 @@ about to be unloaded. Reloading with one live is unrecoverable, and silent.
 and `typeConvert_ptr` in atomics. These point into Godot, which does not reload, so they are
 *probably* fine — but "probably" is the reason they are on this list.
 
-**4. Registration lifecycle.** Classes must unregister on `deinitialize` and re-register on
-`initialize`. gdext records that Godot "erases all GDExtension instance bindings, effectively
-changing them to the base classes" during a reload, and separately that a class changing base
-type across a reload (`RefCounted` -> `Node`) is a case to detect rather than crash on.
+**4. Registration lifecycle. Handled.** Unregistering was the extension's job, and an
+extension with no `unregister` at all is legal. Anything missed stayed in Godot's ClassDB with
+its callbacks in a library about to go, and its rpc table pointing into an arena about to be
+freed -- invisible on a plain shutdown, because the process ends, and fatal on a reload.
+
+`Registry.deinit` now sweeps what is left: for each class it registered, in reverse so an
+inheritor goes before its parent, it asks ClassDB whether the class is still there and tears
+it down if so. Asking rather than tracking a flag, because the same answer covers "the
+extension already removed it" and cannot fall out of step.
+
+Measured by leaving one class deliberately unregistered. With the sweep it fires once per exit
+cycle and the harness passes 23 checks. Without it, Godot answers `Attempt to register
+extension class 'ConfigNode', which appears to be already registered` and the harness collapses
+to 4 checks and a failure.
+
+gdext records that Godot "erases all GDExtension instance bindings, effectively changing them
+to the base classes" during a reload, and separately that a class changing base type across a
+reload (`RefCounted` -> `Node`) is a case to detect rather than crash on -- the latter is
+stage 5.
 
 **5. Levels are not symmetric.** From gdext: with editor plugins, "Godot may unload all levels
 but only reload from Scene upward". An entrypoint that assumes `initialize` and `deinitialize`
