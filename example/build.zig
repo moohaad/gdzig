@@ -57,6 +57,19 @@ pub fn build(b: *Build) !void {
     const run_step = b.step("run", "Run with Godot");
     run_step.dependOn(&run.step);
 
+    // Reload has to be driven from GDScript in editor mode: the library is
+    // unloaded mid-test, so a Zig assertion goes with it, and
+    // `reload_extension` refuses outside the editor.
+    const reload = Build.Step.Run.create(b, "reload harness");
+    reload.addFileArg(gdzig_dep.namedLazyPath("godot"));
+    reload.addArg("--path");
+    reload.addDirectoryArg(b.path("./project"));
+    reload.addArgs(&.{ "--headless", "--editor", "--script", "res://demo/reload_driver.gd" });
+    reload.step.dependOn(&install.step);
+
+    b.step("reload-test", "Reload the extension and check what survived")
+        .dependOn(&reload.step);
+
     // Tests
     const tests = gdzig.addTest(b, .{
         .root_module = mod,

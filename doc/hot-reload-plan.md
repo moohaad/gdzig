@@ -68,23 +68,41 @@ pair up per level will be wrong.
 
 ## Stages
 
-### 1. Make a reload observable
+### 1. Make a reload observable, done
 
-Everything else is unfalsifiable without this, and it is the expensive stage, so it goes
-first rather than last.
+`zig build reload-test`, in `example/`. Six checks, currently all passing.
 
-Reload is editor-driven, which the existing `--headless` test harness cannot express. Options,
-cheapest first: drive the editor with `--editor --headless` and touch the library on disk;
-failing that, call the reload path directly through the extension API from a test; failing
-that, a documented manual procedure with a checklist, which is worth having even after an
-automated version exists.
+Two constraints found by trying, both of which shaped the harness:
 
-The assertion that matters is not "it did not crash" but "an instance kept its exported
-property, its plain field reset, and the object count returned to where it started".
+* **Reload is editor-only.** Outside the editor, `GDExtensionManager.reload_extension`
+  answers `LOAD_STATUS_FAILED` and logs "GDExtension reloading is disabled". That removes the
+  option of calling the reload path from an ordinary test.
+* **The driver cannot live in the extension.** Reloading unloads the library, so a Zig
+  assertion is unloaded mid-assertion.
+
+Both are satisfied by a `@tool extends SceneTree` script run as
+`--headless --editor --script res://demo/reload_driver.gd`, which reloads cleanly
+(`LOAD_STATUS_OK`) and outlives the library because GDScript is not in it.
+
+What the reload gets right, measured rather than assumed: the instance survives, keeps its
+own class rather than degrading to the base, and its exported property still holds the value
+set before the reload. The `recreate` path works.
+
+What it gets wrong is stage 2's first item.
 
 ### 2. Audit and reset module state
 
-Enumerate every module-level `var` under `src/` (excluding generated `src/class/`), and
+**First: freeing a reloaded instance panics.** `node.free()` after a reload trips gdzig's own
+guard, "object freed while one of its methods was still running", on an instance that is not
+dispatching. The instance binding carries state from before the reload. The harness has that
+check disabled behind a named constant, so re-enabling it is the fix's test.
+
+Worth recording beside it: the panic's backtrace names `~example.dll`. Windows cannot delete
+a loaded library, so Godot renames the old one and the old module stays mapped and executing.
+Hazard 1's "not unloaded" branch is filed above as a Linux glibc problem that gdext works
+around. It happens on Windows too, by design.
+
+Then enumerate every module-level `var` under `src/` (excluding generated `src/class/`), and
 classify each: must reset, must persist, must be empty. Then give the entrypoint a teardown
 that enforces the classification at `deinitialize`.
 
@@ -117,6 +135,7 @@ improvement on a path that must first work at all.
 
 ## Open
 
-Nothing here has been tested against a running reload — the hazards are read off the source
-and off gdext's handling of the same problems, not off a reproduction. Stage 1 exists to
-replace that inference with measurement, and may reorder everything after it.
+Stage 1 is done, so the hazards are no longer all inference: the free-after-reload panic and
+the still-mapped old module are reproductions. Hazards 1 (the `StringName` cache), 2 (parked
+coroutines) and 5 (level asymmetry) are still read off the source, and the harness is now the
+place to settle each of them, as a check that fails before the fix and passes after.
