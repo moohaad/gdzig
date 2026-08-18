@@ -35,36 +35,90 @@ pub inline fn fromLatin1(str: [:0]const u8, is_static: bool) StringName {
 /// Pass it straight to anything wanting a `*const StringName`. Where a value is
 /// wanted, `.*` copies one out; that copy is a borrow too, so still do not
 /// destroy it.
+///
+/// Not interned static, though the engine offers it. A static `StringName`
+/// reuses the caller's buffer rather than copying, and `str` lives in this
+/// library's rodata -- which a hot reload unmaps while the engine goes on
+/// pointing at it. The header calls the flag "purely an optimization" that "can
+/// easily introduce undefined behavior if used wrong", and a reload is exactly
+/// wrong. Copying costs one short memcpy per literal, once.
+///
+/// The copy is also what makes the cache releasable: a static name must never
+/// be destroyed, so `releaseInterned` would have been the very bug described
+/// above.
 pub fn fromComptimeLatin1(comptime str: [:0]const u8) *const StringName {
     const S = struct {
         const key = str;
-        var value: StringName = undefined;
-        /// 0 = untouched, 1 = a thread is building it, 2 = published.
-        ///
-        /// A plain `bool` raced: a second thread could see it set beside a
-        /// half-written `StringName`, since nothing ordered the two stores. The
-        /// release/acquire pair below is what makes the value visible only
-        /// after it is complete.
-        var state: std.atomic.Value(u8) = .init(0);
+        var entry: Interned = .{};
     };
 
-    if (S.state.load(.acquire) == 2) return &S.value;
+    if (S.entry.state.load(.acquire) == 2) return &S.entry.value;
 
-    if (S.state.cmpxchgStrong(0, 1, .acquire, .monotonic) == null) {
+    if (S.entry.state.cmpxchgStrong(0, 1, .acquire, .monotonic) == null) {
         // This thread owns the initialisation.
         if (raw.stringNameNewWithLatin1Chars) |func| {
-            func(@ptrCast(&S.value), @ptrCast(str.ptr), 1);
+            func(@ptrCast(&S.entry.value), @ptrCast(str.ptr), 0);
         } else {
-            S.value = viaString(str);
+            S.entry.value = viaString(str);
         }
-        S.state.store(2, .release);
-        return &S.value;
+        link(&S.entry);
+        S.entry.state.store(2, .release);
+        return &S.entry.value;
     }
 
     // Another thread got there first; wait for it to publish. Construction is a
     // single engine call, so spinning beats any machinery to sleep on.
-    while (S.state.load(.acquire) != 2) std.atomic.spinLoopHint();
-    return &S.value;
+    while (S.entry.state.load(.acquire) != 2) std.atomic.spinLoopHint();
+    return &S.entry.value;
+}
+
+/// One interned literal, and the link that makes it reachable again.
+///
+/// The node lives inside the per-literal static, so interning allocates
+/// nothing: the cost of being releasable is one pointer of static per literal
+/// and one push the first time each is used.
+const Interned = struct {
+    value: StringName = undefined,
+    /// 0 = untouched, 1 = a thread is building it, 2 = published.
+    ///
+    /// A plain `bool` raced: a second thread could see it set beside a
+    /// half-written `StringName`, since nothing ordered the two stores. The
+    /// release/acquire pair is what makes the value visible only after it is
+    /// complete.
+    state: std.atomic.Value(u8) = .init(0),
+    /// Written only by the thread that built this entry, before it publishes.
+    next: ?*Interned = null,
+};
+
+var interned: std.atomic.Value(?*Interned) = .init(null);
+
+fn link(entry: *Interned) void {
+    var head = interned.load(.monotonic);
+    while (true) {
+        entry.next = head;
+        head = interned.cmpxchgWeak(head, entry, .release, .monotonic) orelse return;
+    }
+}
+
+/// Releases every interned literal and empties the cache.
+///
+/// For the extension's exit path. Without it a reload leaks one `StringName`
+/// per literal per cycle, because the statics holding them are either reset by
+/// the unload or -- where the library stays mapped, which is the usual case on
+/// Windows -- still holding names nothing will ever release.
+///
+/// Entries return to the untouched state rather than being unlinked and
+/// forgotten, so a library that is still mapped re-interns correctly on the
+/// next use.
+pub fn releaseInterned() void {
+    var node = interned.swap(null, .acquire);
+    while (node) |entry| {
+        const next = entry.next;
+        entry.value.deinit();
+        entry.next = null;
+        entry.state.store(0, .release);
+        node = next;
+    }
 }
 
 /// Creates a StringName from a UTF-8 encoded string.

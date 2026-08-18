@@ -49,6 +49,19 @@ func _initialize() -> void:
 		fresh.free()
 		print("  ok   freeing a post-reload instance")
 
+	# Three more cycles. One reload cannot catch an over-release of the interned
+	# name cache: the damage lands on the *next* init, when a name that was
+	# dropped too far is interned again.
+	for i in range(3):
+		var again := GDExtensionManager.reload_extension(EXT)
+		check(again == GDExtensionManager.LOAD_STATUS_OK, "reload %d of 3 reports OK" % (i + 1))
+		var spun: Object = ClassDB.instantiate("ConfigNode")
+		check(spun != null, "class still usable after reload %d" % (i + 1))
+		if spun != null:
+			spun.startup_delay = 1.25
+			check(spun.startup_delay == 1.25, "property round-trips after reload %d" % (i + 1))
+			spun.free()
+
 	check(is_instance_valid(node), "survivor still valid before free")
 	if is_instance_valid(node):
 		node.free()

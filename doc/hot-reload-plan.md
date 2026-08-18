@@ -36,18 +36,23 @@ looks like ordinary state is not.
 
 ## The hazards, with evidence
 
-**1. The comptime `StringName` cache.** `src/builtin/string_name.zig:2958` keeps one
-`var value: StringName` per literal, published through an atomic state machine. Every entry
-holds an engine handle, and there are hundreds of them. Behaviour splits on whether the OS
-actually unloads the library:
+**1. The comptime `StringName` cache. Fixed, and not what this said.** The entry was
+interned *static*, and `p_is_static` does not mean "long-lived": per the interface header it
+means the engine **reuses the caller's buffer instead of copying it**, and the caller must
+"guarantee that the buffer remains valid for the duration of the application". That buffer is
+`str.ptr`, in this library's rodata, which a reload unmaps while the engine goes on pointing
+at it. The header calls the flag "purely an optimization" that "can easily introduce undefined
+behavior if used wrong".
 
-* *Unloaded* — statics reset to zero, the cache rebuilds, and every previously interned
-  `StringName` leaks, since nothing ran `deinit` on them.
-* *Not unloaded* — the statics survive, holding handles minted before the reload.
+So the hazard ran the other way from how it is described below: not our cache holding stale
+engine handles, but the engine holding pointers into our unloaded library. And the drain
+proposed in stage 2 would itself have been a bug, because a static name must never be
+destroyed -- that is the `Unreferenced static string to 0` failure this cache already carries
+a comment about.
 
-The second is the dangerous one and it is not hypothetical: it is precisely what gdext works
-around on Linux (`sys::linux_reload_workaround::default_set_hot_reload()`), where glibc's
-`thread_atexit` can make `dlclose` a no-op.
+Interning is now a copy, which costs one short memcpy per literal, once, and makes the cache
+releasable. `releaseInterned` walks an intrusive list and returns each entry to untouched.
+Measured at 37 names released per reload cycle, which is what used to leak each time.
 
 **2. Parked coroutines.** `src/coro.zig` holds `current`, `main_fiber` and `live_count` at
 module scope. A parked coroutine owns a stack whose return addresses point into the library
@@ -112,9 +117,10 @@ Then enumerate every module-level `var` under `src/` (excluding generated `src/c
 classify each: must reset, must persist, must be empty. Then give the entrypoint a teardown
 that enforces the classification at `deinitialize`.
 
-The `StringName` cache is the centrepiece and needs a structural change: today an entry is
-unreachable once written, so draining it means threading every entry onto a registry as it is
-created. That cost is paid on every extension, reload or not, which is worth weighing.
+The `StringName` cache is done -- see hazard 1, which had the danger backwards. The cost of
+being releasable landed smaller than feared: the list node lives inside the per-literal
+static, so interning still allocates nothing and pays one push the first time each literal is
+used.
 
 Worth recording beside it: the panic's backtrace named `~example.dll`. Windows cannot delete
 a loaded library, so Godot renames the old one and the old module stays mapped. Hazard 1's
