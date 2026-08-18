@@ -17,6 +17,7 @@ pub fn register(r: *Registry) void {
     class.addMethod("on_item_focused", .auto);
 
     // Properties auto-detect getter/setter from getX/setX methods or field
+    class.addProperty("banner", .auto);
     class.addProperty("property1", .auto);
     // Override to make read-only (no setter)
     class.addProperty("property2", .{ .setter = .none });
@@ -34,6 +35,16 @@ allocator: Allocator,
 base: *Node,
 panel: *PanelContainer = undefined,
 example_node: ?Weak(Node) = null,
+
+/// The `Config` singleton, filled before `_ready` like any other field.
+/// `project.godot` loads it under that name; nothing here looks it up.
+config: Autoload(ConfigNode, "Config") = .pending,
+
+/// An exported resource that the class *owns*. A `?*Texture2d` would be a
+/// borrow -- the reference could die underneath it -- so the field says
+/// `Gd`, and gdzig references what it is given and releases it at teardown.
+/// Nothing in `destroy` has to remember it.
+banner: ?Gd(Texture2d) = null,
 
 property1: Vector3 = .zero,
 property2: Vector3 = .zero,
@@ -100,6 +111,12 @@ fn clearScene(self: *ExampleNode) void {
     }
 }
 
+/// What the callback path spells as a second function.
+fn afterDelay(self: *ExampleNode, seconds: f64) void {
+    coro.wait(self.base, seconds, .{});
+    self.onTimeout();
+}
+
 pub fn onTimeout(_: *ExampleNode) void {}
 
 pub fn onResized(_: *ExampleNode) void {}
@@ -153,10 +170,22 @@ pub fn _enterTree(self: *ExampleNode) void {
         _ = itemList.addItem(name, .{});
     }
 
-    var timer = self.base.getTree().?.createTimer(1.0, .{}).?;
-    defer timer.deinit();
+    // The delay comes from the autoload rather than a literal, which is the
+    // point of reaching one at all.
+    const delay = if (self.config.get()) |config| config.startup_delay else 1.0;
 
-    timer.get().connect(SceneTreeTimer.Timeout, self, &onTimeout) catch {};
+    if (comptime coro.supported) {
+        // Straight-line: the wait is a statement, and what follows it is just
+        // the next line. No second function, no connection to unpick.
+        coro.spawn(self.allocator, afterDelay, .{ self, delay }) catch |err|
+            std.log.err("example: {s}", .{@errorName(err)});
+    } else {
+        // The same wait where coroutines are not supported yet, which is every
+        // platform but Windows. This is the shape `coro` exists to replace.
+        var timer = self.base.getTree().?.createTimer(delay, .{}).?;
+        defer timer.deinit();
+        timer.get().connect(SceneTreeTimer.Timeout, self, &onTimeout) catch {};
+    }
     sp.connect(HSplitContainer.Resized, self, &onResized) catch {};
     itemList.connect(ItemList.ItemSelected, self, &onItemFocused) catch {};
 
@@ -174,7 +203,11 @@ pub fn _enterTree(self: *ExampleNode) void {
     var tex = vprt.getTexture().?;
     defer tex.deinit();
 
-    var img = tex.get().getImage().?;
+    // A viewport texture has no image under `--headless`: the dummy renderer
+    // has nothing to read back. Unwrapping it took the process down the first
+    // time the example was run that way, which was only once the run step
+    // started forwarding arguments.
+    var img = tex.get().getImage() orelse return;
     defer img.deinit();
 
     const data = img.get().getData();
@@ -201,6 +234,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const godot = @import("godot");
+const coro = godot.coro;
+const Autoload = godot.Autoload;
+const Gd = godot.Gd;
 const Registry = godot.extension.Registry;
 const Engine = godot.class.Engine;
 const HSplitContainer = godot.class.HSplitContainer;
@@ -215,8 +251,10 @@ const Variant = godot.builtin.Variant;
 const Vector3 = godot.builtin.Vector3;
 const Image = godot.class.Image;
 const SceneTreeTimer = godot.class.SceneTreeTimer;
+const Texture2d = godot.class.Texture2d;
 const ViewportTexture = godot.class.ViewportTexture;
 
+const ConfigNode = @import("ConfigNode.zig");
 const GuiNode = @import("GuiNode.zig");
 const SignalNode = @import("SignalNode.zig");
 const SpritesNode = @import("SpriteNode.zig");

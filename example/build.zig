@@ -49,6 +49,9 @@ pub fn build(b: *Build) !void {
     run.addFileArg(gdzig_dep.namedLazyPath("godot"));
     run.addArg("--path");
     run.addDirectoryArg(b.path("./project"));
+    // Forwarded so the example can be driven the way the demos are:
+    // `zig build run -- --headless --quit-after 300`.
+    if (b.args) |args| run.addArgs(args);
     run.step.dependOn(&install.step);
 
     const run_step = b.step("run", "Run with Godot");
