@@ -69,7 +69,6 @@ fn exit(_: ?*anyopaque, level: gdzig.c.GDExtensionInitializationLevel) callconv(
     registry.exit(@enumFromInt(level));
     if (level == @intFromEnum(options.minimum_initialization_level)) {
         if (@hasDecl(extension, "unregister")) extension.unregister(&registry);
-        gdzig.extension.DestroyInstanceBinding.cleanup();
         registry.deinit();
     }
 }

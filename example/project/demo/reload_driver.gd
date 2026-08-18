@@ -40,16 +40,19 @@ func _initialize() -> void:
 
 	var after_count: int = Performance.get_monitor(Performance.OBJECT_COUNT)
 	print("  info object count %d -> %d" % [before_count, after_count])
-	print("DRIVER failures=%d" % failures)
 
-	# Known broken, and reported after the summary so the summary survives it:
-	# freeing a reloaded instance trips gdzig's own dispatch guard --
-	#   "object freed while one of its methods was still running"
-	# -- on an instance that is not dispatching. The instance binding carries
-	# state from before the reload. Re-enable when that is fixed; until then the
-	# node is deliberately leaked, which the count above shows.
-	const FREE_AFTER_RELOAD_WORKS := false
-	if FREE_AFTER_RELOAD_WORKS and is_instance_valid(node):
+	# Splits "reload broke freeing" from "reload broke instances that survived it":
+	# a node created after the reload has a binding minted by the new library.
+	var fresh: Object = ClassDB.instantiate("ConfigNode")
+	check(fresh != null, "instantiates after the reload")
+	if fresh != null:
+		fresh.free()
+		print("  ok   freeing a post-reload instance")
+
+	check(is_instance_valid(node), "survivor still valid before free")
+	if is_instance_valid(node):
 		node.free()
+		print("  ok   freeing an instance that survived the reload")
 
+	print("DRIVER failures=%d" % failures)
 	quit(1 if failures > 0 else 0)

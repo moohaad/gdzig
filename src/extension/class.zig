@@ -111,17 +111,27 @@ pub const DestroyInstanceBinding = struct {
     /// running. Either way the dispatch returns into freed memory.
     pub fn assertNotDispatching(self: *const DestroyInstanceBinding) void {
         if (!track_dispatch) return;
-        if (self.dispatch_depth.load(.monotonic) == 0) return;
-        @panic("object freed while one of its methods was still running; use queueFree to defer the free until the call has returned");
+        const depth = self.dispatch_depth.load(.monotonic);
+        if (depth == 0) return;
+        // The depth is worth printing: 1 is an ordinary free-inside-a-method,
+        // while an implausible number means the binding itself is suspect.
+        std.debug.panic(
+            "object freed while {d} of its methods were still running; use queueFree to defer the free until the call has returned",
+            .{depth},
+        );
     }
 
-    pub fn cleanup() void {
-        lockPool();
-        defer pool_lock.unlock();
-
-        pool.deinit(allocator);
-        assert(gpa.deinit() == .ok);
-    }
+    // There is deliberately no bulk teardown for `pool`.
+    //
+    // Godot owns each binding: it asks for one through `create_callback` and
+    // gives it back through `free_callback`, on its own schedule, which for a
+    // surviving object is after the extension has exited. Freeing the pool at
+    // exit therefore frees storage Godot still points at -- harmless on a real
+    // shutdown only because the process ends immediately after, and not
+    // harmless at all on a hot reload, where the next read of a surviving
+    // object's binding returns whatever now occupies that memory. It surfaced
+    // as `dispatch_depth` reading 110, then 896, then 47 across three runs, and
+    // the guard panicking on the garbage.
 };
 
 /// Marks an instance as being dispatched into for the lifetime of the guard.
@@ -406,7 +416,6 @@ fn UserClassVTable(comptime T: type) type {
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const MemoryPool = std.heap.MemoryPool;
-const assert = std.debug.assert;
 
 const builtin = @import("builtin");
 

@@ -92,15 +92,21 @@ What it gets wrong is stage 2's first item.
 
 ### 2. Audit and reset module state
 
-**First: freeing a reloaded instance panics.** `node.free()` after a reload trips gdzig's own
-guard, "object freed while one of its methods was still running", on an instance that is not
-dispatching. The instance binding carries state from before the reload. The harness has that
-check disabled behind a named constant, so re-enabling it is the fix's test.
+**Freeing a reloaded instance panicked. Fixed.** `DestroyInstanceBinding.cleanup()` ran at
+`exit()` and did `pool.deinit(allocator)`, bulk-freeing every instance binding. Godot owns
+those: it asks for one through `create_callback` and hands it back through `free_callback`,
+on its own schedule, which for a surviving object is long after the extension has exited.
+Freeing the pool left Godot pointing at reclaimed memory, and the next read of a survivor's
+binding took `dispatch_depth` out of it.
 
-Worth recording beside it: the panic's backtrace names `~example.dll`. Windows cannot delete
-a loaded library, so Godot renames the old one and the old module stays mapped and executing.
-Hazard 1's "not unloaded" branch is filed above as a Linux glibc problem that gdext works
-around. It happens on Windows too, by design.
+The tell was that the depth was not a plausible count and not even stable: 110, then 896,
+then 47 across three runs. A real free-inside-a-method reads 1. The guard now prints the
+number, which is what made that visible.
+
+Double ownership, not a reload bug as such -- the same free was always wrong, and only looked
+harmless because a normal shutdown ends the process immediately afterwards. There is now no
+bulk teardown, and `free_callback` is left to do its job. The harness asserts a survivor can
+be freed.
 
 Then enumerate every module-level `var` under `src/` (excluding generated `src/class/`), and
 classify each: must reset, must persist, must be empty. Then give the entrypoint a teardown
@@ -109,6 +115,11 @@ that enforces the classification at `deinitialize`.
 The `StringName` cache is the centrepiece and needs a structural change: today an entry is
 unreachable once written, so draining it means threading every entry onto a registry as it is
 created. That cost is paid on every extension, reload or not, which is worth weighing.
+
+Worth recording beside it: the panic's backtrace named `~example.dll`. Windows cannot delete
+a loaded library, so Godot renames the old one and the old module stays mapped. Hazard 1's
+"not unloaded" branch is filed above as a Linux glibc problem that gdext works around. It
+happens on Windows too, by design.
 
 ### 3. Refuse to reload with coroutines parked
 
