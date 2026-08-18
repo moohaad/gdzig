@@ -1,6 +1,6 @@
 [configuration]
 
-compatibility_minimum = "4.2.0"
+compatibility_minimum = "4.7"
 entry_symbol = "my_extension_init"
 reloadable = true
 
