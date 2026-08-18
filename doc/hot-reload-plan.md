@@ -179,10 +179,24 @@ is what the missing disarm does in production.
 Only after 1–3, and only if Linux reload is in scope. gdext's workaround is a known-good
 reference; the failure it prevents is hazard 1's second branch.
 
-### 5. Detect incompatible class changes
+### 5. Detect incompatible class changes, done
 
-A class whose base type changed across a reload should say so. Last because it is a quality
-improvement on a path that must first work at all.
+`recreate` is now wrapped rather than handed to the engine raw, and the wrapper checks that
+the live object really is an instance of the base the class declares.
+
+Only a reload can fail this, and only a reload makes it meaningful: the class is the one the
+*new* library declares while the object was built by the old one. Change a class from `Node`
+to `Control` and every `recreate` reinterprets the old object as the new base -- the
+`@ptrCast` each one performs cannot notice, because that is what a cast is.
+
+Reported, not fatal. A panic here takes the editor down in the middle of a reload, which is a
+worse answer to "you edited a base class" than an error naming the class and the base it now
+expects. The names are shortened to the ones Godot shows, since `@typeName` gives
+`class.node.Node`.
+
+Verified by inverting the condition for one run: it fires `ConfigNode declares a base of
+Node`, so the wrapper is reached during a reload and resolves the declared base correctly.
+With the condition the right way round, the harness's four reload cycles produce none.
 
 ## Non-goals
 
@@ -191,6 +205,12 @@ improvement on a path that must first work at all.
   pretending otherwise would hide the property/field distinction that stage 1 asserts.
 
 ## Open
+
+Stage 4 is the only stage left, and its framing needs revisiting before it is worth doing:
+stage 1 found that the library staying mapped is not a Linux glibc quirk but the ordinary
+case on Windows, where a loaded DLL cannot be deleted and Godot renames it instead. What
+gdext works around on one platform may want handling on both, or may want nothing now that
+the interned cache no longer hands the engine pointers into our rodata.
 
 Stage 1 is done, so the hazards are no longer all inference: the free-after-reload panic and
 the still-mapped old module are reproductions. Hazards 1 (the `StringName` cache), 2 (parked

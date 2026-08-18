@@ -279,6 +279,51 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
             }
         }
 
+        fn shortName(comptime qualified: []const u8) []const u8 {
+            const cut = std.mem.lastIndexOfScalar(u8, qualified, '.') orelse return qualified;
+            return qualified[cut + 1 ..];
+        }
+
+        /// Checks that the live object still matches the class before handing
+        /// it over to the user's `recreate`.
+        ///
+        /// Only a hot reload gets here, and only then is the check meaningful:
+        /// the class is the one the *new* library declares, while the object
+        /// was made by the old one. If the declared base changed -- `Node` to
+        /// `Control`, say -- then the `@ptrCast` every `recreate` performs
+        /// reinterprets the old object as the new base and nothing says so.
+        ///
+        /// Reported rather than fatal. A panic here takes the editor down
+        /// mid-reload, which is a worse answer to "you edited a base class"
+        /// than an error naming what changed.
+        fn assertBaseUnchanged(obj: *Object) void {
+            if (comptime !@hasField(T, "base")) return;
+            const Declared = @typeInfo(@FieldType(T, "base")).pointer.child;
+            const expected = StringName.fromType(Declared);
+            if (obj.isClass(expected.*)) return;
+
+            // Short names, because these are the ones Godot shows: the
+            // qualified Zig name reads as `class.node.Node`.
+            const shown = comptime shortName(@typeName(T));
+            const base_shown = comptime shortName(@typeName(Declared));
+            std.log.err(
+                "{s} declares a base of {s}, but an instance being recreated is not one. " ++
+                    "A class whose base changed cannot be reloaded onto its old instances; " ++
+                    "restart the editor.",
+                .{ shown, base_shown },
+            );
+        }
+
+        fn recreate(userdata: Userdata, obj: *Object) *T {
+            assertBaseUnchanged(obj);
+            return T.recreate(userdata, obj);
+        }
+
+        fn recreateNoUserdata(obj: *Object) *T {
+            assertBaseUnchanged(obj);
+            return T.recreate(obj);
+        }
+
         fn getVirtualImpl(name: *const StringName) ?*const classdb.CallVirtual(T) {
             const UserVTable = comptime UserClassVTable(T);
             var buf: [256]u8 = undefined;
@@ -302,7 +347,12 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
     return .{
         .create = if (Userdata != void) Callbacks.create2 else Callbacks.create2NoUserdata,
         .destroy = if (Userdata != void) Callbacks.destroy else Callbacks.destroyNoUserdata,
-        .recreate = if (@hasDecl(T, "recreate")) T.recreate else null,
+        .recreate = if (!@hasDecl(T, "recreate"))
+            null
+        else if (Userdata != void)
+            Callbacks.recreate
+        else
+            Callbacks.recreateNoUserdata,
 
         .get_virtual = if (Userdata != void) Callbacks.getVirtual2 else Callbacks.getVirtual2NoUserdata,
         // .get_virtual_call_data - not yet supported
