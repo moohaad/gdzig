@@ -70,7 +70,14 @@ fn exit(_: ?*anyopaque, level: gdzig.c.GDExtensionInitializationLevel) callconv(
     if (level == @intFromEnum(options.minimum_initialization_level)) {
         if (@hasDecl(extension, "unregister")) extension.unregister(&registry);
         registry.deinit();
-        gdzig.coro.reportLiveAtExit();
+        // Before the name cache: cancelling can wake nothing, but it does
+        // free frames, and a frame's teardown may still intern.
+        const stranded = gdzig.coro.cancelAll();
+        if (stranded > 0) std.log.err(
+            "gdzig.coro: cancelled {d} coroutine(s) still parked at teardown. Their frames " ++
+                "were abandoned where they waited, so anything they still held is leaked.",
+            .{stranded},
+        );
 
         // Last, because unregistering names classes and methods and so interns
         // more literals on the way out. Releasing before that would drop the

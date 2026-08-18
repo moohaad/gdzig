@@ -121,7 +121,7 @@ state. The nine that are:
 | Static | Classification | Enforced by |
 |---|---|---|
 | `StringName.interned` | must reset | `releaseInterned` at exit |
-| `coro.live_count` | must be empty | `reportLiveAtExit` (reports; see stage 3) |
+| `coro.live_count` | must be empty | `cancelAll` at exit |
 | `coro.current` | must be empty | implied by the above, non-null only mid-resume |
 | `coro.main_fiber` | may persist | `spawn` re-derives it via `IsThreadAFiber` |
 | `class.gpa`, `pool`, `pool_lock` | must persist | no teardown, deliberately -- Godot owns them |
@@ -148,12 +148,31 @@ a loaded library, so Godot renames the old one and the old module stays mapped. 
 "not unloaded" branch is filed above as a Linux glibc problem that gdext works around. It
 happens on Windows too, by design.
 
-### 3. Refuse to reload with coroutines parked
+### 3. Coroutines parked at teardown, done
 
-`liveCount() != 0` at `deinitialize` must be loud rather than fatal-later. Two defensible
-answers: refuse the reload with an error naming the count, or cancel every parked coroutine.
-Cancellation is already modelled — `finish()` handles `.cancelled` and wakes joiners — so the
-machinery exists; the decision is policy.
+The stage was written as a policy choice -- refuse the reload, or cancel every parked
+coroutine. It is not a choice: `deinitialize` returns `void`. Only *initialize* returns a
+`GDExtensionBool`, so an extension has no way to decline being unloaded. Cancelling is the
+only answer the interface leaves room for.
+
+`cancelAll` walks a new intrusive list of live coroutines and drops each. Frames are abandoned
+where they parked: Zig has no unwinding, so their `defer`s do not run and whatever a body
+still held is leaked. That is inherent in killing a fiber, and better than resuming into an
+unmapped library. The entrypoint reports the count when it is not zero.
+
+The part that needed real surgery was not the cancelling but the disarming. A parked
+coroutine is reachable from a `Waiter` owned by the resume callable, and the link ran only
+that way -- so cancelling left the callable pointing at a destroyed coroutine, and the next
+emission of that signal would resume it. `Coro` now holds the way back, and `cancelAll`
+claims the waiter through it before destroying anything, which is what `Waiter.take` already
+existed to do.
+
+Joiners are deliberately not woken. They are in the same list and about to be cancelled too;
+resuming one would run its body in the library being unloaded.
+
+Two tests, in `test/fiber`, which is the useful part: none of this needs a reload to
+exercise. Removing the waiter claim fails both and takes the test process down with it, which
+is what the missing disarm does in production.
 
 ### 4. The Linux `dlclose` problem
 

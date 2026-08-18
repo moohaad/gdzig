@@ -155,6 +155,29 @@ pub const default_stack_reserve = 1024 * 1024;
 
 var live_count: usize = 0;
 
+/// Every coroutine that is alive, so teardown can reach them. Kept beside
+/// `live_count` rather than replacing it: the count is read per frame by code
+/// watching for stacks that never come back, and walking a list for that would
+/// be worse.
+var live: ?*Coro = null;
+
+fn linkLive(coro: *Coro) void {
+    coro.next_live = live;
+    live = coro;
+}
+
+fn unlinkLive(coro: *Coro) void {
+    var it = &live;
+    while (it.*) |node| {
+        if (node == coro) {
+            it.* = node.next_live;
+            coro.next_live = null;
+            return;
+        }
+        it = &node.next_live;
+    }
+}
+
 /// How many coroutines are alive, parked or running.
 ///
 /// Each holds a stack until it finishes, so this is the number to watch when
@@ -164,22 +187,56 @@ pub fn liveCount() usize {
     return live_count;
 }
 
-/// Reports coroutines still alive when the extension is torn down.
+/// Cancels every live coroutine. For an extension being torn down.
 ///
 /// A parked coroutine owns a stack whose return addresses point into this
-/// library. If the library then goes away -- a hot reload, or an unload -- the
-/// resume jumps into unmapped code, and nothing on the way there says why.
+/// library. Once the library is gone, resuming one jumps into freed code, so at
+/// teardown there is nothing to do but drop them.
 ///
-/// Reporting rather than refusing the teardown or cancelling the coroutines:
-/// which of those is right is a policy call, and the caller has no way to
-/// express it yet. Saying nothing is the one clearly wrong answer.
-pub fn reportLiveAtExit() void {
-    if (live_count == 0) return;
-    std.log.err(
-        "gdzig.coro: {d} coroutine(s) still alive at teardown. Each owns a stack " ++
-            "pointing into this library; resuming one after an unload jumps into freed code.",
-        .{live_count},
-    );
+/// Not a choice between this and refusing the unload: `deinitialize` returns
+/// void, so an extension has no way to decline. Cancelling is the only answer
+/// the interface leaves room for.
+///
+/// Frames are abandoned where they parked. Zig has no unwinding, so their
+/// `defer`s do not run and whatever a body still held -- a `Gd` handle, an
+/// allocation -- is leaked. That is inherent in killing a fiber, and better
+/// than resuming into an unmapped library.
+///
+/// Returns how many were cancelled, so a caller can report it.
+pub fn cancelAll() usize {
+    var cancelled: usize = 0;
+    while (live) |coro| {
+        if (coro == current) {
+            // Being torn down from inside a coroutine: this fiber is the one
+            // executing and cannot delete itself. Drop it from the list so the
+            // walk finishes; the mapping goes with the library regardless.
+            unlinkLive(coro);
+            live_count -= 1;
+            cancelled += 1;
+            continue;
+        }
+
+        // The waiter first: once claimed, the resume callable finds nothing, so
+        // a signal firing between here and the unload is a no-op rather than a
+        // jump into a coroutine that no longer exists.
+        if (coro.waiter) |w| _ = w.take();
+        coro.waiter = null;
+        coro.state = .cancelled;
+
+        // Joiners are deliberately not woken. They are in this same list and
+        // about to be cancelled too, and resuming one would run its body in the
+        // library being unloaded -- the thing this exists to prevent.
+        const task = coro.task;
+        if (task) |t| {
+            t.done = true;
+            t.joiners = null;
+        }
+
+        coro.destroy();
+        if (task) |t| t.release();
+        cancelled += 1;
+    }
+    return cancelled;
 }
 
 pub const Coro = struct {
@@ -204,6 +261,18 @@ pub const Coro = struct {
     /// link is enough and no allocation is needed to queue up.
     next_joiner: ?*Coro = null,
 
+    /// The `Waiter` this coroutine is parked on, or null when it is not parked.
+    ///
+    /// The waiter already points here; this is the way back, and it exists so a
+    /// cancellation from outside can `take()` the waiter and leave the callable
+    /// with nothing to resume. Cleared on resume, because the waiter is freed
+    /// shortly after and this must not outlive it.
+    waiter: ?*Waiter = null,
+
+    /// Next in the list of coroutines that are alive. Intrusive so that being
+    /// enumerable costs a pointer rather than an allocation.
+    next_live: ?*Coro = null,
+
     pub const State = enum {
         /// Created, not yet started.
         ready,
@@ -218,6 +287,7 @@ pub const Coro = struct {
     };
 
     fn destroy(self: *Coro) void {
+        unlinkLive(self);
         live_count -= 1;
         if (self.fiber) |f| DeleteFiber(f);
         self.free_frame(self.allocator, self.frame);
@@ -416,6 +486,7 @@ fn create(
         return error.FiberCreationFailed;
     };
 
+    linkLive(coro);
     live_count += 1;
     return coro;
 }
@@ -618,6 +689,7 @@ fn park(obj: anytype, comptime S: type, result: *S) void {
         "gdzig.coro: out of memory while parking on a signal",
     );
     waiter.* = .{ .allocator = coro.allocator, .coro = coro, .result = @ptrCast(result) };
+    coro.waiter = waiter;
 
     var callable = resumeCallable(S, waiter);
 
@@ -632,6 +704,7 @@ fn park(obj: anytype, comptime S: type, result: *S) void {
         // hook, which reclaims a coroutine it finds parked, and this one is
         // still running on its own stack.
         _ = waiter.take();
+        coro.waiter = null;
         coro.state = .running;
         callable.deinit();
 
@@ -656,6 +729,10 @@ fn park(obj: anytype, comptime S: type, result: *S) void {
     // coroutine spawns or resumes another, the entering fiber is the outer
     // coroutine's, and jumping past it would strand it mid-`enter`.
     SwitchToFiber(coro.caller.?);
+
+    // Resumed. The callable that woke this coroutine is on its way out and its
+    // `Waiter` goes with it, so the back-pointer must not outlive the park.
+    coro.waiter = null;
 }
 
 /// A callable that resumes the coroutine `waiter` is holding, and cancels it if

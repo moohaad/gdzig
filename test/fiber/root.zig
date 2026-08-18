@@ -464,3 +464,53 @@ test "waiting outside the tree returns instead of parking forever" {
     try testing.expectEqual(@as(u8, 2), trace.a);
     try testing.expectEqual(@as(usize, 0), coro.liveCount());
 }
+
+test "cancelAll drops parked coroutines and disarms what would resume them" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const emitter = try Emitter.create();
+    defer emitter.destroy();
+    trace = .{};
+
+    try coro.spawn(allocator, waitOnce, .{ emitter, &trace.a });
+    try testing.expectEqual(@as(u8, 1), trace.a);
+    try testing.expectEqual(@as(usize, 1), coro.liveCount());
+
+    try testing.expectEqual(@as(usize, 1), coro.cancelAll());
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+
+    // The body stopped where it parked rather than running on.
+    try testing.expectEqual(@as(u8, 1), trace.a);
+
+    // The point of the exercise: the signal it waited on now reaches nothing.
+    // Without the waiter being claimed, this emission would resume a coroutine
+    // that has been destroyed.
+    try emitter.base.emit(Ping, .{});
+    try testing.expectEqual(@as(u8, 1), trace.a);
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+}
+
+test "cancelAll wakes nothing, including joiners" {
+    if (comptime !coro.supported) return error.SkipZigTest;
+    ensureRegistered();
+
+    const emitter = try Emitter.create();
+    defer emitter.destroy();
+    trace = .{};
+
+    const work = try coro.spawnJoinable(allocator, waitOnce, .{ emitter, &trace.a });
+    defer work.deinit();
+    try coro.spawn(allocator, joiner, .{ work, &trace.b });
+
+    // Both parked: one on the signal, one on the join.
+    try testing.expectEqual(@as(usize, 2), coro.liveCount());
+
+    try testing.expectEqual(@as(usize, 2), coro.cancelAll());
+    try testing.expectEqual(@as(usize, 0), coro.liveCount());
+
+    // Neither ran on. A joiner resumed here would execute in a library that is
+    // being unloaded, which is exactly what cancelling avoids.
+    try testing.expectEqual(@as(u8, 1), trace.a);
+    try testing.expectEqual(@as(u8, 1), trace.b);
+}
