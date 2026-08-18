@@ -268,9 +268,34 @@ With the condition the right way round, the harness's four reload cycles produce
 Every stage is closed: 1, 2, 3 and 5 with code and a check that fails without it, 4 with a
 decision recorded above.
 
-What remains is coverage rather than correctness. Reload is exercised on Windows only, and
-through `GDExtensionManager.reload_extension` rather than the editor's own filesystem watcher,
-which is the path a developer actually takes. Hazard 3 -- the utility function-pointer caches
-in the generated `general.zig` -- is still "probably fine" for the reason it always was: they
-point into Godot, which does not reload. Nothing has contradicted that, and nothing has
-confirmed it either.
+### The editor's own watcher: measured, and not automatable
+
+The harness reloads by calling `GDExtensionManager.reload_extension`. A developer does not:
+they rebuild and look at the editor. That trigger was the last coverage gap, and it turns out
+to be unreachable from a headless process.
+
+Measured, not assumed. With a headless editor running and the library genuinely replaced
+underneath it -- `example.dll` verified to change from one build to another -- the editor ran
+3000 further frames and logged nothing but its initial `Verifying GDExtensions...`. Asking for
+a rescan explicitly does not help either: `EditorInterface.get_resource_filesystem().scan()`
+is reachable in `--editor --script` mode, and 600 frames of polling afterwards still see the
+old build answering.
+
+So the reload is not filesystem-scan driven. It is driven by something headless never
+receives, and application focus is the obvious candidate -- the editor rescans when you
+alt-tab back to it. That makes this path unautomatable here rather than broken: the mechanism
+underneath it is the same `reload_extension` the harness exercises from every angle.
+
+Checking it by hand, which is the only way:
+
+1. Open `example/project` in a real editor.
+2. Edit `ConfigNode.buildTag` to return something else, and `zig build`.
+3. Switch away from the editor and back.
+4. The reload should be visible in the editor's output, and a new instance should answer with
+   the new value.
+
+### Also still open
+
+Windows only. And hazard 3 -- the utility function-pointer caches in the generated
+`general.zig` -- remains "probably fine" for the reason it always was: they point into Godot,
+which does not reload. Nothing has contradicted that, and nothing has confirmed it.
