@@ -53,7 +53,7 @@ mygame/
 **Depend on gdzig.**
 
 ```sh
-zig fetch --save git+https://github.com/gdzig/gdzig
+zig fetch --save git+https://github.com/moohaad/gdzig
 ```
 
 **`build.zig`.** Three calls: take the dependency, make a module that imports it as `godot`,
