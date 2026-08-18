@@ -67,5 +67,40 @@ func _initialize() -> void:
 		node.free()
 		print("  ok   freeing an instance that survived the reload")
 
+	# Everything above reloads the same binary. That proves the machinery is
+	# sound, not that a rebuild is picked up -- which is the whole point of the
+	# feature. `build_tag` is baked into the code, so a stale library keeps
+	# answering 1 no matter how cleanly it reloaded.
+	var probe: Object = ClassDB.instantiate("ConfigNode")
+	if probe != null:
+		check(probe.build_tag() == 1, "starts on the old build")
+		probe.free()
+
+	var live := ProjectSettings.globalize_path("res://lib/example.dll")
+	var staged := ProjectSettings.globalize_path("res://lib/next.dll")
+
+	# Staging a second build cannot be done from here, so this half runs only
+	# when one has been put in place. To make it, from `example/`:
+	#
+	#   sed -i 's/return 1;/return 2;/' src/ConfigNode.zig
+	#   zig build && cp project/lib/example.dll project/lib/next.dll
+	#   sed -i 's/return 2;/return 1;/' src/ConfigNode.zig && zig build
+	#
+	# then `zig build reload-test`.
+	if not FileAccess.file_exists("res://lib/next.dll"):
+		print("  skip no lib/next.dll staged; the changed-code half did not run")
+	else:
+		var copied := DirAccess.copy_absolute(staged, live)
+		check(copied == OK, "the live library can be replaced on disk (err=%d)" % copied)
+
+		var after_swap := GDExtensionManager.reload_extension(EXT)
+		check(after_swap == GDExtensionManager.LOAD_STATUS_OK, "reload after the swap reports OK")
+
+		var reloaded: Object = ClassDB.instantiate("ConfigNode")
+		if reloaded != null:
+			var tag: int = reloaded.build_tag()
+			check(tag == 2, "the NEW build is the one answering (build_tag=%d)" % tag)
+			reloaded.free()
+
 	print("DRIVER failures=%d" % failures)
 	quit(1 if failures > 0 else 0)

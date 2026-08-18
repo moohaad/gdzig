@@ -95,6 +95,24 @@ set before the reload. The `recreate` path works.
 
 What it gets wrong is stage 2's first item.
 
+**Reloading *changed* code, which is the actual feature.** Everything above reloads the same
+binary. That proves the machinery, not the workflow, so the harness now also stages a second
+build and swaps it in: `ConfigNode.buildTag` returns a value the code decides, unlike an
+exported property, which Godot serialises and replays and which would therefore survive a
+stale library.
+
+It works. The tag reads 1, the file is replaced, the reload reports OK, and a fresh instance
+answers 2.
+
+The swap succeeding on Windows is worth understanding rather than being surprised by. A
+loaded DLL cannot be overwritten -- but by then the loaded module is `~example.dll`, because
+Godot renamed it on the first reload, so `example.dll` on disk is a file nobody holds open.
+The rename that looked like a hazard in stage 2 is the thing that makes the workflow possible.
+
+Staging a second build cannot be done from inside the driver, so that half skips with a
+message when `lib/next.dll` is absent, and the recipe is in the driver's header. The install
+step reinstalls the first build before every run, so the check is idempotent.
+
 ### 2. Audit and reset module state
 
 **Freeing a reloaded instance panicked. Fixed.** `DestroyInstanceBinding.cleanup()` ran at

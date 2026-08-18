@@ -16,6 +16,15 @@ const ConfigNode = @This();
 pub fn register(r: *Registry) void {
     const class = r.createClass(ConfigNode, r.allocator, .auto);
     class.addProperty("startup_delay", .auto);
+    class.addMethod("build_tag", .auto);
+}
+
+/// A value the *code* decides, unlike `startup_delay`, which Godot serialises
+/// across a reload and replays. A property surviving proves the instance
+/// survived; only something like this proves the new library is the one
+/// answering.
+pub fn buildTag(_: *ConfigNode) i64 {
+    return 1;
 }
 
 pub fn unregister(r: *Registry) void {
