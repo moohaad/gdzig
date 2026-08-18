@@ -164,6 +164,24 @@ pub fn liveCount() usize {
     return live_count;
 }
 
+/// Reports coroutines still alive when the extension is torn down.
+///
+/// A parked coroutine owns a stack whose return addresses point into this
+/// library. If the library then goes away -- a hot reload, or an unload -- the
+/// resume jumps into unmapped code, and nothing on the way there says why.
+///
+/// Reporting rather than refusing the teardown or cancelling the coroutines:
+/// which of those is right is a policy call, and the caller has no way to
+/// express it yet. Saying nothing is the one clearly wrong answer.
+pub fn reportLiveAtExit() void {
+    if (live_count == 0) return;
+    std.log.err(
+        "gdzig.coro: {d} coroutine(s) still alive at teardown. Each owns a stack " ++
+            "pointing into this library; resuming one after an unload jumps into freed code.",
+        .{live_count},
+    );
+}
+
 pub const Coro = struct {
     fiber: ?*anyopaque = null,
     /// The fiber that most recently entered this one, and so the one parking

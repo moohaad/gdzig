@@ -113,9 +113,30 @@ harmless because a normal shutdown ends the process immediately afterwards. Ther
 bulk teardown, and `free_callback` is left to do its job. The harness asserts a survivor can
 be freed.
 
-Then enumerate every module-level `var` under `src/` (excluding generated `src/class/`), and
-classify each: must reset, must persist, must be empty. Then give the entrypoint a teardown
-that enforces the classification at `deinitialize`.
+**The audit, done.** Scanning hand-written `src/` for `var` declarations with no enclosing
+`fn` gives 35 candidates, of which 26 are false positives -- slots inside `test` blocks in
+`class/vtable.zig` and accumulators inside `comptime` blocks, neither of which is runtime
+state. The nine that are:
+
+| Static | Classification | Enforced by |
+|---|---|---|
+| `StringName.interned` | must reset | `releaseInterned` at exit |
+| `coro.live_count` | must be empty | `reportLiveAtExit` (reports; see stage 3) |
+| `coro.current` | must be empty | implied by the above, non-null only mid-resume |
+| `coro.main_fiber` | may persist | `spawn` re-derives it via `IsThreadAFiber` |
+| `class.gpa`, `pool`, `pool_lock` | must persist | no teardown, deliberately -- Godot owns them |
+| `entrypoint.registry` | must reset | `registry.deinit()` at exit |
+| `gdzig.raw` | repopulated | `enter` assigns it every init |
+| `gdzig.version`, `Version.current` | repopulated | same |
+| `testing.allocator_instance`, `registry` | not shipped | test builds only |
+
+Two of these were already right without anyone having planned it. `main_fiber` re-derives
+correctly on a reloaded library because `spawn` checks `IsThreadAFiber()` before converting,
+and `raw`/`version` are reassigned by the entrypoint on every initialize rather than only the
+first.
+
+The only thing the audit found unenforced was the coroutine count, which now reports at
+teardown. It reports rather than refusing or cancelling, because that choice is stage 3.
 
 The `StringName` cache is done -- see hazard 1, which had the danger backwards. The cost of
 being releasable landed smaller than feared: the list node lives inside the per-literal
