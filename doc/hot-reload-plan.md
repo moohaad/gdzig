@@ -207,10 +207,36 @@ Two tests, in `test/fiber`, which is the useful part: none of this needs a reloa
 exercise. Removing the waiter claim fails both and takes the test process down with it, which
 is what the missing disarm does in production.
 
-### 4. The Linux `dlclose` problem
+### 4. The Linux `dlclose` problem, closed without code
 
-Only after 1–3, and only if Linux reload is in scope. gdext's workaround is a known-good
-reference; the failure it prevents is hazard 1's second branch.
+Not implemented, deliberately. The reasoning, so nobody has to rederive it:
+
+**What gdext's workaround does.** It overrides `__cxa_thread_atexit_impl` in the extension.
+glibc pins a library that registers a TLS destructor -- `dlclose` becomes a silent no-op --
+and Rust's std registers them, so a gdext library would otherwise never unload. The override
+intercepts the registration so the pin never happens.
+
+**gdzig does not trigger it.** No `threadlocal` anywhere in hand-written `src/`, and nothing
+registering `atexit` or `__cxa_thread_atexit_impl`. Zig has no destructors, so there is
+nothing wanting a TLS destructor in the first place.
+
+**And it no longer matters either way.** The workaround exists so that statics reset, because
+gdext's correctness depends on the unload happening. gdzig's no longer does: the audit above
+classified every static and the exit path now handles each explicitly -- interned names
+released and returned to untouched, coroutines cancelled, the registry swept and deinited,
+`raw` and `version` reassigned on the next init, the binding pool deliberately left alone
+because Godot owns it. Nothing waits for an unload to clean up after it.
+
+**That case is already tested, on Windows.** A loaded DLL cannot be deleted, so Godot renames
+it and the old module stays mapped -- which is precisely the "library did not unload" scenario
+this stage is about. Four reload cycles in `example/` and four in the game pass with it
+resident, and stage 1's changed-code check shows the new build is still what answers.
+
+**What is not established.** No Linux machine here, so none of this is measured on the
+platform in question, and Zig's std or libc could in principle register a TLS destructor
+indirectly in a way a source grep does not see. If Linux reload is ever taken up seriously,
+the thing to measure first is whether the library actually unloads -- and if it does not, the
+Windows evidence says that is survivable rather than fatal.
 
 ### 5. Detect incompatible class changes, done
 
@@ -239,13 +265,12 @@ With the condition the right way round, the harness's four reload cycles produce
 
 ## Open
 
-Stage 4 is the only stage left, and its framing needs revisiting before it is worth doing:
-stage 1 found that the library staying mapped is not a Linux glibc quirk but the ordinary
-case on Windows, where a loaded DLL cannot be deleted and Godot renames it instead. What
-gdext works around on one platform may want handling on both, or may want nothing now that
-the interned cache no longer hands the engine pointers into our rodata.
+Every stage is closed: 1, 2, 3 and 5 with code and a check that fails without it, 4 with a
+decision recorded above.
 
-Stage 1 is done, so the hazards are no longer all inference: the free-after-reload panic and
-the still-mapped old module are reproductions. Hazards 1 (the `StringName` cache), 2 (parked
-coroutines) and 5 (level asymmetry) are still read off the source, and the harness is now the
-place to settle each of them, as a check that fails before the fix and passes after.
+What remains is coverage rather than correctness. Reload is exercised on Windows only, and
+through `GDExtensionManager.reload_extension` rather than the editor's own filesystem watcher,
+which is the path a developer actually takes. Hazard 3 -- the utility function-pointer caches
+in the generated `general.zig` -- is still "probably fine" for the reason it always was: they
+point into Godot, which does not reload. Nothing has contradicted that, and nothing has
+confirmed it either.
