@@ -103,6 +103,34 @@ pub fn isRefCountedPtr(comptime T: type) bool {
     return isRefCounted(std.meta.Child(T));
 }
 
+/// Reports a vararg call the engine refused.
+///
+/// Every generated `call`/`callAlloc`/`emit` fills a `GDExtensionCallError` and
+/// used to drop it, so a rejected call returned `nil` and looked like a method
+/// that did nothing. That is a bad half-hour: the call site is correct Zig, the
+/// build is clean, and the only symptom is a null.
+///
+/// Logged rather than returned, for the same reason `connect` logs: these are
+/// vararg entry points whose signatures cannot grow an error set without
+/// touching every call site, and every failure here is a programming mistake
+/// rather than a case to branch on.
+pub fn reportCallError(comptime what: []const u8, err: c.GDExtensionCallError) void {
+    if (err.@"error" == c.GDEXTENSION_CALL_OK) return;
+    const reason: []const u8 = switch (err.@"error") {
+        c.GDEXTENSION_CALL_ERROR_INVALID_METHOD => "no such method",
+        c.GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT => "wrong argument type",
+        c.GDEXTENSION_CALL_ERROR_TOO_MANY_ARGUMENTS => "too many arguments",
+        c.GDEXTENSION_CALL_ERROR_TOO_FEW_ARGUMENTS => "too few arguments",
+        c.GDEXTENSION_CALL_ERROR_INSTANCE_IS_NULL => "instance is null",
+        c.GDEXTENSION_CALL_ERROR_METHOD_NOT_CONST => "method is not const",
+        else => "refused",
+    };
+    std.log.err(
+        "{s}: {s} (code {d}, argument {d}, expected type {d}); the call returned nil",
+        .{ what, reason, err.@"error", err.argument, err.expected },
+    );
+}
+
 /// Narrows `value` to `*T`, whichever kind of class `T` is.
 ///
 /// Engine classes are opaque and carry their own `downcast`; a class defined in
@@ -137,6 +165,7 @@ pub fn castTo(comptime T: type, value: anytype) ?*T {
 }
 
 const std = @import("std");
+const c = @import("gdextension");
 const gd = @import("gd.zig");
 const gdzig = @import("gdzig");
 

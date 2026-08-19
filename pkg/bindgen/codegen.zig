@@ -957,6 +957,12 @@ fn writeFunctionAlloc(w: *CodeWriter, function: *const Context.Function, class: 
         try w.writeAll("raw.objectMethodBindCall(_bind, ");
         try writeClassFunctionObjectPtr(w, cls, function, ctx);
         try w.writeLine(", @ptrCast(@alignCast(&args[0])), @intCast(args.len), @ptrCast(&result), &err);");
+        // The engine fills `err` on a refused call and the result stays nil.
+        // Dropping it made a rejected call indistinguishable from a method that
+        // did nothing.
+        try w.printLine("gdzig.class.reportCallError(\"{0s}.{1s}\", err);", .{
+            cls.name, function.name_api,
+        });
     } else {
         // Utility function
         try w.printLine("var _bind = {0s}Alloc_ptr.load(.monotonic);", .{function.name});
