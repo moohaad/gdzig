@@ -17,6 +17,8 @@ pub fn register(r: *Registry) void {
     const class = r.createClass(ConfigNode, r.allocator, .auto);
     class.addProperty("startup_delay", .auto);
     class.addMethod("build_tag", .auto);
+    class.addMethod("cache_epoch", .auto);
+    class.addMethod("typeof_probe", .auto);
 }
 
 /// A value the *code* decides, unlike `startup_delay`, which Godot serialises
@@ -25,6 +27,25 @@ pub fn register(r: *Registry) void {
 /// answering.
 pub fn buildTag(_: *ConfigNode) i64 {
     return 1;
+}
+
+/// Counts calls in a module-level `var`, which is the same storage class as the
+/// `_ptr` caches in `general.zig` and behind every generated method bind. If
+/// those survive a reload this keeps counting; if the library is unloaded and
+/// its statics start over, it reads 1 again. Either answer settles what the
+/// caches do, because it is the same storage.
+var epoch: i64 = 0;
+
+pub fn cacheEpoch(_: *ConfigNode) i64 {
+    epoch += 1;
+    return epoch;
+}
+
+/// Goes through one of the cached utility pointers named as hazard 3 in the
+/// reload plan. A stale pointer there is the failure that hazard describes; a
+/// correct answer after a reload is what says there is not one.
+pub fn typeofProbe(_: *ConfigNode) i64 {
+    return godot.general.typeof(.init(i64, 7));
 }
 
 pub fn unregister(r: *Registry) void {

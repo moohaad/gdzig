@@ -155,8 +155,13 @@ runs:
           *)       lib=libexample.so ;;
         esac
 
+        # A saved copy rather than `git checkout --`, which would also discard
+        # any uncommitted work on the file. CI checks out clean so it would not
+        # matter here, but the same lines get run by hand.
         # `sed -i` is spelled differently on BSD and GNU; this is neither.
-        restore() { git checkout -- src/ConfigNode.zig; }
+        original=$(mktemp)
+        cp src/ConfigNode.zig "$original"
+        restore() { cp "$original" src/ConfigNode.zig; }
         trap restore EXIT
         tmp=$(mktemp)
         sed 's/return 1;/return 2;/' src/ConfigNode.zig > "$tmp"

@@ -58,9 +58,22 @@ Measured at 37 names released per reload cycle, which is what used to leak each 
 module scope. A parked coroutine owns a stack whose return addresses point into the library
 about to be unloaded. Reloading with one live is unrecoverable, and silent.
 
-**3. Utility function-pointer caches.** `src/general.zig` caches `weakref_ptr`, `typeof_ptr`
-and `typeConvert_ptr` in atomics. These point into Godot, which does not reload, so they are
-*probably* fine — but "probably" is the reason they are on this list.
+**3. Utility function-pointer caches. Settled, and they were fine.** `src/general.zig` caches
+`weakref_ptr`, `typeof_ptr` and `typeConvert_ptr` in atomics -- and the same construct sits
+behind every generated method bind, so this was never three pointers but thousands.
+
+The argument was that they point into Godot, which does not reload. That is true and it is not
+the reason they are safe. The reload harness now measures the actual one: `ConfigNode` gained a
+module-level counter in the same storage class as those caches, and the driver reads it either
+side of a reload. It goes **1 -> 1**, not 1 -> 2. The library is unloaded and its statics are
+reinitialised, so a pre-reload pointer does not survive to be used after one; the cache is
+simply repopulated on first call.
+
+Three checks hold it: the counter, a `typeof` call through the cached pointer before and after
+a same-binary reload, and the same pair against the *staged* library in the changed-code half,
+where the file on disk is genuinely different. Breaking the after-reload assertion turns the
+harness red, so it discriminates. Windows measured here; ubuntu and macos answer from CI, since
+these run inside the harness the reload step already invokes.
 
 **4. Registration lifecycle. Handled.** Unregistering was the extension's job, and an
 extension with no `unregister` at all is legal. Anything missed stayed in Godot's ClassDB with
@@ -296,6 +309,5 @@ Checking it by hand, which is the only way:
 
 ### Also still open
 
-Windows only. And hazard 3 -- the utility function-pointer caches in the generated
-`general.zig` -- remains "probably fine" for the reason it always was: they point into Godot,
-which does not reload. Nothing has contradicted that, and nothing has confirmed it.
+Windows only. Hazard 3 is no longer among these: the caches are settled above, measured rather
+than argued.

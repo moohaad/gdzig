@@ -28,6 +28,14 @@ func _initialize() -> void:
 	node.startup_delay = 3.5
 	check(node.startup_delay == 3.5, "exported property takes a value")
 
+	# Hazard 3 in the reload plan: the `_ptr` caches in `general.zig`, and the
+	# same construct behind every generated method bind. Take both readings
+	# before the reload -- a module-level counter, and an answer that comes back
+	# through one of those cached pointers.
+	var epoch_before: int = node.cache_epoch()
+	check(epoch_before == 1, "the cache epoch starts at 1")
+	check(node.typeof_probe() == TYPE_INT, "a cached utility pointer answers before the reload")
+
 	var before_count: int = Performance.get_monitor(Performance.OBJECT_COUNT)
 
 	var status := GDExtensionManager.reload_extension(EXT)
@@ -37,6 +45,18 @@ func _initialize() -> void:
 	if is_instance_valid(node):
 		check(node.get_class() == "ConfigNode", "kept its class, not degraded to the base")
 		check(node.startup_delay == 3.5, "exported property survived the reload")
+
+	# The reading that settles it. If module statics survive the reload the
+	# counter keeps going and the caches hold pre-reload pointers; if the
+	# library was unloaded it reads 1 again and no stale pointer can exist.
+	# Either way the utility call has to still be right.
+	if is_instance_valid(node):
+		var epoch_after: int = node.cache_epoch()
+		print("  info cache epoch across reload: %d -> %d (%s)" % [
+			epoch_before, epoch_after,
+			"statics survived" if epoch_after > epoch_before else "statics reset",
+		])
+		check(node.typeof_probe() == TYPE_INT, "a cached utility pointer answers after the reload")
 
 	var after_count: int = Performance.get_monitor(Performance.OBJECT_COUNT)
 	print("  info object count %d -> %d" % [before_count, after_count])
@@ -108,6 +128,10 @@ func _initialize() -> void:
 		if reloaded != null:
 			var tag: int = reloaded.build_tag()
 			check(tag == 2, "the NEW build is the one answering (build_tag=%d)" % tag)
+			# The cached-pointer question again, but against a library that is
+			# genuinely a different file rather than the same one reloaded.
+			check(reloaded.cache_epoch() == 1, "the new library's statics start fresh")
+			check(reloaded.typeof_probe() == TYPE_INT, "a cached utility pointer answers in the new library")
 			reloaded.free()
 
 	print("DRIVER failures=%d" % failures)
