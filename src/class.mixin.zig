@@ -107,10 +107,28 @@ pub fn isRefCountedPtr(comptime T: type) bool {
 ///
 /// Engine classes are opaque and carry their own `downcast`; a class defined in
 /// an extension is a plain struct reached through its instance binding. Callers
-/// should not have to know which they are holding, and before this they did --
+/// should not have to know which kind **`T`** is, and before this they did --
 /// the same six lines were written out at every site that needed it.
 ///
 /// Null when `value` is not a `T`.
+///
+/// ## The source side needs no such care, and here is why
+///
+/// Only the target's kind is branched on, which looks like an omission: for a
+/// user class, `value`'s own address is not the engine object's, so handing it
+/// to the engine unexamined would be wrong. It cannot happen. Narrowing means
+/// `T` derives from what you are holding, and:
+///
+/// * `T` a user class takes the first arm, where `upcast` reads the `base`
+///   field and finds the engine object. Correct.
+/// * `T` an engine class cannot derive from a user class, so `T.downcast`'s
+///   ancestry assertion rejects that pair at compile time -- verified:
+///   `castTo(Node2d, some_user_ptr)` is `expected type 'ClassC', found
+///   'Node2d'`, raised before any pointer is passed.
+///
+/// So the only source that reaches `T.downcast` is an engine pointer, where the
+/// address is the same at every level and the cast is right. Widening is
+/// `upcast`'s job, not this one's.
 pub fn castTo(comptime T: type, value: anytype) ?*T {
     if (comptime isStructClass(T)) {
         return upcast(*Object, value).asInstance(T);

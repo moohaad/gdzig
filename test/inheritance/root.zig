@@ -7,7 +7,6 @@
 /// Derived user classes embed their parent (e.g. `base: ClassA` not `base: *ClassA`)
 /// so that `*ClassB` can be safely cast to `*ClassA` — matching how Godot passes a
 /// single extension instance pointer to all method callbacks.
-
 pub fn register(r: *gdzig.extension.Registry) void {
     const class_a = r.createClass(ClassA, {}, .auto);
     class_a.addMethod("get_value_a", .auto);
@@ -160,3 +159,18 @@ const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Object = gdzig.class.Object;
 const StringName = gdzig.builtin.StringName;
+
+test "castTo narrows a user class to a user descendant" {
+    const c_ = try ClassC.create();
+    defer Object.upcast(c_).destroy();
+
+    // The source is a Zig struct, so the engine object is at `base` rather than
+    // at `c_` itself. `castTo` goes through `upcast`, which reads it; a
+    // `@ptrCast` would hand Godot the struct's own address.
+    //
+    // The other arm cannot be reached from here: an engine class never derives
+    // from a user class, so `castTo(Node2d, c_)` is a compile error rather than
+    // a bad pointer.
+    const as_b = gdzig.class.castTo(ClassB, c_) orelse return error.CastFailed;
+    try testing.expectEqual(@as(i64, 2), as_b.getValueB());
+}
