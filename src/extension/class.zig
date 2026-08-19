@@ -89,21 +89,17 @@ pub fn baseForEngine(comptime Base: type) *Base {
 /// hand-written one instead.
 fn Synthesized(comptime T: type) type {
     return struct {
-        const Base = @typeInfo(@FieldType(T, "base")).pointer.child;
+        const Base = EngineBaseOf(T);
 
         /// Whether the base is reference counted, asked the way that matters
         /// rather than by walking ancestry: a refcounted constructor hands back
         /// an owning `Gd(Base)`, a plain one hands back the pointer.
         const base_is_counted = gd.isGd(@typeInfo(@TypeOf(Base.init)).@"fn".return_type.?);
 
-        fn newBase() *Base {
-            return baseForEngine(Base);
-        }
-
         fn create(allocator: *Allocator) !*T {
             const self = try allocator.create(T);
-            self.* = .{ .allocator = allocator.*, .base = newBase() };
-            self.base.setInstance(T, self);
+            self.* = initChain(T, allocator, baseForEngine(Base));
+            engineObject(self).setInstance(T, self);
             return self;
         }
 
@@ -111,8 +107,8 @@ fn Synthesized(comptime T: type) type {
         /// adopts the surviving one rather than making another.
         fn recreate(allocator: *Allocator, obj: *Object) *T {
             const self = allocator.create(T) catch @panic("OOM");
-            self.* = .{ .allocator = allocator.*, .base = @ptrCast(obj) };
-            self.base.setInstance(T, self);
+            self.* = initChain(T, allocator, @as(*Base, @ptrCast(obj)));
+            engineObject(self).setInstance(T, self);
             return self;
         }
 
@@ -121,10 +117,45 @@ fn Synthesized(comptime T: type) type {
             // Destroying one here would be freeing something the engine is
             // still counting, which is why a `Resource`-based class writes
             // `allocator.destroy(self)` and nothing else.
-            if (comptime !base_is_counted) self.base.destroy();
+            if (comptime !base_is_counted) engineObject(self).destroy();
             allocator.destroy(self);
         }
+
+        /// `upcast`, because `self.base` is only the engine object when the
+        /// base is a pointer. A derived user class embeds its parent, and the
+        /// object is at the bottom of that chain.
+        inline fn engineObject(self: *T) *Base {
+            return class.upcast(*Base, self);
+        }
     };
+}
+
+/// The nearest engine class above `T`, skipping any user classes in between.
+///
+/// `T.base` names the *declared* parent, which for a derived user class is
+/// another struct. What the lifecycle needs is the opaque class at the bottom:
+/// that is what `init`s, what carries `setInstance`, and what `destroy` frees.
+fn EngineBaseOf(comptime T: type) type {
+    comptime var Current = class.BaseOf(T);
+    inline while (@typeInfo(Current) == .@"struct") Current = class.BaseOf(Current);
+    return Current;
+}
+
+/// Builds `S` and every user class it embeds, with the engine object at the
+/// bottom of the chain.
+///
+/// A pointer base is the last level, and a struct base recurses. Every level
+/// needs its own `allocator`, since each is initialised whole here.
+fn initChain(comptime S: type, allocator: *Allocator, obj: anytype) S {
+    if (comptime !@hasField(S, "allocator")) @compileError(
+        "gdzig is synthesizing a lifecycle that has to initialise '" ++ @typeName(S) ++
+            "', an embedded base, but it has no `allocator` field. Give it one, or write `create` yourself.",
+    );
+    const BaseField = @FieldType(S, "base");
+    if (comptime class.isClassPtr(BaseField)) {
+        return .{ .allocator = allocator.*, .base = @ptrCast(obj) };
+    }
+    return .{ .allocator = allocator.*, .base = initChain(BaseField, allocator, obj) };
 }
 
 /// Whether dispatches are counted so that freeing an object out from under one
@@ -441,7 +472,11 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
         /// than an error naming what changed.
         fn assertBaseUnchanged(obj: *Object) void {
             if (comptime !@hasField(T, "base")) return;
-            const Declared = @typeInfo(@FieldType(T, "base")).pointer.child;
+            // `BaseOf`, not `@FieldType(...).pointer.child`: a derived user
+            // class embeds its parent by value (`base: Parent`), and asking a
+            // struct for its `pointer` field is a compile error rather than a
+            // wrong answer. oopz already unwraps whichever shape it is.
+            const Declared = class.BaseOf(T);
             const expected = StringName.fromType(Declared);
             if (obj.isClass(expected.*)) return;
 
@@ -491,12 +526,22 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
     return .{
         .create = if (Userdata != void) Callbacks.create2 else Callbacks.create2NoUserdata,
         .destroy = if (Userdata != void) Callbacks.destroy else Callbacks.destroyNoUserdata,
-        .recreate = if (!@hasDecl(T, "recreate") and !canSynthesize(T))
-            null
-        else if (Userdata != void)
+        // Gate on whether a synthesized `recreate` is actually *callable*, not
+        // just on `canSynthesize`. It needs a `*Allocator`, which is only what
+        // `Userdata` is when the class omits `create` or declares
+        // `create(allocator: *Allocator)`. A class with the synthesizable
+        // fields but its own zero-arg `create` has no allocator to hand it, and
+        // the old condition still routed it to `recreateNoUserdata` -- whose
+        // body calls `T.recreate` with none of the `@hasDecl` guard its
+        // userdata twin has, so the class failed to build.
+        //
+        // Null means "not reloadable", which is the honest answer there.
+        .recreate = if (@hasDecl(T, "recreate"))
+            (if (Userdata != void) Callbacks.recreate else Callbacks.recreateNoUserdata)
+        else if (canSynthesize(T) and Userdata == *Allocator)
             Callbacks.recreate
         else
-            Callbacks.recreateNoUserdata,
+            null,
 
         .get_virtual = if (Userdata != void) Callbacks.getVirtual2 else Callbacks.getVirtual2NoUserdata,
         // .get_virtual_call_data - not yet supported

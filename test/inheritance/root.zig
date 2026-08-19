@@ -16,11 +16,17 @@ pub fn register(r: *gdzig.extension.Registry) void {
 
     const class_c = r.createClass(ClassC, {}, .auto);
     class_c.addMethod("get_value_c", .auto);
+    // A method taking a two-level user class: the Variant unboxing path.
+    class_c.addMethod("take_c", .auto);
 
     // Unrelated to A/B/C on purpose: narrowing an object to this must fail.
     _ = r.createClass(Unrelated, {}, .auto);
 
     _ = r.createClass(VParent, {}, .auto);
+    _ = r.createClass(EmbeddedReload, {}, .auto);
+    _ = r.createClass(SynthParent, r.allocator, .auto);
+    _ = r.createClass(SynthEmbedded, r.allocator, .auto);
+    _ = r.createClass(OwnCreate, {}, .auto);
     _ = r.createClass(VDisplaced, {}, .auto);
 }
 
@@ -153,6 +159,10 @@ const ClassC = struct {
         allocator.destroy(self);
     }
 
+    pub fn takeC(_: *ClassC, other: *ClassC) i64 {
+        return other.value_c;
+    }
+
     pub fn getValueC(self: *ClassC) i64 {
         return self.value_c;
     }
@@ -195,6 +205,63 @@ const VDisplaced = struct {
     }
 
     pub fn destroy(self: *VDisplaced) void {
+        allocator.destroy(self);
+    }
+};
+
+/// Embedded base plus a hand-written `recreate`: the reload hook. This is the
+/// shape that hits `assertBaseUnchanged`.
+const EmbeddedReload = struct {
+    base: ClassA,
+
+    pub fn create() !*EmbeddedReload {
+        const self: *EmbeddedReload = allocator.create(EmbeddedReload) catch @panic("out of memory");
+        self.* = .{ .base = .{ .base = Object.init() } };
+        self.base.base.setInstance(EmbeddedReload, self);
+        return self;
+    }
+
+    pub fn recreate(obj: *Object) *EmbeddedReload {
+        const self: *EmbeddedReload = allocator.create(EmbeddedReload) catch @panic("out of memory");
+        self.* = .{ .base = .{ .base = obj } };
+        self.base.base.setInstance(EmbeddedReload, self);
+        return self;
+    }
+
+    pub fn destroy(self: *EmbeddedReload) void {
+        allocator.destroy(self);
+    }
+};
+
+/// Synthesized lifecycle, pointer base: the shape that already worked.
+const SynthParent = struct {
+    allocator: std.mem.Allocator,
+    base: *Object,
+    value_p: i64 = 1,
+};
+
+/// Synthesized lifecycle, embedded base.
+const SynthEmbedded = struct {
+    allocator: std.mem.Allocator,
+    base: SynthParent,
+    value_e: i64 = 2,
+};
+
+/// Has the fields gdzig could synthesize from, but writes its own zero-arg
+/// `create`, so there is no allocator to hand a synthesized `recreate`.
+const OwnCreate = struct {
+    allocator: std.mem.Allocator,
+    base: *Object,
+
+    pub fn create() !*OwnCreate {
+        const self: *OwnCreate = allocator.create(OwnCreate) catch @panic("out of memory");
+        self.* = .{ .allocator = allocator, .base = Object.init() };
+        self.base.setInstance(OwnCreate, self);
+        return self;
+    }
+
+    pub fn destroy(self: *OwnCreate) void {
+        self.base.destroy();
         allocator.destroy(self);
     }
 };

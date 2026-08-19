@@ -235,9 +235,13 @@ pub const Variant = extern struct {
             if (comptime class.isOpaqueClassPtr(Ptr)) {
                 return @as(Ptr, @ptrCast(@alignCast(object)));
             } else {
-                const Base = class.BaseOf(Child(Ptr));
-                const base: *Base = @ptrCast(object);
-                return base.asInstance(Child(Ptr));
+                // Straight to `asInstance` on the object. Going via
+                // `BaseOf` was both unnecessary and unbuildable for a
+                // two-level user class: the declared base is then another
+                // struct, and `@ptrCast` from an opaque `*Object` (alignment
+                // 1) to a struct pointer is a compile error. `asInstance`
+                // resolves any depth through the instance record.
+                return object.?.asInstance(Child(Ptr));
             }
         }
     }
