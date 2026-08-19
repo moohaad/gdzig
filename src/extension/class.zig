@@ -24,13 +24,68 @@ pub fn registerClass(comptime T: type, info: ClassInfo4(ClassUserdataOf(T))) voi
 /// Extracts the `ClassUserdata` type from a type `T` by inspecting its `create` function.
 pub fn ClassUserdataOf(comptime T: type) type {
     if (!@hasDecl(T, "create")) {
-        @compileError("Type '" ++ @typeName(T) ++ "' must have a 'create' function");
+        if (!canSynthesize(T)) @compileError(synthesisHelp(T, "create"));
+        // The synthesized lifecycle takes the allocator it will later free the
+        // instance with, which is the shape a hand-written `create` uses too.
+        return *Allocator;
     }
     const params = @typeInfo(@TypeOf(T.create)).@"fn".params;
     return switch (params.len) {
         0 => void,
         1 => params[0].type.?,
         inline else => @compileError("Type '" ++ @typeName(T) ++ "'.create must take zero or one parameters"),
+    };
+}
+
+/// Whether gdzig can write `create`, `recreate` and `destroy` for `T`.
+///
+/// The conventional class keeps the allocator it was made with and a pointer to
+/// its engine object, which is everything those three need. A class shaped
+/// differently writes its own.
+fn canSynthesize(comptime T: type) bool {
+    return @typeInfo(T) == .@"struct" and @hasField(T, "allocator") and @hasField(T, "base");
+}
+
+fn synthesisHelp(comptime T: type, comptime what: []const u8) []const u8 {
+    return "Type '" ++ @typeName(T) ++ "' needs a '" ++ what ++
+        "' function, or an `allocator` and a `base` field so gdzig can write one";
+}
+
+/// The lifecycle a class does not have to spell out.
+///
+/// The same three functions in every class: allocate, point at the engine
+/// object, bind the two together, and undo it. Declaring any of them on the
+/// class overrides the one here, so a class with something to release still
+/// writes its own `destroy`.
+///
+/// Fields other than `allocator` and `base` must have defaults, since these
+/// initialise the struct wholesale. A field that cannot default produces a
+/// "missing struct field" error pointing at `create` below, and wants a
+/// hand-written one instead.
+fn Synthesized(comptime T: type) type {
+    return struct {
+        const Base = @typeInfo(@FieldType(T, "base")).pointer.child;
+
+        fn create(allocator: *Allocator) !*T {
+            const self = try allocator.create(T);
+            self.* = .{ .allocator = allocator.*, .base = Base.init() };
+            self.base.setInstance(T, self);
+            return self;
+        }
+
+        /// Reload's half: the engine object outlives the library, so this
+        /// adopts the surviving one rather than making another.
+        fn recreate(allocator: *Allocator, obj: *Object) *T {
+            const self = allocator.create(T) catch @panic("OOM");
+            self.* = .{ .allocator = allocator.*, .base = @ptrCast(obj) };
+            self.base.setInstance(T, self);
+            return self;
+        }
+
+        fn destroy(self: *T, allocator: *Allocator) void {
+            self.base.destroy();
+            allocator.destroy(self);
+        }
     };
 }
 
@@ -164,12 +219,8 @@ pub const DispatchGuard = struct {
 
 fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdataOf(T), void) {
     comptime {
-        if (!@hasDecl(T, "create")) {
-            @compileError("Type '" ++ @typeName(T) ++ "' must have a 'create' function");
-        }
-        if (!@hasDecl(T, "destroy")) {
-            @compileError("Type '" ++ @typeName(T) ++ "' must have a 'destroy' function");
-        }
+        if (!@hasDecl(T, "create") and !canSynthesize(T)) @compileError(synthesisHelp(T, "create"));
+        if (!@hasDecl(T, "destroy") and !canSynthesize(T)) @compileError(synthesisHelp(T, "destroy"));
     }
 
     const Userdata = ClassUserdataOf(T);
@@ -190,7 +241,9 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
         }
 
         fn create2Impl(userdata: Userdata, notify: bool) anyerror!*T {
-            const self = if (Userdata == void)
+            const self = if (comptime !@hasDecl(T, "create"))
+                try Synthesized(T).create(userdata)
+            else if (Userdata == void)
                 try T.create()
             else
                 try T.create(userdata);
@@ -272,7 +325,9 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
                 if (destroy_meta.user_destroying) return;
                 destroy_meta.engine_destroying = true;
             }
-            if (Userdata == void) {
+            if (comptime !@hasDecl(T, "destroy")) {
+                Synthesized(T).destroy(self, userdata);
+            } else if (Userdata == void) {
                 T.destroy(self);
             } else {
                 T.destroy(self, userdata);
@@ -316,6 +371,7 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
 
         fn recreate(userdata: Userdata, obj: *Object) *T {
             assertBaseUnchanged(obj);
+            if (comptime !@hasDecl(T, "recreate")) return Synthesized(T).recreate(userdata, obj);
             return T.recreate(userdata, obj);
         }
 
@@ -347,7 +403,7 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
     return .{
         .create = if (Userdata != void) Callbacks.create2 else Callbacks.create2NoUserdata,
         .destroy = if (Userdata != void) Callbacks.destroy else Callbacks.destroyNoUserdata,
-        .recreate = if (!@hasDecl(T, "recreate"))
+        .recreate = if (!@hasDecl(T, "recreate") and !canSynthesize(T))
             null
         else if (Userdata != void)
             Callbacks.recreate

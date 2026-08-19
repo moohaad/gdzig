@@ -38,25 +38,6 @@ base: *Node,
 /// inspector can change it without a rebuild.
 startup_delay: f64 = 1.0,
 
-pub fn create(allocator: *Allocator) !*ConfigNode {
-    const self = try allocator.create(ConfigNode);
-    self.* = .{ .allocator = allocator.*, .base = Node.init() };
-    self.base.setInstance(ConfigNode, self);
-    return self;
-}
-
-pub fn recreate(allocator: *Allocator, obj: *Object) *ConfigNode {
-    const self = allocator.create(ConfigNode) catch @panic("OOM");
-    self.* = .{ .allocator = allocator.*, .base = @ptrCast(obj) };
-    self.base.setInstance(ConfigNode, self);
-    return self;
-}
-
-pub fn destroy(self: *ConfigNode, allocator: *Allocator) void {
-    self.base.destroy();
-    allocator.destroy(self);
-}
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
