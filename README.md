@@ -130,6 +130,10 @@ const PlayerNode = @import("PlayerNode.zig");
 
 Then `zig build`, and open `project/` in Godot.
 
+Before writing much, skim [doc/what-gdzig-gives-you.md](doc/what-gdzig-gives-you.md).
+It is short, and it exists because a real port hand-wrote five things that were
+already in the box.
+
 ## Threading
 
 Engine calls are safe from any thread; the scene tree is still main-thread only.
