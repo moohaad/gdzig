@@ -13,6 +13,7 @@ pub const InitializationLevel = enum(c_int) {
 pub const Registry = @import("extension/Registry.zig");
 
 const class = @import("extension/class.zig");
+pub const baseForEngine = class.baseForEngine;
 pub const DestroyInstanceBinding = class.DestroyInstanceBinding;
 pub const DispatchGuard = class.DispatchGuard;
 

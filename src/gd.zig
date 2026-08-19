@@ -26,14 +26,18 @@
 //! tex.get().someMethod();
 //! ```
 //!
-//! `release` is the way back out where a handle cannot go — most often a
-//! class's `base` field, which must be a plain pointer for `oopz` to recognise
-//! the struct as a class:
+//! `release` is the way back out where a handle cannot go — a plain pointer
+//! field, or an engine call that takes ownership:
 //!
 //! ```zig
-//! var base = Resource.init();
-//! self.* = .{ .base = base.release() };
+//! var tex = ResourceLoader.load(path, .{}).?;
+//! someOwningSink(tex.release());
 //! ```
+//!
+//! One place it is *not* the answer is a registered class's `base` field. That
+//! object goes straight back to Godot, which takes the first reference itself,
+//! so referencing it here leaves one nobody drops. Let gdzig write `create`, or
+//! call `extension.baseForEngine(Resource)`, which documents why.
 //!
 //! ## What this does not do
 //!

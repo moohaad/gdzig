@@ -51,6 +51,31 @@ fn synthesisHelp(comptime T: type, comptime what: []const u8) []const u8 {
         "' function, or an `allocator` and a `base` field so gdzig can write one";
 }
 
+/// The engine object for a registered class's `base` field.
+///
+/// `base` must be a plain pointer for oopz to recognise the struct as a class,
+/// and for a plain class `Base.init()` is exactly that. For a **refcounted**
+/// base it is not, and the difference leaks:
+///
+/// `Base.init()` calls `init_ref`, which spends the compensation Godot arms on
+/// a freshly constructed object. The instance then goes straight back to the
+/// engine, which wraps it in its own `Ref` -- whose `init_ref` finds nothing
+/// left to compensate and increments to 2. Nothing ever drops the second, the
+/// object never reaches zero, and its `destroy` never runs. Measured: one
+/// `Resource` retained at exit for every registered refcounted class the engine
+/// instantiates, with the refcount reading 1 the moment `create` returned.
+///
+/// Constructing without referencing leaves the compensation armed, so the
+/// engine's `Ref` settles at 1 and owns it alone.
+///
+/// This is only right for an object handed straight to Godot. Code making a
+/// resource *for itself* still wants `Base.init()` and the handle it returns.
+pub fn baseForEngine(comptime Base: type) *Base {
+    const counted = comptime gd.isGd(@typeInfo(@TypeOf(Base.init)).@"fn".return_type.?);
+    if (comptime !counted) return Base.init();
+    return @ptrCast(gdzig.raw.classdbConstructObject(@ptrCast(StringName.fromType(Base))).?);
+}
+
 /// The lifecycle a class does not have to spell out.
 ///
 /// The same three functions in every class: allocate, point at the engine
@@ -71,14 +96,8 @@ fn Synthesized(comptime T: type) type {
         /// an owning `Gd(Base)`, a plain one hands back the pointer.
         const base_is_counted = gd.isGd(@typeInfo(@TypeOf(Base.init)).@"fn".return_type.?);
 
-        /// `base` must be a plain pointer for oopz to recognise the struct as a
-        /// class, so a handle has to be opened up. `release` is the documented
-        /// way across, and the reference it gives up is the one the object then
-        /// lives on.
         fn newBase() *Base {
-            if (comptime !base_is_counted) return Base.init();
-            var handle = Base.init();
-            return handle.release();
+            return baseForEngine(Base);
         }
 
         fn create(allocator: *Allocator) !*T {
