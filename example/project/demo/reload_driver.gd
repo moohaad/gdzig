@@ -76,19 +76,27 @@ func _initialize() -> void:
 		check(probe.build_tag() == 1, "starts on the old build")
 		probe.free()
 
-	var live := ProjectSettings.globalize_path("res://lib/example.dll")
-	var staged := ProjectSettings.globalize_path("res://lib/next.dll")
+	# The library is named differently per platform, and this harness runs on
+	# all three in CI.
+	var lib := "example.dll"
+	match OS.get_name():
+		"macOS": lib = "libexample.dylib"
+		"Windows": lib = "example.dll"
+		_: lib = "libexample.so"
+
+	var live := ProjectSettings.globalize_path("res://lib/" + lib)
+	var staged := ProjectSettings.globalize_path("res://lib/next_" + lib)
 
 	# Staging a second build cannot be done from here, so this half runs only
 	# when one has been put in place. To make it, from `example/`:
 	#
 	#   sed -i 's/return 1;/return 2;/' src/ConfigNode.zig
-	#   zig build && cp project/lib/example.dll project/lib/next.dll
+	#   zig build && cp project/lib/example.dll project/lib/next_example.dll
 	#   sed -i 's/return 2;/return 1;/' src/ConfigNode.zig && zig build
 	#
 	# then `zig build reload-test`.
-	if not FileAccess.file_exists("res://lib/next.dll"):
-		print("  skip no lib/next.dll staged; the changed-code half did not run")
+	if not FileAccess.file_exists("res://lib/next_" + lib):
+		print("  skip no lib/next_%s staged; the changed-code half did not run" % lib)
 	else:
 		var copied := DirAccess.copy_absolute(staged, live)
 		check(copied == OK, "the live library can be replaced on disk (err=%d)" % copied)

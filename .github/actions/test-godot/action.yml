@@ -126,3 +126,47 @@ runs:
         ./zig-out/bin/gdzig-api-audit shapes \
           --min-coverage=84 --max-uncovered=100 \
           extension_api.json test
+
+    # Everything above loads the extension exactly once, and that is the gap
+    # this closes: the reload defects fixed in this tree all passed a cold
+    # start and failed only on the second load. The harness drives a real
+    # editor through `reload_extension` and checks what survived.
+    #
+    # Both halves run, which is why the tag dance is here. Reloading the same
+    # binary proves the machinery is sound but not that a rebuild is picked up
+    # -- a stale library keeps answering the old `build_tag` however cleanly it
+    # reloaded. So: flip the tag, stage that build, put the tree back, and
+    # rebuild so the live library is the original again. Skip the staging and
+    # the driver prints `skip` and stays green, which would make this half a
+    # test.
+    #
+    # Last in the file on purpose. It is the only step here that has never run
+    # on a non-Windows machine, and a step that new should not be able to stop
+    # the audits above from reporting.
+    - name: Reload the extension and check what survived
+      shell: bash
+      working-directory: example
+      run: |
+        set -euo pipefail
+        case '${{ runner.os }}' in
+          macOS)   lib=libexample.dylib ;;
+          Windows) lib=example.dll ;;
+          *)       lib=libexample.so ;;
+        esac
+
+        # `sed -i` is spelled differently on BSD and GNU; this is neither.
+        restore() { git checkout -- src/ConfigNode.zig; }
+        trap restore EXIT
+        tmp=$(mktemp)
+        sed 's/return 1;/return 2;/' src/ConfigNode.zig > "$tmp"
+        mv "$tmp" src/ConfigNode.zig
+
+        zig build -Dgodot-path="$GODOT_BIN"
+        cp "project/lib/$lib" "project/lib/next_$lib"
+        restore
+        # Restores the live library too: the driver swaps the staged build over
+        # it and does not put it back, so the harness must start from a build
+        # the build system wrote.
+        zig build -Dgodot-path="$GODOT_BIN"
+
+        zig build reload-test -Dgodot-path="$GODOT_BIN"
