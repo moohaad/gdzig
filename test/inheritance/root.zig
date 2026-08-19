@@ -19,6 +19,9 @@ pub fn register(r: *gdzig.extension.Registry) void {
 
     // Unrelated to A/B/C on purpose: narrowing an object to this must fail.
     _ = r.createClass(Unrelated, {}, .auto);
+
+    _ = r.createClass(VParent, {}, .auto);
+    _ = r.createClass(VDisplaced, {}, .auto);
 }
 
 fn ensureRegistered() void {
@@ -155,6 +158,47 @@ const ClassC = struct {
     }
 };
 
+/// Reports the address it was actually called with, as a string, so the test can
+/// compare without writing through a pointer that may be wrong.
+const VParent = struct {
+    base: *Object,
+
+    pub fn _toString(self: *VParent) ?String {
+        var buf: [32]u8 = undefined;
+        const text = std.fmt.bufPrintZ(&buf, "{d}", .{@intFromPtr(self)}) catch return null;
+        return String.fromLatin1(text);
+    }
+
+    pub fn create() !*VParent {
+        const self: *VParent = allocator.create(VParent) catch @panic("out of memory");
+        self.* = .{ .base = Object.init() };
+        self.base.setInstance(VParent, self);
+        return self;
+    }
+
+    pub fn destroy(self: *VParent) void {
+        allocator.destroy(self);
+    }
+};
+
+/// Inherits `_toString` and pushes the base off byte 0: Zig orders fields by
+/// descending alignment, so a `u128` sorts ahead of the embedded parent.
+const VDisplaced = struct {
+    base: VParent,
+    wide: u128 = 0,
+
+    pub fn create() !*VDisplaced {
+        const self: *VDisplaced = allocator.create(VDisplaced) catch @panic("out of memory");
+        self.* = .{ .base = .{ .base = Object.init() } };
+        self.base.base.setInstance(VDisplaced, self);
+        return self;
+    }
+
+    pub fn destroy(self: *VDisplaced) void {
+        allocator.destroy(self);
+    }
+};
+
 /// Shares no ancestry with ClassA beyond Object itself.
 const Unrelated = struct {
     base: *Object,
@@ -178,6 +222,7 @@ const testing = std.testing;
 const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Object = gdzig.class.Object;
+const String = gdzig.builtin.String;
 const StringName = gdzig.builtin.StringName;
 
 test "castTo narrows a user class to a user descendant" {
@@ -211,4 +256,20 @@ test "castTo refuses a class the object is not" {
     // And the cast that should succeed still does.
     const same = gdzig.class.castTo(ClassA, a) orelse return error.CastFailed;
     try testing.expectEqual(@as(i64, 1), same.getValueA());
+}
+
+test "a displaced base is not the instance address" {
+    // `VDisplaced` inherits `_toString` from `VParent`, so gdzig builds a vtable
+    // wrapper with `Owner = VParent` while Godot hands it a `*VDisplaced`. The
+    // wrapper has to narrow, and this is why it cannot just reinterpret:
+    // Zig orders fields by descending alignment, so the `u128` sorts ahead of
+    // the embedded parent and the base is not at byte 0.
+    try testing.expect(@offsetOf(VDisplaced, "base") != 0);
+
+    const d = try VDisplaced.create();
+    defer Object.upcast(d).destroy();
+
+    const narrowed = @intFromPtr(gdzig.class.upcast(*VParent, d));
+    try testing.expect(narrowed != @intFromPtr(d));
+    try testing.expectEqual(@intFromPtr(d) + @offsetOf(VDisplaced, "base"), narrowed);
 }

@@ -71,7 +71,7 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                         // Only self parameter - generate simpler wrapper
                         const Wrapper = struct {
                             fn call(p_instance: c.GDExtensionClassInstancePtr, _: [*]const c.GDExtensionConstTypePtr, p_ret: c.GDExtensionTypePtr) callconv(.c) void {
-                                const instance: *Owner = @ptrCast(@alignCast(p_instance));
+                                const instance: *Owner = narrowInstance(T, Owner, p_instance);
                                 const guard = DispatchGuard.enter(instance);
                                 defer guard.leave();
                                 if (ReturnType == void) {
@@ -87,7 +87,7 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                         // Multiple parameters - build args tuple
                         const Wrapper = struct {
                             fn call(p_instance: c.GDExtensionClassInstancePtr, p_args: [*]const c.GDExtensionConstTypePtr, p_ret: c.GDExtensionTypePtr) callconv(.c) void {
-                                const instance: *Owner = @ptrCast(@alignCast(p_instance));
+                                const instance: *Owner = narrowInstance(T, Owner, p_instance);
                                 const guard = DispatchGuard.enter(instance);
                                 defer guard.leave();
                                 var args: std.meta.ArgsTuple(FnType) = undefined;
@@ -169,6 +169,31 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
             return combined;
         }
     };
+}
+
+test "narrowInstance walks to the owner when the base is displaced" {
+    const Parent = struct { base: *gdzig.class.Object };
+    // The `u128` outranks the embedded parent under Zig's descending-alignment
+    // field ordering, so the base does not start at byte 0.
+    const Derived = struct { base: Parent, wide: u128 = 0 };
+    try std.testing.expect(@offsetOf(Derived, "base") != 0);
+
+    var derived: Derived = .{ .base = .{ .base = undefined } };
+
+    // The instance pointer Godot would hand a virtual declared on `Parent`.
+    const p_instance: c.GDExtensionClassInstancePtr = @ptrCast(&derived);
+    const owner = narrowInstance(Derived, Parent, p_instance);
+
+    try std.testing.expectEqual(@intFromPtr(&derived.base), @intFromPtr(owner));
+    // The bug this replaced: reinterpreting the pointer instead of narrowing.
+    try std.testing.expect(@intFromPtr(owner) != @intFromPtr(&derived));
+
+    // And the common case, where the method is declared on the class itself,
+    // still hands back the same address.
+    try std.testing.expectEqual(
+        @intFromPtr(&derived),
+        @intFromPtr(narrowInstance(Derived, Derived, p_instance)),
+    );
 }
 
 test "VTable snake_case conversion" {
@@ -395,6 +420,25 @@ const std = @import("std");
 
 const c = @import("gdextension");
 const casez = @import("casez");
+/// The instance a virtual declared on `Owner` should be called with.
+///
+/// Godot hands every virtual the *most-derived* instance -- the pointer
+/// `setInstance` stored -- but Zig has no declaration inheritance, so
+/// `findMethod` locates the method on whichever ancestor declares it, and
+/// `Owner` is usually not `T`. Reinterpreting the pointer is only right when
+/// `Owner` starts at byte 0 of `T`, which nothing enforces: Zig orders fields by
+/// descending alignment, so a single field with alignment above the base's
+/// displaces it. `test/inheritance` has such a class, and its base sits at a
+/// non-zero offset.
+///
+/// `upcast` walks the real chain, and emits nothing when the offsets are zero,
+/// so the ordinary case costs the same.
+inline fn narrowInstance(comptime T: type, comptime Owner: type, p_instance: c.GDExtensionClassInstancePtr) *Owner {
+    const self: *T = @ptrCast(@alignCast(p_instance));
+    if (comptime T == Owner) return self;
+    return class.upcast(*Owner, self);
+}
+
 const gdzig = @import("gdzig");
 const common = @import("common");
 const godot_case = common.godot_case;
