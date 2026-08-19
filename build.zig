@@ -234,11 +234,25 @@ pub fn build(b: *Build) !void {
     b.getInstallStep().dependOn(&install_bindings.step);
 
     b.installArtifact(bindgen_exe);
-    b.installDirectory(.{
+
+    // Autodoc. Emitting it needs the library analysed and therefore bindgen
+    // run, so this is not free -- but it is also the only way to see the
+    // generated surface as documentation rather than as source.
+    //
+    // Its own step as well as the default install, because wanting the docs and
+    // wanting a built extension are different errands: `zig build docs` skips
+    // installing the bindings, the bindgen executable and the vendored headers.
+    //
+    // The output is a wasm viewer, so it wants serving rather than opening off
+    // disk: `python -m http.server -d zig-out/docs`.
+    const install_docs = b.addInstallDirectory(.{
         .source_dir = gdzig_lib.getEmittedDocs(),
         .install_dir = .prefix,
         .install_subdir = "docs",
     });
+    b.getInstallStep().dependOn(&install_docs.step);
+    b.step("docs", "Build the API documentation into zig-out/docs")
+        .dependOn(&install_docs.step);
     b.installDirectory(.{
         .source_dir = headers,
         .install_dir = .prefix,

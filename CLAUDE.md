@@ -29,6 +29,10 @@ Run `zig build -h` to confirm the available steps.
     regressing, `--max-uncovered` catches a large new engine shape, which can appear while the
     percentage barely moves. Both fail with exit 1; when `--max-uncovered` fires the fix is a
     test, not a bigger number
+- `zig build docs` - Build just the API documentation into `zig-out/docs`, without
+  installing the bindings, the bindgen executable or the headers. The output is a
+  wasm viewer, so serve it rather than opening it off disk:
+  `python -m http.server -d zig-out/docs`
 - `zig build uninstall` - Remove installed artifacts
 
 ### Build Options
