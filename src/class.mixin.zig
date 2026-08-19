@@ -118,49 +118,9 @@ pub fn castTo(comptime T: type, value: anytype) ?*T {
     return T.downcast(value);
 }
 
-/// Downcast a value to a child type in the class hierarchy. Has some compile time checks, but returns null at runtime if the cast fails.
-///
-/// Expects pointer types, e.g `*Node` or `*MyClass`, not `Node` or `MyClass`.
-pub fn downcast(comptime T: type, value: anytype) ?*std.meta.Child(T) {
-    const Target = std.meta.Child(T);
-
-    if (!isClassPtr(T)) {
-        @compileError("downcast expects a class pointer type as the target type, found '" ++ @typeName(T) ++ "'");
-    }
-
-    const Source = switch (@typeInfo(@TypeOf(value))) {
-        .optional => |info| std.meta.Child(info.child),
-        .pointer => |info| info.child,
-        else => @compileError("downcast expects a pointer type as the source value, found '" ++ @typeName(@TypeOf(value)) ++ "'"),
-    };
-
-    assertIsA(Source, Target);
-
-    if (@typeInfo(@TypeOf(value)) == .optional and value == null) {
-        return null;
-    }
-
-    const name = StringName.fromType(Target);
-    const tag = raw.classdbGetClassTag(@ptrCast(name));
-    const result = raw.objectCastTo(@ptrCast(value), tag);
-
-    if (result) |ptr| {
-        if (isOpaqueClassPtr(T)) {
-            return @ptrCast(@alignCast(ptr));
-        } else {
-            const obj: *anyopaque = raw.objectGetInstanceBinding(ptr, raw.library, null) orelse return null;
-            return @ptrCast(@alignCast(obj));
-        }
-    } else {
-        return null;
-    }
-}
-
 const std = @import("std");
 const gd = @import("gd.zig");
 const gdzig = @import("gdzig");
-const raw = &gdzig.raw;
-const StringName = gdzig.builtin.StringName;
 
 // @mixin stop
 
