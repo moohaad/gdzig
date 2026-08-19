@@ -119,6 +119,26 @@ real display server, which is a harness change rather than another test.
 The next 50 shapes buy about 6% and cost the same as the first 50, so 85% is where this stops
 until something makes the case for more.
 
+**1.2b A second pass, on a different principle.** ✅ **Done** — 13 more tests, **86 of 784
+shapes exercised, 14,876 of 16,822 methods (88.4%)**, up from 66 and 85.5%.
+
+The case for going further was not the 6%. With 85% reached, method count stops being the
+argument: of the 2,441 methods still uncovered, **997 sat in shapes with a defaulted argument
+and 133 involved a flag** — the two marshalling paths that actually produced defects during the
+0.16 work, and the two least covered. Ranking within those, rather than by raw count, is what
+this pass followed.
+
+The `--top=N` option was added to `shapes` to ask that question at all; the default 25 is a
+worklist, and the composition of the remaining tail is a different question.
+
+Two tests were written, run, and removed: `int <- (int?)` and `object/builtin <- (int?)`, 53
+methods, both dominated by `DisplayServer`. Its static methods panic on `attempt to use null
+value` under `--headless` — the singleton is absent, so the bind lookup returns null before any
+argument is marshalled. That is the same wall as the deliberately-uncovered shape above, and
+the tests are recorded in the file's closing comment so the next person does not rediscover it.
+
+The CI floor moved 84 → 87 to hold the gain.
+
 **1.3 Poison the stack.** ✅ **Done** — eight of the shape tests call `poisonStack()` before
 the read-back, covering every scalar and enum return among them. Without it a narrow return
 leaves the adjacent bytes intact and the test passes by luck, which is exactly how the

@@ -274,7 +274,7 @@ test "object/builtin <- (int, object/builtin)" {
 // Second tier: the shapes left standing after the batch above, none larger than
 // 86 methods.
 
-test "void <- (float, int), float <- (int) and int <- (Variant, float, float?, int)" {
+test "void <- (float, int), float <- (int), int <- (Variant, float, float?, int), Variant <- (int) and NodePath <- (int)" {
     var animation = Animation.init();
     defer animation.deinit();
 
@@ -288,9 +288,26 @@ test "void <- (float, int), float <- (int) and int <- (Variant, float, float?, i
 
     poisonStack();
     try testing.expectEqual(@as(f64, 2.5), animation.get().trackGetKeyTime(track, key));
+
+    // The value put in above, read back out through a Variant return slot.
+    var value = animation.get().trackGetKeyValue(track, key);
+    defer value.deinit();
+    try testing.expectEqual(@as(i64, 7), value.as(i64).?);
+
+    // And a NodePath return, which is its own shape again.
+    var path: NodePath = .fromString(.fromLatin1("Sprite2D:position"));
+    defer path.deinit();
+    animation.get().trackSetPath(track, path);
+
+    var read_path = animation.get().trackGetPath(track);
+    defer read_path.deinit();
+    var as_string: String = .fromNodePath(read_path);
+    defer as_string.deinit();
+    var buf: [64]u8 = undefined;
+    try testing.expectEqualStrings("Sprite2D:position", as_string.toUtf8Buf(&buf));
 }
 
-test "void <- (String, int) and String <- (int)" {
+test "void <- (String, int), String <- (int) and int <- (String)" {
     var mesh = ArrayMesh.init();
     defer mesh.deinit();
 
@@ -318,6 +335,12 @@ test "void <- (String, int) and String <- (int)" {
 
     var buf: [64]u8 = undefined;
     try testing.expectEqualStrings("hull", read_back.toUtf8Buf(&buf));
+
+    // The same name back the other way: a String argument returning an index,
+    // which is a shape of its own and one the named surface above can answer
+    // honestly rather than with a -1 from an empty mesh.
+    poisonStack();
+    try testing.expectEqual(@as(i32, 0), mesh.get().surfaceFindByName(name));
 }
 
 test "enum <- (int) and void <- (enum, int) under poisoned stack" {
@@ -479,7 +502,215 @@ test "typedarray <- (object/builtin)" {
     try testing.expectEqual(@as(i64, 4), points.size());
 }
 
-// Deliberately not covered: `void <- (object/builtin, object/builtin?)`, 49
+// A second pass, taken on a different principle from the first. The first
+// worked straight down the ranking, which is right when nothing is covered.
+// With 85% reached, method count alone stops being the argument: what is left
+// is 2,441 methods, and 997 of them sit in shapes with a defaulted argument
+// while 133 involve a flag -- the two marshalling paths that actually produced
+// defects during the 0.16 work. Ranking within those is what the tests below
+// follow.
+
+test "flag <- () and void <- (flag)" {
+    const control = Control.init();
+    defer control.destroy();
+
+    // A `packed struct(u32)` written into an `i64` argument slot and read back
+    // out of an `i64` return slot. Flag layout is one of the paths that broke
+    // before, and a bitmask is the return most likely to survive a truncation
+    // looking plausible.
+    const want: Control.SizeFlags = .{ .size_expand = true, .size_shrink_end = true };
+    control.setHSizeFlags(want);
+
+    poisonStack();
+    try testing.expectEqual(want, control.getHSizeFlags());
+}
+
+test "enum <- (String)" {
+    var config = ConfigFile.init();
+    defer config.deinit();
+
+    var section: String = .fromLatin1("shapes");
+    defer section.deinit();
+    var key: String = .fromLatin1("answer");
+    defer key.deinit();
+    var path: String = .fromLatin1("user://shapes_enum_from_string.cfg");
+    defer path.deinit();
+    var password: String = .fromLatin1("hunter2");
+    defer password.deinit();
+
+    config.get().setValue(section, key, .init(i64, 42));
+
+    // Both halves return `Error`, so the round trip is through the filesystem
+    // and the assertion is on the enum both times.
+    poisonStack();
+    try testing.expectEqual(Error.ok, config.get().saveEncryptedPass(path, password));
+
+    var reread = ConfigFile.init();
+    defer reread.deinit();
+
+    poisonStack();
+    try testing.expectEqual(Error.ok, reread.get().loadEncryptedPass(path, password));
+
+    var value = reread.get().getValue(section, key, .{});
+    defer value.deinit();
+    try testing.expectEqual(@as(i64, 42), value.as(i64).?);
+}
+
+test "bool <- (enum) and void <- (bool, enum)" {
+    var material = StandardMaterial3d.init();
+    defer material.deinit();
+
+    material.get().setFlag(.flag_albedo_from_vertex_color, true);
+    poisonStack();
+    try testing.expect(material.get().getFlag(.flag_albedo_from_vertex_color));
+
+    material.get().setFlag(.flag_albedo_from_vertex_color, false);
+    poisonStack();
+    try testing.expect(!material.get().getFlag(.flag_albedo_from_vertex_color));
+}
+
+test "void <- (int?) with the default omitted and supplied" {
+    var semaphore = Semaphore.init();
+    defer semaphore.deinit();
+
+    // The point is the defaulted argument, so post both ways and count what
+    // comes back out: one post with `count` omitted plus one with `count = 3`
+    // is four waits, and a default that failed to materialise as 1 changes the
+    // total. `trySait` is the only way to observe it without blocking.
+    semaphore.get().post(.{});
+    semaphore.get().post(.{ .count = 3 });
+
+    var taken: usize = 0;
+    while (semaphore.get().tryWait()) taken += 1;
+    try testing.expectEqual(@as(usize, 4), taken);
+}
+
+test "void <- (bool?)" {
+    var tool = SurfaceTool.init();
+    defer tool.deinit();
+
+    tool.get().begin(.primitive_triangles);
+    tool.get().addVertex(.initXYZ(0, 0, 0));
+    tool.get().addVertex(.initXYZ(1, 0, 0));
+    tool.get().addVertex(.initXYZ(0, 1, 0));
+
+    // Omitting `flip` is the path under test; the commit afterwards is what
+    // says the tool is still in a usable state.
+    tool.get().generateNormals(.{});
+
+    var mesh = tool.get().commit(.{}) orelse return error.CommitFailed;
+    defer mesh.deinit();
+    try testing.expectEqual(@as(i64, 1), mesh.get().getSurfaceCount());
+}
+
+test "int <- (int, object/builtin)" {
+    var font = FontFile.init();
+    defer font.deinit();
+
+    // Nothing has been added to cache 0, so the answer is 0 -- but it arrives
+    // through an `i32` return slot with a `Vector2i` argument alongside an int,
+    // which is the shape.
+    poisonStack();
+    try testing.expectEqual(@as(i32, 0), font.get().getTextureCount(0, .initXY(16, 16)));
+}
+
+test "object/builtin <- (StringName)" {
+    var animation = Animation.init();
+    defer animation.deinit();
+
+    var name: StringName = .fromLatin1("checkpoint", false);
+    defer name.deinit();
+
+    animation.get().addMarker(name, 1.5);
+
+    const want: Color = .{ .r = 0.25, .g = 0.5, .b = 0.75, .a = 1 };
+    animation.get().setMarkerColor(name, want);
+    try testing.expectEqual(want, animation.get().getMarkerColor(name));
+}
+
+test "StringName <- (int) and void <- (StringName, int)" {
+    var space = AnimationNodeBlendSpace1d.init();
+    defer space.deinit();
+
+    var point = AnimationNodeAnimation.init();
+    defer point.deinit();
+
+    space.get().addBlendPoint(point.get(), 0.5, .{});
+
+    var name: StringName = .fromLatin1("left", false);
+    defer name.deinit();
+    space.get().setBlendPointName(0, name);
+
+    var read_back = space.get().getBlendPointName(0);
+    defer read_back.deinit();
+
+    var buf: [64]u8 = undefined;
+    var as_string: String = .fromStringName(read_back);
+    defer as_string.deinit();
+    try testing.expectEqualStrings("left", as_string.toUtf8Buf(&buf));
+}
+
+test "void <- (Dictionary)" {
+    var highlighter = CodeHighlighter.init();
+    defer highlighter.deinit();
+
+    var keyword: String = .fromLatin1("defer");
+    defer keyword.deinit();
+
+    var colors: Dictionary = .init();
+    defer colors.deinit();
+    _ = colors.set(.init(String, keyword), .init(Color, .{ .r = 0, .g = 1, .b = 0, .a = 1 }));
+
+    highlighter.get().setKeywordColors(colors);
+    try testing.expect(highlighter.get().hasKeywordColor(keyword));
+
+    var read_back = highlighter.get().getKeywordColors();
+    defer read_back.deinit();
+    try testing.expectEqual(@as(i64, 1), read_back.size());
+}
+
+test "int <- (enum)" {
+    var style = StyleBoxFlat.init();
+    defer style.deinit();
+
+    style.get().setCornerRadius(.corner_top_right, 7);
+
+    poisonStack();
+    try testing.expectEqual(@as(i32, 7), style.get().getCornerRadius(.corner_top_right));
+    // The other corners are untouched, which is what says the enum argument
+    // selected a corner rather than being dropped.
+    try testing.expectEqual(@as(i32, 0), style.get().getCornerRadius(.corner_top_left));
+}
+
+test "void <- (enum, float)" {
+    var style = StyleBoxFlat.init();
+    defer style.deinit();
+
+    style.get().setExpandMargin(.side_bottom, 4.5);
+
+    poisonStack();
+    try testing.expectEqual(@as(f64, 4.5), style.get().getExpandMargin(.side_bottom));
+    try testing.expectEqual(@as(f64, 0), style.get().getExpandMargin(.side_top));
+}
+
+test "void <- (bool?, object/builtin)" {
+    var grid = AStarGrid2d.init();
+    defer grid.deinit();
+
+    grid.get().setRegion(.initXYWidthHeight(0, 0, 4, 4));
+    grid.get().update();
+
+    // `solid` defaults to true, so the first call asserts the default arrived
+    // and the second asserts it can still be overridden.
+    grid.get().setPointSolid(.initXY(1, 1), .{});
+    try testing.expect(grid.get().isPointSolid(.initXY(1, 1)));
+
+    grid.get().setPointSolid(.initXY(1, 1), .{ .solid = false });
+    try testing.expect(!grid.get().isPointSolid(.initXY(1, 1)));
+}
+
+// Deliberately not covered, and the reason is the harness rather than the
+// shapes. `void <- (object/builtin, object/builtin?)`, 49 methods: `void <- (object/builtin, object/builtin?)`, 49
 // methods. Only eight classes have it -- EditorNode3DGizmo,
 // NavigationMeshGenerator, OpenXRPlaneTracker, PhysicalBone3D, RigidBody2D,
 // RigidBody3D, TileSetAtlasSource, Window -- and every one needs an editor,
@@ -487,6 +718,13 @@ test "typedarray <- (object/builtin)" {
 // `--headless` on construction alone, before any method is called. Reaching this
 // shape means running the tests against a real display server, which is a
 // change to the harness rather than another test.
+//
+// The same wall stops `object/builtin <- (int?)` and `int <- (int?)`, 53
+// methods between them. Both are dominated by `DisplayServer`, whose static
+// methods panic on `attempt to use null value` under `--headless` -- the
+// singleton is absent, so the bind lookup returns null before any argument is
+// marshalled. Tests for them were written, run, and removed; they would pass
+// unchanged the day the suite has a display server.
 
 const gdzig = @import("gdzig");
 
@@ -523,3 +761,10 @@ const Node2d = gdzig.class.Node2d;
 const RandomNumberGenerator = gdzig.class.RandomNumberGenerator;
 const Shortcut = gdzig.class.Shortcut;
 const Time = gdzig.class.Time;
+const AnimationNodeAnimation = gdzig.class.AnimationNodeAnimation;
+const AnimationNodeBlendSpace1d = gdzig.class.AnimationNodeBlendSpace1d;
+const Semaphore = gdzig.class.Semaphore;
+const StandardMaterial3d = gdzig.class.StandardMaterial3d;
+const StyleBoxFlat = gdzig.class.StyleBoxFlat;
+const SurfaceTool = gdzig.class.SurfaceTool;
+const Dictionary = gdzig.builtin.Dictionary;

@@ -73,11 +73,17 @@ const Thresholds = struct {
     max_uncovered: ?usize = null,
 };
 
+/// How many shapes the listing prints. The default is a worklist; a larger
+/// number is for asking what the *remaining* tail is made of, which is a
+/// different question and one the default deliberately does not answer.
+const default_top = 25;
+
 pub fn run(arena: Allocator, io: Io, out: *Io.Writer, args: []const [:0]const u8) !void {
     const main = @import("main.zig");
     const coverage = @import("coverage.zig");
 
     var thresholds: Thresholds = .{};
+    var top: usize = default_top;
     var positional: std.ArrayList([:0]const u8) = .empty;
     for (args) |arg| {
         if (option(arg, "--min-coverage=")) |value| {
@@ -88,6 +94,11 @@ pub fn run(arena: Allocator, io: Io, out: *Io.Writer, args: []const [:0]const u8
         } else if (option(arg, "--max-uncovered=")) |value| {
             thresholds.max_uncovered = std.fmt.parseInt(usize, value, 10) catch {
                 try out.print("--max-uncovered expects a method count, got '{s}'\n", .{value});
+                return error.BadArgument;
+            };
+        } else if (option(arg, "--top=")) |value| {
+            top = std.fmt.parseInt(usize, value, 10) catch {
+                try out.print("--top expects a count, got '{s}'\n", .{value});
                 return error.BadArgument;
             };
         } else if (std.mem.startsWith(u8, arg, "--")) {
@@ -168,7 +179,7 @@ pub fn run(arena: Allocator, io: Io, out: *Io.Writer, args: []const [:0]const u8
 
     try writeCurve(out, ranked, methods);
     if (test_dirs.len > 0) try writeCoverage(out, ranked, methods);
-    try writeWorklist(out, ranked, methods, test_dirs.len > 0);
+    try writeWorklist(out, ranked, methods, test_dirs.len > 0, top);
     try enforce(out, ranked, methods, thresholds);
 }
 
@@ -262,7 +273,7 @@ fn writeCoverage(out: *Io.Writer, ranked: []const *Shape, methods: usize) !void 
 
 /// The ranked list, which is the point of the subcommand: with a test scan it
 /// is a worklist of what to cover next, and without one it is just the ranking.
-fn writeWorklist(out: *Io.Writer, ranked: []const *Shape, methods: usize, scanned: bool) !void {
+fn writeWorklist(out: *Io.Writer, ranked: []const *Shape, methods: usize, scanned: bool, top: usize) !void {
     if (scanned) {
         try out.writeAll("\nhighest-value shapes nothing covers yet:\n");
     } else {
@@ -277,7 +288,7 @@ fn writeWorklist(out: *Io.Writer, ranked: []const *Shape, methods: usize, scanne
     var skipped: usize = 0;
     for (ranked) |shape| {
         if (scanned and shape.exercised) continue;
-        if (shown == 25) {
+        if (shown == top) {
             skipped += 1;
             skipped_methods += shape.count;
             continue;

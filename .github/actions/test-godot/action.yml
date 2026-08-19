@@ -105,14 +105,15 @@ runs:
     # The two thresholds do different jobs and are deliberately set differently:
     #
     #   --min-coverage guards our own tests going backwards. One point of
-    #   headroom under the 85% the plan targets, so ordinary engine churn does
-    #   not fail the build -- a floor that trips on every upgrade just teaches
-    #   people to lower it. Deleting test/shapes would drop this to ~22%.
+    #   headroom under the 88.4% currently measured, so ordinary engine churn
+    #   does not fail the build -- a floor that trips on every upgrade just
+    #   teaches people to lower it. Deleting test/shapes would drop this to
+    #   ~22%.
     #
     #   --max-uncovered guards new engine surface, which is the precise thing a
     #   Godot upgrade brings and which the percentage can hide: a big new
     #   uncovered shape moves the total by a fraction of a point. The largest
-    #   currently-uncovered shape is 56 methods, so 100 fires only on something
+    #   currently-uncovered shape is 49 methods, so 100 fires only on something
     #   genuinely new and large. When it does, the fix is a test, not a bigger
     #   number.
     - name: Audit marshalling-shape coverage
@@ -124,7 +125,7 @@ runs:
         "$GODOT_BIN" --headless --dump-extension-api
         zig build audit -Dgodot-path="$GODOT_BIN"
         ./zig-out/bin/gdzig-api-audit shapes \
-          --min-coverage=84 --max-uncovered=100 \
+          --min-coverage=87 --max-uncovered=100 \
           extension_api.json test
 
     # Everything above loads the extension exactly once, and that is the gap
