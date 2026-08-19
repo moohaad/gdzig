@@ -16,6 +16,31 @@ pub const ancestorsOf = oopz.ancestorsOf;
 pub const selfAndAncestorsOf = oopz.selfAndAncestorsOf;
 pub const isA = oopz.isA;
 pub const isAny = oopz.isAny;
+/// Reinterprets a class pointer as one of its ancestors, checked at comptime.
+///
+/// Free: it validates ancestry, constness and optionality and then emits
+/// nothing. What it is not is a conversion you generally have to write.
+///
+/// **Usually unnecessary.** Every generated class parameter is `anytype` and
+/// upcasts on the way in, so a derived pointer already fits:
+///
+/// ```zig
+/// host.addChild(player, .{});     // `player` is a *CharacterBody2d
+/// ```
+///
+/// **Necessary where a declared type demands it**, because Zig has no implicit
+/// pointer coercion and only a parameter can be `anytype`:
+///
+/// ```zig
+/// shooter: *Node,                                  // a struct field
+/// const source: *Node = self.a_owner orelse Node.upcast(self.base);
+/// var v: Variant = .init(?*Node, Node.upcast(self.base));  // the type is the argument
+/// ```
+///
+/// A struct field cannot be `anytype`, an annotation is a promise about a
+/// concrete type, and `Variant.init` takes the type as its first argument. Those
+/// three are the whole remaining set; a call into a generated method is not one
+/// of them.
 pub const upcast = oopz.upcast;
 
 /// Returns true if a type is a reference counted type.
