@@ -170,6 +170,16 @@ pub fn _enterTree(self: *ExampleNode) void {
         _ = itemList.addItem(name, .{});
     }
 
+    // Reading the owning field above. `gd.get` unwraps the optional and
+    // borrows in one step; spelled out it is `if (self.banner) |h| h.get()`,
+    // which says the same thing twice at every read site. The result borrows,
+    // so there is nothing to release here.
+    if (gd.get(self.banner)) |banner| {
+        std.log.info("banner is {d}x{d}", .{ banner.getWidth(), banner.getHeight() });
+    } else {
+        std.log.info("no banner assigned", .{});
+    }
+
     // The delay comes from the autoload rather than a literal, which is the
     // point of reaching one at all.
     const delay = if (self.config.get()) |config| config.startup_delay else 1.0;
@@ -237,6 +247,7 @@ const godot = @import("godot");
 const coro = godot.coro;
 const Autoload = godot.Autoload;
 const Gd = godot.Gd;
+const gd = godot.gd;
 const Registry = godot.extension.Registry;
 const Engine = godot.class.Engine;
 const HSplitContainer = godot.class.HSplitContainer;

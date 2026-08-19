@@ -65,6 +65,15 @@ gdzig references what it is given and releases it at teardown. A `?*PackedScene`
 and the resource can die underneath it -- which shows up later as a scene with no path and no
 nodes.
 
+Read one with `gd.get`, which unwraps the optional and borrows in one step:
+
+```zig
+if (gd.get(self.card_scene)) |scene| _ = scene.instantiate(.{});
+```
+
+Spelled out that is `if (self.card_scene) |handle| handle.get()`, which says the same thing
+twice at every read site.
+
 ## "I need to wait"
 
 ```zig

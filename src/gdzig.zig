@@ -28,6 +28,7 @@ pub const math = @import("math.zig");
 pub const random = @import("random.zig");
 pub const extension = @import("extension.zig");
 pub const testing = @import("testing.zig");
+pub const gd = @import("gd.zig");
 pub const Gd = @import("gd.zig").Gd;
 pub const Weak = @import("weak.zig").Weak;
 pub const Child = @import("child.zig").Child;

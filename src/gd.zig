@@ -106,6 +106,49 @@ pub fn releaseField(comptime T: type, field: *T) void {
     }
 }
 
+/// The object inside an optional owning field, or null.
+///
+/// An exported resource is a `?Gd(T)`: gdzig references what it is given and
+/// releases it at teardown. Reading one is almost always "the object, if there
+/// is one", and a handle cannot say that itself -- `get` is a method, so the
+/// optional has to be unwrapped before it can be called, and every read site
+/// says so twice:
+///
+/// ```zig
+/// if (self.enemy_data) |handle| {
+///     const data = handle.get();
+///     self.speed = data.speed;
+/// }
+/// ```
+///
+/// This is the same thing once:
+///
+/// ```zig
+/// if (gd.get(self.enemy_data)) |data| self.speed = data.speed;
+/// ```
+///
+/// The result borrows: it is valid while the field still holds the handle, and
+/// must not be released. Deliberately named after the method it stands in for,
+/// since it means exactly what that means.
+pub fn get(handle: anytype) ?*Owned(@TypeOf(handle)) {
+    const live = handle orelse return null;
+    return live.get();
+}
+
+/// `T` for a `?Gd(T)`, and a diagnosis for anything else. Split out so the
+/// error names the type the caller passed rather than failing inside
+/// `@typeInfo` on a field access that does not exist.
+fn Owned(comptime T: type) type {
+    const handle = OptionalGd(T) orelse @compileError(
+        "gd.get expects a ?Gd(T), got " ++ @typeName(T) ++
+            (if (isGd(T))
+                ". That handle is not optional, so it already has .get() on it."
+            else
+                ""),
+    );
+    return handle.Owns;
+}
+
 /// An owning handle to a reference-counted `T`.
 ///
 /// `T` must inherit from `RefCounted`; anything else is a compile error, since
@@ -207,4 +250,12 @@ test "adopt and release a reference" {
     // Exercised against the engine in test/, since constructing a RefCounted
     // requires a live Godot process.
     std.testing.refAllDecls(@This());
+}
+
+test "reading an optional handle" {
+    // Only the empty case can be built without a live Godot; the type is the
+    // other half of the contract, and that is checkable here.
+    const empty: ?Gd(RefCounted) = null;
+    try std.testing.expectEqual(@as(?*RefCounted, null), get(empty));
+    try std.testing.expectEqual(?*RefCounted, @TypeOf(get(empty)));
 }
