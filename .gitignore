@@ -37,3 +37,6 @@ src/surface_generic.zig
 
 # Zig 0.16 local package cache
 zig-pkg/
+
+# Local working note, not part of the repo.
+object-parameter-binding.md
