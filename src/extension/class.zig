@@ -66,9 +66,24 @@ fn Synthesized(comptime T: type) type {
     return struct {
         const Base = @typeInfo(@FieldType(T, "base")).pointer.child;
 
+        /// Whether the base is reference counted, asked the way that matters
+        /// rather than by walking ancestry: a refcounted constructor hands back
+        /// an owning `Gd(Base)`, a plain one hands back the pointer.
+        const base_is_counted = gd.isGd(@typeInfo(@TypeOf(Base.init)).@"fn".return_type.?);
+
+        /// `base` must be a plain pointer for oopz to recognise the struct as a
+        /// class, so a handle has to be opened up. `release` is the documented
+        /// way across, and the reference it gives up is the one the object then
+        /// lives on.
+        fn newBase() *Base {
+            if (comptime !base_is_counted) return Base.init();
+            var handle = Base.init();
+            return handle.release();
+        }
+
         fn create(allocator: *Allocator) !*T {
             const self = try allocator.create(T);
-            self.* = .{ .allocator = allocator.*, .base = Base.init() };
+            self.* = .{ .allocator = allocator.*, .base = newBase() };
             self.base.setInstance(T, self);
             return self;
         }
@@ -83,7 +98,11 @@ fn Synthesized(comptime T: type) type {
         }
 
         fn destroy(self: *T, allocator: *Allocator) void {
-            self.base.destroy();
+            // A reference counted object goes when its last reference does.
+            // Destroying one here would be freeing something the engine is
+            // still counting, which is why a `Resource`-based class writes
+            // `allocator.destroy(self)` and nothing else.
+            if (comptime !base_is_counted) self.base.destroy();
             allocator.destroy(self);
         }
     };
