@@ -56,10 +56,15 @@ pub fn setInstance(self: *Self, comptime T: type, instance_: *T) void {
     comptime std.debug.assert(class.isA(Self, T));
     comptime std.debug.assert(class.isStructClass(T));
 
-    const token = comptime typeToken(T);
-
     raw.objectSetInstance(@ptrCast(self), @ptrCast(StringName.fromType(T)), @ptrCast(instance_));
-    raw.objectSetInstanceBinding(@ptrCast(self), token, @ptrCast(instance_), &struct {
+
+    // One binding, under the library's own token. `set_instance_binding` takes
+    // exactly one per object, so this cannot be per-type however much
+    // `asInstance` would like it to be; the type lives on the record above
+    // instead. `raw.library` is what the token means to the engine, and it is
+    // what the struct arm of `downcast` already reads -- which until now did
+    // not match what this wrote.
+    raw.objectSetInstanceBinding(@ptrCast(self), raw.library, @ptrCast(instance_), &struct {
         const callbacks = c.GDExtensionInstanceBindingCallbacks{
             .create_callback = create_callback,
             .free_callback = free_callback,
@@ -76,26 +81,42 @@ pub fn setInstance(self: *Self, comptime T: type, instance_: *T) void {
             return 1;
         }
     }.callbacks);
+
+    // After the binding, not before: `DestroyInstanceBinding.get` *creates* its
+    // record through `get_instance_binding`, and Godot refuses
+    // `set_instance_binding` once the object has any binding at all -- doing
+    // this first silently left the instance unbound.
+    //
+    // What class this instance actually is. Nothing on the engine side records
+    // it (see `extension.InstanceType`), and without it `asInstance` cannot
+    // tell a narrowing cast that should succeed from one that should not.
+    if (gdzig.extension.DestroyInstanceBinding.get(@ptrCast(self))) |record| {
+        record.instance_type = gdzig.extension.instanceTypeOf(T);
+    }
 }
 
 pub fn asInstance(self: *Self, comptime T: type) ?*T {
     comptime std.debug.assert(class.isA(Self, T));
     comptime std.debug.assert(class.isStructClass(T));
 
-    const token = comptime typeToken(T);
+    const ptr_ = raw.objectGetInstanceBinding(@ptrCast(self), raw.library, null) orelse return null;
 
-    const ptr_ = raw.objectGetInstanceBinding(@ptrCast(self), token, null) orelse return null;
+    // Ask what the instance is before believing it is a `T`.
+    //
+    // This used to be the whole function, keyed by a `typeToken(T)` that was
+    // the address of a per-`T` zero-sized `var`. A zero-sized value has no
+    // storage, so every one of those addresses was 1: all classes shared a
+    // token, the lookup could not miss, and this returned a `*T` addressing an
+    // object of an unrelated class.
+    //
+    // `narrow` also does the narrowing properly. Returning `ptr_` directly is
+    // only right when the ancestor sits at offset 0 of the concrete class,
+    // which Zig's field ordering does not promise.
+    const record = gdzig.extension.DestroyInstanceBinding.get(@ptrCast(self)) orelse return null;
+    const actual = record.instance_type orelse return null;
+    const narrowed = actual.narrow(ptr_, gdzig.extension.instanceTypeOf(T).id) orelse return null;
 
-    return @ptrCast(@alignCast(ptr_));
-}
-
-fn typeToken(comptime T: type) *anyopaque {
-    return @ptrCast(&struct {
-        var token: void = {};
-        comptime {
-            _ = T;
-        }
-    }.token);
+    return @ptrCast(@alignCast(narrowed));
 }
 
 /// Connects a signal to a method on `receiver`.

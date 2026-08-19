@@ -1,8 +1,11 @@
-# `asInstance` does not check identity, and three obvious fixes do not work
+# `asInstance` and identity: what the engine cannot answer
 
-## The hole
+**Fixed.** `asInstance` now checks. This note is kept for the three routes that do
+not work, each of which looks obvious and costs a day to rediscover.
 
-`castTo` to a user class returns a non-null pointer for an object that is not one:
+## The hole, as it was
+
+`castTo` to a user class returned a non-null pointer for an object that is not one:
 
 ```zig
 const a = try ClassA.create();
@@ -10,8 +13,8 @@ gdzig.class.castTo(ClassC, a);     // non-null. A ClassA is not a ClassC.
 gdzig.class.castTo(Unrelated, a);  // non-null. Shares no ancestry with ClassA.
 ```
 
-Reproduced against Godot 4.7.1 as a test in `test/inheritance/`, since reverted so the
-suite stays honest -- there is no fix to guard yet.
+Both are now `null`, guarded by `castTo refuses a class the object is not` in
+`test/inheritance/root.zig`.
 
 `castTo` with a struct target is `upcast(*Object, value).asInstance(T)`, and
 `asInstance` is a bare instance-binding lookup keyed by `typeToken(T)`:
@@ -65,7 +68,7 @@ actual='Object' want='ClassB' isParent=false
 extension class, at least for an object built as `Object.init()` and then given an instance
 -- which is what `test/inheritance` does and what `Synthesized.create` does.
 
-## The route that is left
+## The route that worked
 
 `DestroyInstanceBinding` (`src/extension/class.zig:138`) already keeps a per-object record,
 pooled, reachable as `DestroyInstanceBinding.get(obj)`. It reaches it with
@@ -74,16 +77,16 @@ a create callback so Godot makes the binding on demand rather than requiring a `
 is the mechanism the three attempts above needed and did not use: **lazy creation, not
 `set_instance_binding`.**
 
-So: give that record the most-derived type, and let `asInstance(T)` consult it -- a
-comptime-unique id per class plus a narrowing step, so it both refuses a wrong `T` and
-returns `upcast(*T, instance)` rather than a reinterpreted pointer. The second half also
-retires the offset-0 assumption that `vtable.zig:74` shares.
+That record now carries the most-derived type as an `extension.InstanceType`: a
+comptime-unique id per class, plus a `narrow` generated per concrete class that walks the
+real `upcast` chain. `asInstance(T)` refuses a wrong `T` and returns `upcast(*T, instance)`
+rather than a reinterpreted pointer -- so it does not depend on the ancestor sitting at
+offset 0 either, which Zig's field ordering does not promise.
 
-This changes the per-instance record and its lifetime, so it is a design change rather than
-a patch, and it is not made here.
+One ordering trap, which cost a debugging round: `DestroyInstanceBinding.get` *creates* its
+record via `get_instance_binding`, and Godot refuses `set_instance_binding` once an object
+has any binding. Recording the type before binding the instance leaves the instance unbound
+and every cast returning null. Bind first, record second.
 
-## Until then
-
-`castTo` and `asInstance` to a **user** class do not verify the object is one. Narrowing to
-an engine class is unaffected: that goes through `T.downcast` and `objectCastTo`, which the
-engine answers correctly.
+`vtable.zig:74` still has the offset-0 assumption in its own path (`@ptrCast(p_instance)` to
+`*Owner`); the fix there is `class.upcast`, and it is separate from this.

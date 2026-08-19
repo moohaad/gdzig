@@ -14,6 +14,8 @@ pub const Registry = @import("extension/Registry.zig");
 
 const class = @import("extension/class.zig");
 pub const baseForEngine = class.baseForEngine;
+pub const instanceTypeOf = class.instanceTypeOf;
+pub const InstanceType = class.InstanceType;
 pub const DestroyInstanceBinding = class.DestroyInstanceBinding;
 pub const DispatchGuard = class.DispatchGuard;
 

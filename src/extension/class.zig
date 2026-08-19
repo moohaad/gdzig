@@ -134,10 +134,60 @@ pub const track_dispatch = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
 };
 
-/// Tracks destruction state to prevent double-free.
+/// What a user class's instance actually is, so a narrowing cast can be checked
+/// rather than assumed.
+///
+/// The engine cannot answer this. `objectSetInstance` does not make
+/// `object_get_class_name` report the extension class for an object gdzig built
+/// itself, `classdb_get_classtag` returns null for an extension class, and
+/// `set_instance_binding` takes one binding per object so the ancestors cannot
+/// each have their own token. gdzig therefore records it, on the per-object
+/// record it already keeps.
+pub const InstanceType = struct {
+    /// Unique per class: the address of a per-`T` static, so identity is a
+    /// pointer comparison and needs no names or hashing.
+    id: *const anyopaque,
+    /// Narrows a stored instance to the class `target` identifies, or null if
+    /// the instance is not one. Generated per concrete class, so the walk is
+    /// the real `upcast` chain rather than a reinterpretation.
+    narrow: *const fn (instance: *anyopaque, target: *const anyopaque) ?*anyopaque,
+};
+
+/// The descriptor for `T`, one static per class.
+pub fn instanceTypeOf(comptime T: type) *const InstanceType {
+    return &struct {
+        var marker: u8 = 0;
+
+        const info: InstanceType = .{ .id = &marker, .narrow = narrow };
+
+        fn narrow(instance: *anyopaque, target: *const anyopaque) ?*anyopaque {
+            // `upcast` walks the whole base chain for a struct class, and the
+            // default quota runs out mid-walk -- the same reason `Weak.init`
+            // raises it.
+            @setEvalBranchQuota(10_000);
+            const self: *T = @ptrCast(@alignCast(instance));
+            inline for (comptime class.selfAndAncestorsOf(T)) |Ancestor| {
+                if (comptime class.isStructClass(Ancestor)) {
+                    if (target == instanceTypeOf(Ancestor).id) {
+                        // `upcast`, not a cast: for an embedded base the
+                        // ancestor lives at `&self.base`, which is only the
+                        // same address when the layout happens to put it first.
+                        return @ptrCast(class.upcast(*Ancestor, self));
+                    }
+                }
+            }
+            return null;
+        }
+    }.info;
+}
+
+/// Tracks destruction state to prevent double-free, and what the instance is.
 pub const DestroyInstanceBinding = struct {
     user_destroying: bool = false,
     engine_destroying: bool = false,
+    /// The concrete user class this object's instance is, set by
+    /// `Object.setInstance`. Null for an engine object that never had one.
+    instance_type: ?*const InstanceType = null,
     /// How many gdzig dispatches -- bound methods and virtual overrides -- are
     /// currently executing on this instance. Freeing the object while this is
     /// non-zero means the dispatch is about to return into freed memory.

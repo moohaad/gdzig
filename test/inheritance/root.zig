@@ -16,6 +16,9 @@ pub fn register(r: *gdzig.extension.Registry) void {
 
     const class_c = r.createClass(ClassC, {}, .auto);
     class_c.addMethod("get_value_c", .auto);
+
+    // Unrelated to A/B/C on purpose: narrowing an object to this must fail.
+    _ = r.createClass(Unrelated, {}, .auto);
 }
 
 fn ensureRegistered() void {
@@ -152,6 +155,23 @@ const ClassC = struct {
     }
 };
 
+/// Shares no ancestry with ClassA beyond Object itself.
+const Unrelated = struct {
+    base: *Object,
+    value_u: i64 = 99,
+
+    pub fn create() !*Unrelated {
+        const self: *Unrelated = allocator.create(Unrelated) catch @panic("out of memory");
+        self.* = .{ .base = Object.init() };
+        self.base.setInstance(Unrelated, self);
+        return self;
+    }
+
+    pub fn destroy(self: *Unrelated) void {
+        allocator.destroy(self);
+    }
+};
+
 const std = @import("std");
 const testing = std.testing;
 
@@ -173,4 +193,22 @@ test "castTo narrows a user class to a user descendant" {
     // a bad pointer.
     const as_b = gdzig.class.castTo(ClassB, c_) orelse return error.CastFailed;
     try testing.expectEqual(@as(i64, 2), as_b.getValueB());
+}
+
+test "castTo refuses a class the object is not" {
+    const a = try ClassA.create();
+    defer Object.upcast(a).destroy();
+
+    // A plain ClassA is not a ClassC. Nothing on the engine side can answer
+    // this -- the instance binding takes one token per object, ClassDB has no
+    // tag for an extension class, and the object's reported class is `Object`
+    // -- so gdzig records what the instance is and checks against that.
+    try testing.expect(gdzig.class.castTo(ClassC, a) == null);
+
+    // Starker: a class sharing no ancestry with ClassA at all.
+    try testing.expect(gdzig.class.castTo(Unrelated, a) == null);
+
+    // And the cast that should succeed still does.
+    const same = gdzig.class.castTo(ClassA, a) orelse return error.CastFailed;
+    try testing.expectEqual(@as(i64, 1), same.getValueA());
 }
