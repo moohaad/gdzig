@@ -51,9 +51,23 @@
 //!   handles by pointer rather than by value when handing them to a callee.
 //!
 //! In `Debug` and `ReleaseSafe` builds a handle tracks whether it has been
-//! released and panics on a second `deinit`, which turns the copy mistake above
-//! from silent corruption into an immediate, located failure. Leaks are not
-//! detected here.
+//! released and panics on any later use of *that same handle*:
+//!
+//! ```zig
+//! var tex = ResourceLoader.load(path, .{}).?;
+//! tex.deinit();
+//! tex.get(); // panics, located
+//! ```
+//!
+//! Be clear about what that does not cover: **it does not catch the copy
+//! mistake above.** The flag lives in the handle, and a copy gets its own, so
+//! `copy.deinit()` leaves the original reading un-released and its `deinit`
+//! releases a second time with no panic -- measured, the reference count goes
+//! to -1. Catching that needs state keyed on the object rather than the handle,
+//! which is a side table this deliberately does not have.
+//!
+//! So: the tracking finds a handle used after you released it, not two handles
+//! releasing the same object. Leaks are not detected here either.
 
 const std = @import("std");
 const builtin = @import("builtin");
