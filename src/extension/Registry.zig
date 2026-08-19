@@ -4,6 +4,9 @@ allocator: Allocator,
 arena: ArenaAllocator,
 classes: std.ArrayList(*AnyClass),
 callbacks: std.ArrayList(*AnyCallbacks),
+/// Classes to hand to the editor once they exist in ClassDB. Names rather than
+/// types, because by the time this is walked the type is long gone.
+editor_plugins: std.ArrayList(*const StringName),
 
 pub fn init(backing_allocator: Allocator) Registry {
     return .{
@@ -11,6 +14,7 @@ pub fn init(backing_allocator: Allocator) Registry {
         .arena = .init(backing_allocator),
         .classes = .empty,
         .callbacks = .empty,
+        .editor_plugins = .empty,
     };
 }
 
@@ -106,6 +110,26 @@ fn teardownClass(comptime T: type) void {
     classdb.unregisterClass(StringName.fromType(T));
 }
 
+/// Registers `T` and tells the editor to run it as a plugin.
+///
+/// A class descending from `EditorPlugin` is not a plugin merely by descending
+/// from it: Godot has to be told, by name, once the class is in ClassDB. That
+/// is `editorAddPlugin`, and reaching it by hand means a raw interface call and
+/// remembering the matching remove.
+///
+/// Forced to the editor level regardless of what `options` says, since a plugin
+/// registered at any other level is one the editor will never see.
+pub fn addEditorPlugin(self: *Registry, comptime T: type, userdata: ClassUserdataValue(T), options: Class(T).CreateOptions) void {
+    comptime gdzig.class.assertIsA(gdzig.class.EditorPlugin, T);
+
+    var at_editor = options;
+    at_editor.level = .editor;
+    self.addClass(T, userdata, at_editor);
+
+    const alloc = self.arena.allocator();
+    self.editor_plugins.append(alloc, StringName.fromType(T)) catch @panic("OOM");
+}
+
 /// Add lifecycle callbacks.
 pub fn addCallbacks(self: *Registry, comptime T: type, userdata: T, options: Callbacks(T).CreateOptions) void {
     const alloc = self.arena.allocator();
@@ -125,6 +149,14 @@ pub fn enter(self: *Registry, level: InitializationLevel) void {
         any.commit(any, level);
     }
 
+    // After the commit above, because `editorAddPlugin` wants a class ClassDB
+    // already knows about.
+    if (level == .editor) {
+        for (self.editor_plugins.items) |name| {
+            gdzig.raw.editorAddPlugin(@ptrCast(name));
+        }
+    }
+
     // Call enter callbacks
     for (self.callbacks.items) |any| {
         if (any.enter_fn) |enter_fn| {
@@ -134,6 +166,15 @@ pub fn enter(self: *Registry, level: InitializationLevel) void {
 }
 
 pub fn exit(self: *Registry, level: InitializationLevel) void {
+    // Before the class goes, and in reverse of the order they were added.
+    if (level == .editor) {
+        var i = self.editor_plugins.items.len;
+        while (i > 0) {
+            i -= 1;
+            gdzig.raw.editorRemovePlugin(@ptrCast(self.editor_plugins.items[i]));
+        }
+    }
+
     for (self.callbacks.items) |any| {
         if (any.exit_fn) |exit_fn| {
             exit_fn(any, level);

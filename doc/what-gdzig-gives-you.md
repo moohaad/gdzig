@@ -102,6 +102,19 @@ Declare one to override it -- a class with something to release writes its own `
 gets the other two free. A field with no default means writing `create` yourself, because the
 synthesized one initialises the struct in one go.
 
+## "I need to extend the editor"
+
+```zig
+r.addEditorPlugin(ToolPlugin, r.allocator, .auto);
+```
+
+Descending from `EditorPlugin` is not enough: Godot has to be told by name, once the class is
+in ClassDB. This does that, and forces the editor initialization level, since a plugin
+registered at any other level is one the editor never sees.
+
+`example/src/ToolPlugin.zig` is a working one. Note that it is only reachable from an editor
+run -- `zig build run` does not register it, which is the point.
+
 ## "I need a name Godot understands"
 
 `StringName.fromComptimeLatin1("walk")` interns once per literal and hands back a

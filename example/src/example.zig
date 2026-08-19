@@ -4,6 +4,7 @@ pub fn register(r: *Registry) void {
 
     // Use modules to organize registration into separate files
     r.addModule(ConfigNode);
+    r.addModule(ToolPlugin);
     r.addModule(ExampleNode);
     r.addModule(GuiNode);
     r.addModule(SignalNode);
@@ -13,6 +14,7 @@ pub fn unregister(r: *Registry) void {
     r.removeModule(SignalNode);
     r.removeModule(GuiNode);
     r.removeModule(ExampleNode);
+    r.removeModule(ToolPlugin);
     r.removeModule(ConfigNode);
 
     r.removeClass(SpriteNode);
@@ -28,6 +30,7 @@ const godot = @import("godot");
 const Registry = godot.extension.Registry;
 
 const ConfigNode = @import("ConfigNode.zig");
+const ToolPlugin = @import("ToolPlugin.zig");
 const ExampleNode = @import("ExampleNode.zig");
 const GuiNode = @import("GuiNode.zig");
 const SignalNode = @import("SignalNode.zig");
