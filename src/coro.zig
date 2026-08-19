@@ -94,10 +94,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const c = @import("gdextension");
+const oopz = @import("oopz");
 const gdzig = @import("gdzig");
 const Callable = gdzig.builtin.Callable;
 const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;
+const RefCounted = gdzig.class.RefCounted;
 const SceneTreeTimer = gdzig.class.SceneTreeTimer;
 const StringName = gdzig.builtin.StringName;
 const Variant = gdzig.builtin.Variant;
@@ -273,6 +275,18 @@ pub const Coro = struct {
     /// enumerable costs a pointer rather than an allocation.
     next_live: ?*Coro = null,
 
+    /// A reference to the object this coroutine is parked on, when that object
+    /// is reference counted, owned for as long as the park lasts.
+    ///
+    /// It lives here rather than in the frame that awaited, because a frame is
+    /// exactly what a dropped coroutine does not come back to. Zig has no
+    /// unwinding, so a fiber reclaimed while parked never runs the `defer` that
+    /// would have released the handle, and the reference is lost -- measured as
+    /// a `SceneTreeTimer` retained at refcount 1 whenever a coroutine was still
+    /// waiting on a timer at exit. Held by the coroutine, it is released on
+    /// every ending, because every ending goes through `destroy`.
+    parked_ref: ?*RefCounted = null,
+
     pub const State = enum {
         /// Created, not yet started.
         ready,
@@ -289,9 +303,20 @@ pub const Coro = struct {
     fn destroy(self: *Coro) void {
         unlinkLive(self);
         live_count -= 1;
+        self.releaseParked();
         if (self.fiber) |f| DeleteFiber(f);
         self.free_frame(self.allocator, self.frame);
         self.allocator.destroy(self);
+    }
+
+    /// Drops the reference held across a park, if there is one. Idempotent, so
+    /// the resume path can call it and leave nothing for `destroy` to find.
+    fn releaseParked(self: *Coro) void {
+        const ref = self.parked_ref orelse return;
+        self.parked_ref = null;
+        // The same two steps `Gd.deinit` takes, spelled out because what is
+        // held here is a bare pointer rather than a handle.
+        if (ref.unreference()) Object.upcast(ref).destroy();
     }
 };
 
@@ -636,14 +661,28 @@ fn decodeArgs(
 pub fn awaitSignal(obj: anytype, comptime S: type) SignalResult(S) {
     // Split so that neither branch has to be valid for the other's return type:
     // the storage is an `S` either way, but only one of them returns it.
+    // A refcounted object is held up for the duration of the park by the
+    // coroutine, not by the caller. It has to survive to emit the signal, and
+    // the caller's own handle is no use for that if the coroutine is dropped.
+    const owned = refFor(obj);
     if (comptime SignalResult(S) == void) {
         var discard: S = undefined;
-        park(obj, S, &discard);
+        park(obj, S, &discard, owned);
     } else {
         var result: S = undefined;
-        park(obj, S, &result);
+        park(obj, S, &result, owned);
         return result;
     }
+}
+
+/// One reference to `obj` for the coroutine to own, or null if `obj` is not
+/// reference counted and so has nothing to own.
+fn refFor(obj: anytype) ?*RefCounted {
+    const T = @typeInfo(@TypeOf(obj)).pointer.child;
+    if (comptime !oopz.isA(RefCounted, T)) return null;
+    const ref = RefCounted.upcast(obj);
+    _ = ref.reference();
+    return ref;
 }
 
 /// Parks the calling coroutine for `seconds`: GDScript's
@@ -675,15 +714,28 @@ pub fn wait(node: anytype, seconds: f64, opts: struct {
         .process_in_physics = opts.process_in_physics,
         .ignore_time_scale = opts.ignore_time_scale,
     }) orelse return;
-    defer timer.deinit();
 
-    awaitSignal(timer.get(), SceneTreeTimer.Timeout);
+    // Not `defer timer.deinit()`. This frame is on the fiber's stack, and a
+    // coroutine dropped while parked never returns to it, so that defer would
+    // not run and the timer's reference would be lost. Handing the reference to
+    // the coroutine instead puts its release on a path that both endings take.
+    var discard: SceneTreeTimer.Timeout = undefined;
+    park(timer.get(), SceneTreeTimer.Timeout, &discard, RefCounted.upcast(timer.release()));
 }
 
-fn park(obj: anytype, comptime S: type, result: *S) void {
-    const coro = current orelse @panic(
-        "gdzig.coro.awaitSignal called outside a coroutine; start one with gdzig.coro.spawn",
-    );
+/// `owned` is a reference the coroutine takes over for the duration of the
+/// park, or null when the awaited object is not reference counted. Passing one
+/// is how a caller avoids holding a handle across the park itself: a `defer` in
+/// the calling frame does not run if the coroutine is dropped, and the
+/// reference goes with the fiber.
+fn park(obj: anytype, comptime S: type, result: *S, owned: ?*RefCounted) void {
+    const coro = current orelse {
+        // The reference was handed over on the way in, so it has to go
+        // somewhere even on the path that never parks.
+        if (owned) |ref| if (ref.unreference()) Object.upcast(ref).destroy();
+        @panic("gdzig.coro.awaitSignal called outside a coroutine; start one with gdzig.coro.spawn");
+    };
+    coro.parked_ref = owned;
 
     const waiter = coro.allocator.create(Waiter) catch @panic(
         "gdzig.coro: out of memory while parking on a signal",
@@ -733,6 +785,10 @@ fn park(obj: anytype, comptime S: type, result: *S) void {
     // Resumed. The callable that woke this coroutine is on its way out and its
     // `Waiter` goes with it, so the back-pointer must not outlive the park.
     coro.waiter = null;
+    // The park is over, so the object no longer needs holding up. On the other
+    // ending -- the coroutine dropped while parked -- `destroy` does this
+    // instead, which is the whole reason the reference lives on the coroutine.
+    coro.releaseParked();
 }
 
 /// A callable that resumes the coroutine `waiter` is holding, and cancels it if
