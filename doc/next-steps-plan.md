@@ -303,6 +303,14 @@ self.* = .{ .base = base.release() };
 Two lines rather than one, for a case with no occurrences in-tree — the repo's only class over
 a refcounted field is `RefReturnNode` in `test/leaks`, which now exercises exactly this shape.
 
+> **Superseded.** Those two lines leak, and "no occurrences in-tree" is why it took so long to
+> notice: `RefReturnNode`'s base is a plain `Node` holding a refcounted *field* it constructs
+> and releases itself, which is a different shape from a class whose *base* is refcounted and
+> which the **engine** constructs. `Resource.init()` calls `init_ref`, spending the
+> compensation Godot arms on a fresh object, and the engine's own `Ref` then increments with
+> nothing left to compensate. Use `extension.baseForEngine`, and see the
+> `LeakProbeResource` test that now covers the shape that was missing.
+
 ### Verification
 
 * `zig build -Dsurface-audit` — every generated declaration analysed, including every `Gd(T)`

@@ -102,12 +102,15 @@ _ = obj.reference();
 if (obj.unreference()) obj.destroy();
 ```
 
-Use `release` to take the bare pointer back out of a handle, becoming responsible for it yourself. That is required for a class's `base` field, which must be a plain pointer:
+Use `release` to take the bare pointer back out of a handle, becoming responsible for it yourself.
+
+A registered class's `base` field also has to be a plain pointer, but `release` is *not* how to fill it when the base is reference counted. `Resource.init()` calls `init_ref`, which spends the compensation Godot arms on a freshly constructed object; the instance then goes back to the engine, whose own `Ref` increments again with nothing left to compensate, and nothing ever drops the extra. The object is never freed. Let gdzig write `create`, or call:
 
 ```zig
-var base = Resource.init();
-self.* = .{ .base = base.release() };
+self.* = .{ .base = gdzig.extension.baseForEngine(Resource) };
 ```
+
+which constructs without referencing, so the engine's `Ref` owns it alone.
 
 In gdzig, when you box a `RefCounted` object pointer into a `Variant`, ownership is not taken. Instead, the reference count is incremented. This is different than Godot's internal behavior; but we determined it was a significant source of confusion worth correcting. If you'd like to pass ownership of a `RefCounted` type to a `Variant` in gdzig, release your own handle once the Variant holds its reference:
 

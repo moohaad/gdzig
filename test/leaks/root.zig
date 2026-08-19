@@ -1,6 +1,8 @@
 pub fn register(r: *gdzig.extension.Registry) void {
     const class = r.createClass(RefReturnNode, {}, .auto);
     class.addMethod("get_borrowed_resource", .auto);
+
+    _ = r.createClass(LeakProbeResource, r.allocator, .auto);
 }
 
 fn ensureRegistered() void {
@@ -213,6 +215,48 @@ fn rawResource() *Resource {
     return owned.release();
 }
 
+/// A registered class whose *base* is reference counted, which is the shape
+/// this repo did not have. `RefReturnNode` below looks similar and is not: its
+/// base is a plain `Node` and the refcounted object is a field it owns and
+/// releases itself. The difference is who constructs the refcounted object --
+/// there, we do; here, the engine does, through the class create callback.
+///
+/// That gap is why a reference leaked on every such instance for as long as it
+/// did: nothing instantiated one, so nothing noticed it was never freed.
+const LeakProbeResource = struct {
+    allocator: std.mem.Allocator,
+    base: *Resource,
+
+    /// Counts frees. The engine calls this when the last reference goes, so a
+    /// zero after dropping the only handle means the object outlived it.
+    var destroyed: usize = 0;
+
+    /// `create` is deliberately left to gdzig -- it is the code under test.
+    /// This overrides only the free half, and matches what the synthesized one
+    /// does for a counted base: no `base.destroy()`, because the engine is
+    /// already freeing the object that called this.
+    pub fn destroy(self: *LeakProbeResource, alloc: *std.mem.Allocator) void {
+        destroyed += 1;
+        alloc.destroy(self);
+    }
+};
+
+test "a class over a refcounted base is freed when the engine drops it" {
+    ensureRegistered();
+    LeakProbeResource.destroyed = 0;
+
+    // Through ClassDB rather than by calling `create` directly: the leak was in
+    // the handover, so the engine has to be the one constructing it.
+    var instance = ClassDb.instantiate(StringName.fromComptimeLatin1("LeakProbeResource").*);
+    try testing.expect(instance.as(*Resource) != null);
+
+    // The only reference. Dropping it should take the object to zero and run
+    // `destroy`; with one reference too many it stays alive and nothing runs.
+    instance.deinit();
+
+    try testing.expectEqual(@as(usize, 1), LeakProbeResource.destroyed);
+}
+
 const RefReturnNode = struct {
     base: *Node,
     resource: *Resource,
@@ -253,6 +297,7 @@ const allocator = gdzig.testing.allocator;
 const Mesh = gdzig.class.Mesh;
 const MeshInstance3d = gdzig.class.MeshInstance3d;
 const Node = gdzig.class.Node;
+const ClassDb = gdzig.class.ClassDb;
 const Object = gdzig.class.Object;
 const RefCounted = gdzig.class.RefCounted;
 const Resource = gdzig.class.Resource;
