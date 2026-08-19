@@ -57,13 +57,10 @@ pub fn _enterTree(self: *GuiNode) void {
     toggle_btn.connect(Button.Toggled, self, &onToggled) catch {};
     normal_btn.connect(Button.Pressed, self, &onPressed) catch {};
 
-    var res_name: String = .fromLatin1("res://textures/logo.png");
-    defer res_name.deinit();
-
-    var texture = ResourceLoader.load(res_name, .{}).?;
+    var texture = godot.load(Texture2D, "res://textures/logo.png").?;
     defer texture.deinit();
     self.sprite = Sprite2D.init();
-    self.sprite.setTexture(Texture2D.downcast(texture.get()).?);
+    self.sprite.setTexture(texture.get());
     self.sprite.setPosition(.initXY(400, 300));
     self.sprite.setScale(.initXY(0.6, 0.6));
     self.base.addChild(self.sprite, .{});
@@ -94,9 +91,7 @@ const Control = godot.class.Control;
 const Engine = godot.class.Engine;
 const Object = godot.class.Object;
 const Resource = godot.class.Resource;
-const ResourceLoader = godot.class.ResourceLoader;
 const Sprite2D = godot.class.Sprite2d;
-const String = godot.builtin.String;
 const StringName = godot.builtin.StringName;
 const Texture2D = godot.class.Texture2d;
 const Vector2 = godot.builtin.Vector2;

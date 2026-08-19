@@ -52,10 +52,11 @@ pub fn _ready(self: *SpriteNode) void {
     self.prng = .init(Time.getTicksUsec());
     self.rng = self.prng.random();
 
-    var logo_path: String = .fromLatin1("res://textures/logo.png");
-    defer logo_path.deinit();
-
-    var tex = ResourceLoader.load(logo_path, .{}).?;
+    // `godot.load` narrows to the type asked for, so there is no `String` to
+    // build and no downcast to check. It also releases the resource if the file
+    // turns out not to be a `Texture2d`, which `ResourceLoader.load` followed by
+    // a hand-written downcast does not.
+    var tex = godot.load(Texture2D, "res://textures/logo.png").?;
     defer tex.deinit();
 
     const sz = self.base.getParentAreaSize();
@@ -69,7 +70,7 @@ pub fn _ready(self: *SpriteNode) void {
             .size = .zero,
             .gd_sprite = Sprite2D.init(),
         };
-        spr.gd_sprite.setTexture(Texture2D.downcast(tex.get()).?);
+        spr.gd_sprite.setTexture(tex.get());
         spr.gd_sprite.setRotation(self.randfRange(f32, 0, std.math.pi));
         spr.gd_sprite.setScale(spr.scale);
         spr.size = spr.gd_sprite.getRect().size;
@@ -115,7 +116,6 @@ const godot = @import("godot");
 const Control = godot.class.Control;
 const Engine = godot.class.Engine;
 const Object = godot.class.Object;
-const ResourceLoader = godot.class.ResourceLoader;
 const Time = godot.class.Time;
 const Sprite2D = godot.class.Sprite2d;
 const Resource = godot.class.Resource;
