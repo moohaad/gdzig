@@ -48,14 +48,32 @@ pub fn readArg(comptime T: type, raw_p_arg: ?*const anyopaque) T {
             const Backing = info.backing_integer.?;
             break :blk @bitCast(@as(Backing, @intCast(readIntSlot(Backing, p_arg))));
         },
-        .optional => blk: {
+        .optional => |info| blk: {
             if (comptime gd.OptionalGd(T)) |Handle| {
                 const object = readArg(?*Handle.Owns, p_arg) orelse break :blk null;
                 break :blk Handle.borrow(object);
             }
+            if (comptime class.isStructClassPtr(info.child)) {
+                const object = @as(*const ?*class.Object, @ptrCast(@alignCast(p_arg))).* orelse break :blk null;
+                break :blk class.castTo(std.meta.Child(info.child), object);
+            }
             break :blk @as(*const T, @ptrCast(@alignCast(p_arg))).*;
         },
-        else => @as(*const T, @ptrCast(@alignCast(p_arg))).*,
+        else => blk: {
+            // The engine writes the *object* pointer into the slot. For an
+            // engine class that is the declared pointer, so reading the slot as
+            // `T` is right. For one of your classes it is not: the instance is
+            // a Zig struct that holds the object, and reading the slot as `*T`
+            // hands the method the engine object typed as its own class --
+            // measured 1.5 MB apart, two separate allocations.
+            if (comptime class.isStructClassPtr(T)) {
+                const object = @as(*const ?*class.Object, @ptrCast(@alignCast(p_arg))).* orelse
+                    @panic("gdzig: null object in a ptrcall slot declared non-optional");
+                break :blk class.castTo(std.meta.Child(T), object) orelse
+                    @panic("gdzig: ptrcall argument is not an instance of the declared class");
+            }
+            break :blk @as(*const T, @ptrCast(@alignCast(p_arg))).*;
+        },
     };
 }
 
@@ -66,6 +84,26 @@ pub fn readArg(comptime T: type, raw_p_arg: ?*const anyopaque) T {
 /// narrowed it to.
 pub fn writeReturn(comptime T: type, raw_p_ret: ?*anyopaque, value: T) void {
     const p_ret: *anyopaque = @ptrCast(raw_p_ret);
+
+    // An object return slot is one pointer wide whatever shape the declared
+    // type has, and it wants the *engine object*.
+    //
+    // Two ways this went wrong. A `Gd(T)` is 16 bytes under safety checks and
+    // 24 when optional, and the struct arm below wrote all of it into the
+    // 8-byte slot -- the pointer landed by luck as the handle's first field and
+    // the `released` flag overwrote the adjacent word. And a `*UserClass` is
+    // the address of a Zig struct, not of the object the engine is expecting.
+    if (comptime objectSlot(T)) |Kind| {
+        const object: ?*class.Object = switch (Kind) {
+            .handle => class.upcast(*class.Object, value.get()),
+            .optional_handle => if (value) |handle| class.upcast(*class.Object, handle.get()) else null,
+            .pointer => class.upcast(*class.Object, value),
+            .optional_pointer => if (value) |ptr| class.upcast(*class.Object, ptr) else null,
+        };
+        @as(*?*class.Object, @ptrCast(@alignCast(p_ret))).* = object;
+        return;
+    }
+
     switch (@typeInfo(T)) {
         .bool => @as(*u8, @ptrCast(p_ret)).* = @intFromBool(value),
         .int => writeIntSlot(T, p_ret, value),
@@ -81,6 +119,25 @@ pub fn writeReturn(comptime T: type, raw_p_ret: ?*anyopaque, value: T) void {
         },
         else => @as(*T, @ptrCast(@alignCast(p_ret))).* = value,
     }
+}
+
+/// Which object-slot shape `T` is, or null if it is not an object at all.
+///
+/// Kept as one comptime question so `writeReturn` decides once, rather than
+/// four `if`s that can drift apart.
+const ObjectSlot = enum { handle, optional_handle, pointer, optional_pointer };
+
+fn objectSlot(comptime T: type) ?ObjectSlot {
+    if (gd.isGd(T)) return .handle;
+    if (gd.OptionalGd(T) != null) return .optional_handle;
+    // Optionals first: `isClassPtr` accepts `?*T` as well as `*T`, so asking it
+    // about the bare type would classify an optional as `.pointer` and then
+    // hand `upcast` a `?*T` where it wants a `*T`.
+    if (@typeInfo(T) == .optional) {
+        return if (class.isClassPtr(@typeInfo(T).optional.child)) .optional_pointer else null;
+    }
+    if (class.isClassPtr(T)) return .pointer;
+    return null;
 }
 
 /// Reads an argument for a **virtual** ptrcall.
@@ -152,10 +209,13 @@ fn setRef(comptime T: type, raw_p_ret: ?*anyopaque, value: T) void {
         var owned = value;
         // `ref_set_object` takes the engine's own reference, so ours is now
         // surplus and releasing it completes the hand-over.
-        gdzig.raw.refSetObject(@ptrCast(raw_p_ret), @ptrCast(owned.get()));
+        gdzig.raw.refSetObject(@ptrCast(raw_p_ret), @ptrCast(class.upcast(*class.Object, owned.get())));
         owned.deinit();
     } else {
-        gdzig.raw.refSetObject(@ptrCast(raw_p_ret), @ptrCast(value));
+        // `upcast`, not a bare cast: for one of your own refcounted classes the
+        // object lives at `base`, and `ref_set_object` dereferences what it is
+        // given.
+        gdzig.raw.refSetObject(@ptrCast(raw_p_ret), @ptrCast(class.upcast(*class.Object, value)));
     }
 }
 
@@ -203,4 +263,61 @@ test "a standard ptrcall object argument is one dereference away" {
     try std.testing.expectEqual(resource, readArg(*gdzig.class.Resource, @ptrCast(&res_slot)));
 
     try std.testing.expect(@intFromPtr(&node_slot) != @intFromPtr(object));
+}
+
+test "an object return occupies one pointer of the slot, whatever shape it was declared" {
+    // A canary either side, so a write that is too wide is visible rather than
+    // merely wrong. `writeReturn` never dereferences these, so fabricated
+    // addresses are enough and no engine is needed.
+    const object: *class.Object = @ptrFromInt(0xDEAD_0000);
+    const slot_only: [4]usize = .{ 0, 0xC0FFEE, 0xC0FFEE, 0xC0FFEE };
+
+    {
+        // A borrowed engine pointer: the case that already worked.
+        var frame = slot_only;
+        writeReturn(*class.Object, @ptrCast(&frame[0]), object);
+        try std.testing.expectEqual(@intFromPtr(object), frame[0]);
+        try std.testing.expectEqual(@as(usize, 0xC0FFEE), frame[1]);
+    }
+
+    {
+        // An owning handle. `Gd` is two words under safety checks and three
+        // when optional; the struct arm used to write all of them, so the
+        // pointer landed by luck and `released` overwrote the next word.
+        var frame = slot_only;
+        const handle: gdzig.Gd(class.RefCounted) = .{ .ptr = @ptrFromInt(0xDEAD_0000) };
+        writeReturn(gdzig.Gd(class.RefCounted), @ptrCast(&frame[0]), handle);
+        try std.testing.expectEqual(@intFromPtr(object), frame[0]);
+        try std.testing.expectEqual(@as(usize, 0xC0FFEE), frame[1]);
+    }
+
+    {
+        var frame = slot_only;
+        const handle: ?gdzig.Gd(class.RefCounted) = .{ .ptr = @ptrFromInt(0xDEAD_0000) };
+        writeReturn(?gdzig.Gd(class.RefCounted), @ptrCast(&frame[0]), handle);
+        try std.testing.expectEqual(@intFromPtr(object), frame[0]);
+        try std.testing.expectEqual(@as(usize, 0xC0FFEE), frame[1]);
+
+        frame = slot_only;
+        writeReturn(?gdzig.Gd(class.RefCounted), @ptrCast(&frame[0]), null);
+        try std.testing.expectEqual(@as(usize, 0), frame[0]);
+        try std.testing.expectEqual(@as(usize, 0xC0FFEE), frame[1]);
+    }
+}
+
+test "a user class returns its engine object, not its own address" {
+    const object: *class.Object = @ptrFromInt(0xDEAD_0000);
+
+    // The shape of one of your own classes: a Zig struct that *holds* the
+    // engine object. Its address is not the object's, and the slot wants the
+    // object.
+    const UserClass = struct { base: *class.Object };
+    var instance: UserClass = .{ .base = object };
+
+    var frame: [2]usize = .{ 0, 0xC0FFEE };
+    writeReturn(*UserClass, @ptrCast(&frame[0]), &instance);
+
+    try std.testing.expectEqual(@intFromPtr(object), frame[0]);
+    try std.testing.expect(frame[0] != @intFromPtr(&instance));
+    try std.testing.expectEqual(@as(usize, 0xC0FFEE), frame[1]);
 }
