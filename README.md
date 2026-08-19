@@ -111,8 +111,10 @@ macos.debug = "lib/libmygame.dylib"
 buy compatibility: Godot loads the extension and gdzig then refuses it, which is a worse
 error than Godot declining in the first place.
 
-`reloadable = true` opts into hot reload. See [doc/hot-reload-plan.md](doc/hot-reload-plan.md)
-for what survives a reload and what does not.
+`reloadable = true` opts into hot reload. Exported properties and the instances
+themselves survive; a class whose base changed does not, and says so rather than
+crashing. `example/` has a harness -- `zig build reload-test` -- that reloads the
+extension and checks what came through.
 
 **`src/main.zig`.** gdzig provides the entry point itself; your root module only registers.
 `register` is required, `unregister` is optional -- the registry unregisters anything left

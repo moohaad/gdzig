@@ -149,4 +149,5 @@ run -- `zig build run` does not register it, which is the point.
 
 * [memory.md](memory.md) -- allocators, and which side owns what.
 * [threading.md](threading.md) -- engine calls are safe from any thread, the scene tree is not.
-* [hot-reload-plan.md](hot-reload-plan.md) -- what survives a reload, and what does not.
+* [instance-binding-identity.md](instance-binding-identity.md) -- how a cast to one
+  of your own classes knows what it is looking at, and three ways that do not work.
