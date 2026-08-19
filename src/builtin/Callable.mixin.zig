@@ -18,7 +18,10 @@
 /// a compile error; the second cannot be, because registration happens at
 /// runtime.
 pub fn fromClosure(p_instance: anytype, comptime p_function_ptr: anytype) Callable {
-    const T = comptime std.meta.Child(@TypeOf(p_instance));
+    // Through `asPtr` first: `p_instance` may be an owning handle, and
+    // `std.meta.Child` of a `Gd(T)` is a struct field's type, not the class.
+    const instance = gdzig.class.asPtr(p_instance);
+    const T = comptime std.meta.Child(@TypeOf(instance));
 
     // Which of `T`'s methods is this pointer? Entirely comptime, so a miss is a
     // mistake in the source and fails the build rather than waiting to panic at
@@ -42,7 +45,7 @@ pub fn fromClosure(p_instance: anytype, comptime p_function_ptr: anytype) Callab
     // too, and go out of scope without being destroyed.
     const method_string_name = StringName.fromComptimeLatin1(method_name);
 
-    const obj = gdzig.class.upcast(*Object, p_instance);
+    const obj = gdzig.class.upcast(*Object, instance);
 
     if (!obj.hasMethod(method_string_name.*)) {
         std.debug.panic("Method '{s}' is not registered on type '{s}'. Did you forget to call godot.registerMethod?", .{ method_name, @typeName(T) });

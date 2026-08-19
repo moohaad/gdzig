@@ -60,7 +60,7 @@ pub fn _enterTree(self: *GuiNode) void {
     var texture = godot.load(Texture2D, "res://textures/logo.png").?;
     defer texture.deinit();
     self.sprite = Sprite2D.init();
-    self.sprite.setTexture(texture.get());
+    self.sprite.setTexture(texture);
     self.sprite.setPosition(.initXY(400, 300));
     self.sprite.setScale(.initXY(0.6, 0.6));
     self.base.addChild(self.sprite, .{});

@@ -65,6 +65,18 @@ gdzig references what it is given and releases it at teardown. A `?*PackedScene`
 and the resource can die underneath it -- which shows up later as a scene with no path and no
 nodes.
 
+Passing one needs nothing at all -- a class parameter takes the handle and borrows it:
+
+```zig
+sprite.setTexture(tex);          // not tex.get()
+coro.awaitSignal(tween, Tween.Finished);
+```
+
+The handle keeps its reference and still owes a `deinit`. This works in argument
+position only: `tex.get().someMethod()` stays, because Zig has no way to forward
+a wrapped type's methods -- `usingnamespace` is gone and a comptime-built type
+cannot carry declarations.
+
 Read one with `gd.get`, which unwraps the optional and borrows in one step:
 
 ```zig

@@ -2,7 +2,8 @@ pub fn register(r: *gdzig.extension.Registry) void {
     const class = r.createClass(RefReturnNode, {}, .auto);
     class.addMethod("get_borrowed_resource", .auto);
 
-    _ = r.createClass(LeakProbeResource, r.allocator, .auto);
+    const probe_class = r.createClass(LeakProbeResource, r.allocator, .auto);
+    probe_class.addMethod("ping", .auto);
 }
 
 fn ensureRegistered() void {
@@ -235,6 +236,9 @@ const LeakProbeResource = struct {
     /// This overrides only the free half, and matches what the synthesized one
     /// does for a counted base: no `base.destroy()`, because the engine is
     /// already freeing the object that called this.
+    /// Exists only so this class can be the receiver of a connection.
+    pub fn ping(_: *LeakProbeResource) void {}
+
     pub fn destroy(self: *LeakProbeResource, alloc: *std.mem.Allocator) void {
         destroyed += 1;
         alloc.destroy(self);
@@ -292,8 +296,10 @@ const testing = std.testing;
 
 const gdzig = @import("gdzig");
 const general = gdzig.general;
+const Callable = gdzig.builtin.Callable;
 const Gd = gdzig.Gd;
 const allocator = gdzig.testing.allocator;
+const ArrayMesh = gdzig.class.ArrayMesh;
 const Mesh = gdzig.class.Mesh;
 const MeshInstance3d = gdzig.class.MeshInstance3d;
 const Node = gdzig.class.Node;
@@ -304,3 +310,43 @@ const Resource = gdzig.class.Resource;
 const ResourceSaver = gdzig.class.ResourceSaver;
 const Variant = gdzig.builtin.Variant;
 const StringName = gdzig.builtin.StringName;
+
+test "an owning handle passes where a class pointer is wanted, and keeps its reference" {
+    var mesh = ArrayMesh.init();
+    defer mesh.deinit();
+
+    const instance = MeshInstance3d.init();
+    defer instance.destroy();
+
+    const before = RefCounted.upcast(mesh.get()).getReferenceCount();
+
+    // The handle itself, with no `get()`. The parameter is `anytype` and
+    // `class.upcast` unwraps it.
+    instance.setMesh(mesh);
+
+    // Borrowed, not moved: this handle still owns its reference and still owes
+    // a `deinit`. The engine took its own, so the count went up by one rather
+    // than changing hands.
+    try testing.expectEqual(before + 1, RefCounted.upcast(mesh.get()).getReferenceCount());
+
+    var read_back = instance.getMesh() orelse return error.MeshMissing;
+    defer read_back.deinit();
+    try testing.expectEqual(@intFromPtr(mesh.get()), @intFromPtr(read_back.get()));
+}
+
+test "an owning handle can be the receiver of a connection" {
+    ensureRegistered();
+
+    var instance = ClassDb.instantiate(StringName.fromComptimeLatin1("LeakProbeResource").*);
+    defer instance.deinit();
+    const ptr = instance.as(*LeakProbeResource) orelse return error.NoInstance;
+
+    var handle: Gd(LeakProbeResource) = .borrow(ptr);
+    defer handle.deinit();
+
+    // Compile-only, via `@TypeOf`: `Callable.fromClosure` resolves the
+    // receiver's class with `std.meta.Child` before anything unwraps, so a
+    // handle used to fail here rather than at the upcast further down. The
+    // runtime half needs a live emitter and is not what regressed.
+    try testing.expectEqual(Callable, @TypeOf(Callable.fromClosure(handle, &LeakProbeResource.ping)));
+}

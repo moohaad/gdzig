@@ -41,7 +41,52 @@ pub const isAny = oopz.isAny;
 /// concrete type, and `Variant.init` takes the type as its first argument. Those
 /// three are the whole remaining set; a call into a generated method is not one
 /// of them.
-pub const upcast = oopz.upcast;
+///
+/// ## Owning handles go in directly
+///
+/// A `Gd(T)` or `?Gd(T)` is accepted wherever the pointer is, so a handle needs
+/// no `get()` to be passed:
+///
+/// ```zig
+/// var tex = godot.load(Texture2d, "res://logo.png").?;
+/// defer tex.deinit();
+/// sprite.setTexture(tex);          // not tex.get()
+/// ```
+///
+/// This **borrows**. The handle keeps its reference and still owes a `deinit`,
+/// exactly as writing `tex.get()` would -- passing a handle never hands
+/// ownership to the callee, because the generated parameter is a plain pointer
+/// and Godot's own convention for a class argument is `const Ref<T>&`.
+///
+/// The unwrap goes through `get()`, so a handle used after release panics here
+/// rather than passing a dangling pointer on to the engine.
+pub inline fn upcast(comptime T: type, value: anytype) T {
+    return oopz.upcast(T, asPtr(value));
+}
+
+/// The plain pointer inside `value`, which may already be one.
+///
+/// The one place an owning handle is turned back into a borrowed pointer for
+/// the engine. Anything that accepts `anytype` and means "some object" should
+/// run its argument through this rather than reaching for `std.meta.Child`,
+/// which sees a `Gd(T)` as a struct and fails.
+///
+/// Borrows: the handle keeps its reference. Goes through `get()`, so using one
+/// after release panics here instead of handing the engine a dangling pointer.
+pub inline fn asPtr(value: anytype) PtrOf(@TypeOf(value)) {
+    const V = @TypeOf(value);
+    if (comptime gd.isGd(V)) return value.get();
+    if (comptime gd.OptionalGd(V) != null) return if (value) |handle| handle.get() else null;
+    return value;
+}
+
+/// What [`asPtr`](#asPtr) gives back for `V`: the pointer a handle wraps, or
+/// `V` unchanged when it is not a handle.
+pub fn PtrOf(comptime V: type) type {
+    if (gd.isGd(V)) return *V.Owns;
+    if (gd.OptionalGd(V)) |Handle| return ?*Handle.Owns;
+    return V;
+}
 
 /// Returns true if a type is a reference counted type.
 ///
@@ -112,6 +157,7 @@ pub fn downcast(comptime T: type, value: anytype) ?*std.meta.Child(T) {
 }
 
 const std = @import("std");
+const gd = @import("gd.zig");
 const gdzig = @import("gdzig");
 const raw = &gdzig.raw;
 const StringName = gdzig.builtin.StringName;

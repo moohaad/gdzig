@@ -55,7 +55,8 @@ pub fn _ready(self: *SpriteNode) void {
     // `godot.load` narrows to the type asked for, so there is no `String` to
     // build and no downcast to check. It also releases the resource if the file
     // turns out not to be a `Texture2d`, which `ResourceLoader.load` followed by
-    // a hand-written downcast does not.
+    // a hand-written downcast does not. The handle then goes straight into
+    // `setTexture` below -- a class parameter accepts one and borrows it.
     var tex = godot.load(Texture2D, "res://textures/logo.png").?;
     defer tex.deinit();
 
@@ -70,7 +71,7 @@ pub fn _ready(self: *SpriteNode) void {
             .size = .zero,
             .gd_sprite = Sprite2D.init(),
         };
-        spr.gd_sprite.setTexture(tex.get());
+        spr.gd_sprite.setTexture(tex);
         spr.gd_sprite.setRotation(self.randfRange(f32, 0, std.math.pi));
         spr.gd_sprite.setScale(spr.scale);
         spr.size = spr.gd_sprite.getRect().size;

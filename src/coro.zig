@@ -678,9 +678,10 @@ pub fn awaitSignal(obj: anytype, comptime S: type) SignalResult(S) {
 /// One reference to `obj` for the coroutine to own, or null if `obj` is not
 /// reference counted and so has nothing to own.
 fn refFor(obj: anytype) ?*RefCounted {
-    const T = @typeInfo(@TypeOf(obj)).pointer.child;
+    const ptr = gdzig.class.asPtr(obj);
+    const T = @typeInfo(@TypeOf(ptr)).pointer.child;
     if (comptime !oopz.isA(RefCounted, T)) return null;
-    const ref = RefCounted.upcast(obj);
+    const ref = RefCounted.upcast(ptr);
     _ = ref.reference();
     return ref;
 }
