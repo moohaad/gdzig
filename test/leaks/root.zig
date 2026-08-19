@@ -350,3 +350,23 @@ test "an owning handle can be the receiver of a connection" {
     // runtime half needs a live emitter and is not what regressed.
     try testing.expectEqual(Callable, @TypeOf(Callable.fromClosure(handle, &LeakProbeResource.ping)));
 }
+
+test "Gd.upcast finds the engine object, not the Zig struct" {
+    ensureRegistered();
+
+    var instance = ClassDb.instantiate(StringName.fromComptimeLatin1("LeakProbeResource").*);
+    defer instance.deinit();
+    const ptr = instance.as(*LeakProbeResource) orelse return error.NoInstance;
+
+    // A user class is a Zig struct holding the engine object at `base`, so its
+    // own address is not the object's. `oopz.upcast` knows that and reads the
+    // field; a bare `@ptrCast` does not, and hands back the struct address --
+    // which a later `unreference` would then apply to the wrong memory.
+    var handle: Gd(LeakProbeResource) = .borrow(ptr);
+    var base = handle.upcast(Resource);
+
+    const want = @intFromPtr(gdzig.class.upcast(*Resource, ptr));
+    try testing.expectEqual(want, @intFromPtr(base.ptr));
+
+    base.deinit();
+}

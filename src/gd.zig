@@ -249,11 +249,19 @@ pub fn Gd(comptime T: type) type {
 
         /// Reinterprets this handle as one for an ancestor type, keeping
         /// ownership. Fails at compile time if `U` is not a base of `T`.
+        ///
+        /// Through `class.upcast`, not a bare `@ptrCast`. For an engine class
+        /// the two agree, since the object pointer is the same at every level.
+        /// For one of your own classes they do not: a user class is a Zig
+        /// struct that *holds* the engine object at `base`, so its own address
+        /// is not the object's, and reinterpreting it hands back a handle whose
+        /// later `unreference` lands on the wrong memory. `borrow`, `clone` and
+        /// `deinit` already went through `class.upcast`; this was the hole.
         pub fn upcast(self: *Self, comptime U: type) Gd(U) {
             comptime oopz.assertIsA(U, T);
             self.assertLive();
             if (track_release) self.released = true;
-            return .{ .ptr = @ptrCast(self.ptr) };
+            return .{ .ptr = class.upcast(*U, self.ptr) };
         }
 
         fn assertLive(self: Self) void {
