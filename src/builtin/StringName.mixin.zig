@@ -72,6 +72,30 @@ pub fn fromComptimeLatin1(comptime str: [:0]const u8) *const StringName {
     return &S.entry.value;
 }
 
+/// The same interned name as [`fromComptimeLatin1`](#fromComptimeLatin1), by
+/// value, so a decl literal can stand in wherever a `StringName` is wanted:
+///
+/// ```zig
+/// sprite.play(.{ .name = .interned("walk") });
+/// if (Input.isActionJustPressed(.interned("jump"), .{})) self.jump();
+/// ```
+///
+/// This is the spelling to reach for. `fromLatin1` builds a fresh name that has
+/// to be released, which inline at a call site means either a leak or a
+/// temporary to hang a `defer` on; interning costs one memcpy the first time
+/// each literal is used and nothing afterwards.
+///
+/// A decl literal is what makes it work in *both* positions. A parameter could
+/// have been widened to `anytype` to take a `[]const u8` directly, but a struct
+/// field cannot be `anytype`, so every defaulted argument -- which is where
+/// names most often appear -- would have been left out.
+///
+/// The value is a borrow of the cached one, exactly as `.*` on the pointer form
+/// is. Do not `deinit` it: that would destroy the entry every later use shares.
+pub fn interned(comptime str: [:0]const u8) StringName {
+    return fromComptimeLatin1(str).*;
+}
+
 /// One interned literal, and the link that makes it reachable again.
 ///
 /// The node lives inside the per-literal static, so interning allocates
@@ -90,13 +114,13 @@ const Interned = struct {
     next: ?*Interned = null,
 };
 
-var interned: std.atomic.Value(?*Interned) = .init(null);
+var interned_list: std.atomic.Value(?*Interned) = .init(null);
 
 fn link(entry: *Interned) void {
-    var head = interned.load(.monotonic);
+    var head = interned_list.load(.monotonic);
     while (true) {
         entry.next = head;
-        head = interned.cmpxchgWeak(head, entry, .release, .monotonic) orelse return;
+        head = interned_list.cmpxchgWeak(head, entry, .release, .monotonic) orelse return;
     }
 }
 
@@ -111,7 +135,7 @@ fn link(entry: *Interned) void {
 /// forgotten, so a library that is still mapped re-interns correctly on the
 /// next use.
 pub fn releaseInterned() void {
-    var node = interned.swap(null, .acquire);
+    var node = interned_list.swap(null, .acquire);
     while (node) |entry| {
         const next = entry.next;
         entry.value.deinit();

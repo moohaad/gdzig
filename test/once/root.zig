@@ -49,7 +49,7 @@ test "once fires for a single emission and then disconnects" {
     const beeper = try Beeper.create();
     defer beeper.base.destroy();
 
-    try beeper.base.once(Beeped, beeper, &Beeper.onBeeped);
+    beeper.base.once(Beeped, beeper, &Beeper.onBeeped);
 
     try beeper.base.emit(Beeped, .{});
     try testing.expectEqual(@as(u32, 1), beeper.heard);
@@ -67,7 +67,7 @@ test "connect still delivers every emission" {
     const beeper = try Beeper.create();
     defer beeper.base.destroy();
 
-    try beeper.base.connect(Beeped, beeper, &Beeper.onBeeped);
+    beeper.base.connect(Beeped, beeper, &Beeper.onBeeped);
 
     try beeper.base.emit(Beeped, .{});
     try beeper.base.emit(Beeped, .{});

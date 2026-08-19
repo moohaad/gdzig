@@ -751,7 +751,7 @@ fn park(obj: anytype, comptime S: type, result: *S, owned: ?*RefCounted) void {
     coro.state = .suspended;
 
     const target = gdzig.class.upcast(*Object, obj);
-    target.onceCallable(S, callable) catch |e| {
+    target.tryOnceCallable(S, callable) catch |e| {
         // Unlink before releasing: dropping the last reference runs the free
         // hook, which reclaims a coroutine it finds parked, and this one is
         // still running on its own stack.

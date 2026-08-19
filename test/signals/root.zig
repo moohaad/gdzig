@@ -27,7 +27,7 @@ test "signal connect and emit" {
 
     const callable: Callable = .fromClosure(receiver, &SignalReceiver.onSignal);
 
-    try emitter.base.connectCallable(TestSignal, callable);
+    emitter.base.connectCallable(TestSignal, callable);
 
     try testing.expectEqual(@as(i64, 0), receiver.count);
     try testing.expectEqual(@as(i64, 0), receiver.value);
@@ -59,7 +59,7 @@ test "disconnect matches by receiver and method, not by Callable identity" {
     // and method name rather than the value that made the connection -- which
     // is what lets `connect`/`disconnect` take a receiver and a method pointer
     // instead of a `Callable` the caller has to store.
-    try emitter.base.connect(TestSignal, receiver, &SignalReceiver.onSignal);
+    emitter.base.connect(TestSignal, receiver, &SignalReceiver.onSignal);
     try emitter.base.emit(TestSignal, .{ .value = 7 });
     try testing.expectEqual(@as(i64, 1), receiver.count);
 
@@ -144,7 +144,27 @@ test "Callable.bind returns a Callable, not a mangled Variant" {
     try testing.expectEqual(@as(i64, 1), bound.getBoundArgumentsCount());
 }
 
-
 const Object = gdzig.class.Object;
 const Node = gdzig.class.Node;
 const StringName = gdzig.builtin.StringName;
+
+test "a duplicate connection is refused, and tryConnect is how you hear about it" {
+    ensureRegistered();
+
+    const emitter = try SignalEmitter.create();
+    defer emitter.destroy();
+
+    const receiver = try SignalReceiver.create();
+    defer receiver.destroy();
+
+    const callable: Callable = .fromClosure(receiver, &SignalReceiver.onSignal);
+
+    // The plain form logs a refusal rather than returning it, so the assertion
+    // has to go through `try`. Connecting the same callable twice is the one
+    // failure the engine reports here.
+    try emitter.base.tryConnectCallable(TestSignal, callable);
+    try testing.expectError(
+        error.AlreadyConnected,
+        emitter.base.tryConnectCallable(TestSignal, callable),
+    );
+}

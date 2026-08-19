@@ -54,8 +54,8 @@ pub fn _enterTree(self: *GuiNode) void {
     toggle_btn.setSize(.initXY(100, 50), .{});
     toggle_btn.setText(.fromLatin1("Toggle Me"));
 
-    toggle_btn.connect(Button.Toggled, self, &onToggled) catch {};
-    normal_btn.connect(Button.Pressed, self, &onPressed) catch {};
+    toggle_btn.connect(Button.Toggled, self, &onToggled);
+    normal_btn.connect(Button.Pressed, self, &onPressed);
 
     var texture = godot.load(Texture2D, "res://textures/logo.png").?;
     defer texture.deinit();

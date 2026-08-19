@@ -194,10 +194,10 @@ pub fn _enterTree(self: *ExampleNode) void {
         // platform but Windows. This is the shape `coro` exists to replace.
         var timer = self.base.getTree().?.createTimer(delay, .{}).?;
         defer timer.deinit();
-        timer.get().connect(SceneTreeTimer.Timeout, self, &onTimeout) catch {};
+        timer.get().connect(SceneTreeTimer.Timeout, self, &onTimeout);
     }
-    sp.connect(HSplitContainer.Resized, self, &onResized) catch {};
-    itemList.connect(ItemList.ItemSelected, self, &onItemFocused) catch {};
+    sp.connect(HSplitContainer.Resized, self, &onResized);
+    itemList.connect(ItemList.ItemSelected, self, &onItemFocused);
 
     self.panel = PanelContainer.init();
     self.panel.setHSizeFlags(.{ .size_fill = true });

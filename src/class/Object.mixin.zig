@@ -101,7 +101,7 @@ fn typeToken(comptime T: type) *anyopaque {
 /// Connects a signal to a method on `receiver`.
 ///
 /// ```zig
-/// try player.base.connect(Player.Hit, self, &gameOver);
+/// player.base.connect(Player.Hit, self, &gameOver);
 /// ```
 ///
 /// `method` points at one of `receiver`'s *public* declarations, which is how
@@ -117,18 +117,34 @@ fn typeToken(comptime T: type) *anyopaque {
 ///
 /// `connectCallable` takes a `Callable` you already hold.
 ///
+/// A refused connection is logged, not returned. The error set had one member,
+/// `AlreadyConnected`, and every call site answered it with `catch {}` -- which
+/// is worse than not returning it, since a duplicate connection fires the
+/// handler twice and the `catch` hides why. `tryConnect` returns it for the
+/// caller that wants to branch.
+///
 /// Named `receiver` rather than `instance` because this mixin is merged into
 /// every class, and singletons generate a class-level `pub var instance` that
 /// a parameter of that name shadows.
-pub fn connect(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) ConnectError!void {
-    return self.connectCallable(S, .fromClosure(receiver, method));
+pub fn connect(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) void {
+    self.connectCallable(S, .fromClosure(receiver, method));
+}
+
+/// `connect`, for the caller that wants to handle a failed connection rather
+/// than have it logged.
+pub fn tryConnect(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) ConnectError!void {
+    return self.tryConnectCallable(S, .fromClosure(receiver, method));
 }
 
 /// `connect` for a `Callable` you already have: one built elsewhere, or one
 /// you keep in order to `disconnectCallable` the same value later.
-pub fn connectCallable(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
-    const signal_name = StringName.fromSignal(S);
-    const result = self.connectRaw(signal_name.*, callable, .{});
+pub fn connectCallable(self: *Self, comptime S: type, callable: Callable) void {
+    report(S, "connect", self.connectRaw(StringName.fromSignal(S).*, callable, .{}));
+}
+
+/// `connectCallable`, returning the failure instead of logging it.
+pub fn tryConnectCallable(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
+    const result = self.connectRaw(StringName.fromSignal(S).*, callable, .{});
     if (result != .ok) return ConnectError.AlreadyConnected;
 }
 
@@ -143,22 +159,52 @@ pub fn connectCallable(self: *Self, comptime S: type, callable: Callable) Connec
 /// ```zig
 /// var timer = tree.createTimer(2.0, .{}).?;
 /// defer timer.deinit();
-/// try timer.get().once(SceneTreeTimer.Timeout, self, &showStartButton);
+/// timer.get().once(SceneTreeTimer.Timeout, self, &showStartButton);
 /// ```
 ///
 /// A sequence of waits still needs explicit state, the way the engine does it.
 /// That is the one case `await` genuinely buys something, and it is not worth a
 /// coroutine runtime to get.
-pub fn once(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) ConnectError!void {
-    return self.onceCallable(S, .fromClosure(receiver, method));
+pub fn once(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) void {
+    self.onceCallable(S, .fromClosure(receiver, method));
+}
+
+/// `once`, returning the failure instead of logging it.
+pub fn tryOnce(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) ConnectError!void {
+    return self.tryOnceCallable(S, .fromClosure(receiver, method));
 }
 
 /// `once` for a `Callable` you already have.
-pub fn onceCallable(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
-    const signal_name = StringName.fromSignal(S);
+pub fn onceCallable(self: *Self, comptime S: type, callable: Callable) void {
+    report(S, "once", self.connectOneShot(S, callable));
+}
+
+/// `onceCallable`, returning the failure instead of logging it.
+pub fn tryOnceCallable(self: *Self, comptime S: type, callable: Callable) ConnectError!void {
+    if (self.connectOneShot(S, callable) != .ok) return ConnectError.AlreadyConnected;
+}
+
+fn connectOneShot(self: *Self, comptime S: type, callable: Callable) gdzig.global.Error {
     const flags: Object.ConnectFlags = .{ .connect_one_shot = true };
-    const result = self.connectRaw(signal_name.*, callable, .{ .flags = @bitCast(flags) });
-    if (result != .ok) return ConnectError.AlreadyConnected;
+    return self.connectRaw(StringName.fromSignal(S).*, callable, .{ .flags = @bitCast(flags) });
+}
+
+/// What the plain `connect`/`once` do with a refused connection.
+///
+/// Logged rather than returned, because the error set had exactly one member
+/// and every call site in this repo and the demo answered it with `catch {}`
+/// -- 54 of them. That is worse than not returning it at all: a duplicate
+/// connection is a real bug, and it fires the handler twice while the `catch`
+/// hides why. Naming the signal and the engine's own result makes it findable.
+///
+/// `tryConnect` and friends are there for the caller that genuinely wants to
+/// branch on it.
+fn report(comptime S: type, comptime what: []const u8, result: gdzig.global.Error) void {
+    if (result == .ok) return;
+    std.log.err(
+        "{s}: {s} refused ({s}) -- already connected, or this object has no such signal",
+        .{ @typeName(S), what, @tagName(result) },
+    );
 }
 
 /// Disconnects a signal from a method on `receiver`.
