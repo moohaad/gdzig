@@ -18,6 +18,16 @@ pub const ExtensionOptions = struct {
     minimum_initialization_level: InitializationLevel = .scene,
     target: Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    /// Which gdzig dependency to build against.
+    ///
+    /// Defaults to the one your `build.zig` declares, found by matching build
+    /// roots, which is right whenever there is exactly one. Pass it explicitly
+    /// when you build several *targets* in one invocation -- three Android ABIs
+    /// plus desktop, say. Each target needs its own `b.dependency("gdzig", ...)`,
+    /// and the lookup cannot tell which of them you meant: the entrypoint would
+    /// import one instance while your module imports another, and the build
+    /// fails with `file exists in modules 'gdzig' and 'gdzig0'`.
+    dependency: ?*Build.Dependency = null,
     /// For web builds, the Emscripten SDK path (optional, auto-fetched if not provided).
     emsdk_path: ?Build.LazyPath = null,
     /// For web builds, the Emscripten version to use.
@@ -61,7 +71,7 @@ pub const Extension = struct {
 ///
 /// Returns an ExtensionStep, or null if waiting for lazy dependencies.
 pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
-    const dep = getSelfDependency(b);
+    const dep = options.dependency orelse getSelfDependency(b);
     const is_wasm = options.target.result.cpu.arch.isWasm();
 
     if (options.godot_project) |project| addSceneImports(b, options.root_module, project);

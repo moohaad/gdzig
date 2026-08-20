@@ -106,20 +106,30 @@ const Variant = gdzig.builtin.Variant;
 
 pub const supported = builtin.os.tag == .windows;
 
-extern "kernel32" fn ConvertThreadToFiber(lpParameter: ?*anyopaque) callconv(.winapi) ?*anyopaque;
-/// `CreateFiberEx` rather than `CreateFiber`, which takes only a commit size
-/// and reserves whatever the *host executable's* PE header says -- Godot's
-/// number, not ours, and megabytes of address space per parked coroutine.
-extern "kernel32" fn CreateFiberEx(
-    dwStackCommitSize: usize,
-    dwStackReserveSize: usize,
-    dwFlags: u32,
-    lpStartAddress: *const fn (?*anyopaque) callconv(.winapi) void,
-    lpParameter: ?*anyopaque,
-) callconv(.winapi) ?*anyopaque;
-extern "kernel32" fn SwitchToFiber(lpFiber: *anyopaque) callconv(.winapi) void;
-extern "kernel32" fn DeleteFiber(lpFiber: *anyopaque) callconv(.winapi) void;
-extern "kernel32" fn IsThreadAFiber() callconv(.winapi) i32;
+/// The fiber API, declared only where it exists.
+///
+/// Behind a `supported` check rather than left at container scope: `.winapi`
+/// resolves per target, and on aarch64 it becomes `aarch64_aapcs_win`, which
+/// the LLVM backend rejects outright. A declaration nothing calls was still
+/// enough to fail the build -- so gdzig would not compile for arm64 Android or
+/// arm64 Linux at all, however carefully the caller guarded on `supported`.
+/// x86_64 happened to tolerate it, which is why this went unnoticed.
+const win32 = if (supported) struct {
+    extern "kernel32" fn ConvertThreadToFiber(lpParameter: ?*anyopaque) callconv(.winapi) ?*anyopaque;
+    /// `CreateFiberEx` rather than `CreateFiber`, which takes only a commit size
+    /// and reserves whatever the *host executable's* PE header says -- Godot's
+    /// number, not ours, and megabytes of address space per parked coroutine.
+    extern "kernel32" fn CreateFiberEx(
+        dwStackCommitSize: usize,
+        dwStackReserveSize: usize,
+        dwFlags: u32,
+        lpStartAddress: *const fn (?*anyopaque) callconv(.winapi) void,
+        lpParameter: ?*anyopaque,
+    ) callconv(.winapi) ?*anyopaque;
+    extern "kernel32" fn SwitchToFiber(lpFiber: *anyopaque) callconv(.winapi) void;
+    extern "kernel32" fn DeleteFiber(lpFiber: *anyopaque) callconv(.winapi) void;
+    extern "kernel32" fn IsThreadAFiber() callconv(.winapi) i32;
+} else struct {};
 
 /// `GetCurrentFiber` is a TEB macro rather than an exported symbol; on x86-64
 /// the fiber pointer lives at GS:[0x20].
@@ -304,7 +314,13 @@ pub const Coro = struct {
         unlinkLive(self);
         live_count -= 1;
         self.releaseParked();
-        if (self.fiber) |f| DeleteFiber(f);
+        // Guarded, not just because there is no fiber to delete off Windows,
+        // but because naming `DeleteFiber` at all fails to compile there --
+        // `destroy` is reachable from `cancelAll`, which teardown calls
+        // unconditionally.
+        if (comptime supported) {
+            if (self.fiber) |f| win32.DeleteFiber(f);
+        }
         self.free_frame(self.allocator, self.frame);
         self.allocator.destroy(self);
     }
@@ -366,7 +382,7 @@ pub const Handle = struct {
         self.task.joiners = coro;
         coro.state = .suspended;
 
-        SwitchToFiber(coro.caller.?);
+        win32.SwitchToFiber(coro.caller.?);
     }
 
     /// Whether the body has returned. False for a coroutine that is merely
@@ -502,10 +518,10 @@ fn create(
     };
 
     if (main_fiber == null) {
-        main_fiber = if (IsThreadAFiber() != 0) currentFiber() else ConvertThreadToFiber(null);
+        main_fiber = if (win32.IsThreadAFiber() != 0) currentFiber() else win32.ConvertThreadToFiber(null);
     }
 
-    coro.fiber = CreateFiberEx(default_stack_commit, default_stack_reserve, 0, &entry, @ptrCast(coro)) orelse {
+    coro.fiber = win32.CreateFiberEx(default_stack_commit, default_stack_reserve, 0, &entry, @ptrCast(coro)) orelse {
         allocator.destroy(frame);
         allocator.destroy(coro);
         return error.FiberCreationFailed;
@@ -536,7 +552,7 @@ fn enter(coro: *Coro) void {
     coro.state = .running;
     coro.caller = currentFiber().?;
 
-    SwitchToFiber(coro.fiber.?);
+    win32.SwitchToFiber(coro.fiber.?);
 
     current = previous;
     // Reclaimed here rather than inside the fiber: a fiber cannot delete
@@ -584,7 +600,7 @@ fn entry(param: ?*anyopaque) callconv(.winapi) void {
     // A fiber procedure must never return -- doing so ends the thread. The
     // loop is unreachable in practice: `enter` deletes this fiber as soon as
     // control is back with the caller.
-    while (true) SwitchToFiber(back);
+    while (true) win32.SwitchToFiber(back);
 }
 
 /// One parked `awaitSignal`, owned by the callable Godot holds onto.
@@ -781,7 +797,7 @@ fn park(obj: anytype, comptime S: type, result: *S, owned: ?*RefCounted) void {
     // Back to whoever entered this coroutine, not to the main stack: when a
     // coroutine spawns or resumes another, the entering fiber is the outer
     // coroutine's, and jumping past it would strand it mid-`enter`.
-    SwitchToFiber(coro.caller.?);
+    win32.SwitchToFiber(coro.caller.?);
 
     // Resumed. The callable that woke this coroutine is on its way out and its
     // `Waiter` goes with it, so the back-pointer must not outlive the park.
