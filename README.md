@@ -34,6 +34,10 @@ zig build -Dgodot-path=/absolute/path/to/godot   # must be absolute
 
 ## Starting a project
 
+New to gdzig? [doc/getting-started.md](doc/getting-started.md) walks this same setup
+end to end and finishes with a character you can drive with WASD. What follows is the
+condensed reference.
+
 There is no template to generate; a project is four files and a directory. The
 [example](example/) is the working reference for all of it.
 
