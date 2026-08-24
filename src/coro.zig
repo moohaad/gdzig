@@ -332,7 +332,7 @@ pub const Coro = struct {
         self.parked_ref = null;
         // The same two steps `Gd.deinit` takes, spelled out because what is
         // held here is a bare pointer rather than a handle.
-        if (ref.unreference()) Object.upcast(ref).destroy();
+        if (ref.unreference()) ref.destroy();
     }
 };
 
@@ -749,7 +749,7 @@ fn park(obj: anytype, comptime S: type, result: *S, owned: ?*RefCounted) void {
     const coro = current orelse {
         // The reference was handed over on the way in, so it has to go
         // somewhere even on the path that never parks.
-        if (owned) |ref| if (ref.unreference()) Object.upcast(ref).destroy();
+        if (owned) |ref| if (ref.unreference()) ref.destroy();
         @panic("gdzig.coro.awaitSignal called outside a coroutine; start one with gdzig.coro.spawn");
     };
     coro.parked_ref = owned;
