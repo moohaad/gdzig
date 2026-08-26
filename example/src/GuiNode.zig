@@ -2,8 +2,7 @@ const GuiNode = @This();
 
 pub fn register(r: *Registry) void {
     const class = r.createClass(GuiNode, r.allocator, .auto);
-    class.addMethod("on_pressed", .auto);
-    class.addMethod("on_toggled", .auto);
+    class.autoBind();
 }
 
 pub fn unregister(r: *Registry) void {

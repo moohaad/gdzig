@@ -1,23 +1,16 @@
 const SignalNode = @This();
 
+pub const signals = .{ Signal1, Signal2, Signal3 };
+
+pub const groups = .{
+    .{ "Colors", .{}, .{ "colors_signal2", "colors_signal3" } },
+};
+
 pub fn register(r: *Registry) void {
     const class = r.createClass(SignalNode, r.allocator, .auto);
-    class.addMethod("on_signal1", .auto);
-    class.addMethod("on_signal2", .auto);
-    class.addMethod("on_signal3", .auto);
-    class.addMethod("emit_signal1", .auto);
-    class.addMethod("emit_signal2", .auto);
-    class.addMethod("emit_signal3", .auto);
 
-    // Signals are defined as struct types with fields for each argument
-    class.addSignal(Signal1);
-    class.addSignal(Signal2);
-    class.addSignal(Signal3);
-
-    // Groups organize properties in the inspector
-    const colors = class.createGroup("Colors", .{});
-    colors.addProperty("colors_signal2", .auto);
-    colors.addProperty("colors_signal3", .auto);
+    // Automatically binds all methods, signals, properties, and groups
+    class.autoBind();
 }
 
 pub fn unregister(r: *Registry) void {

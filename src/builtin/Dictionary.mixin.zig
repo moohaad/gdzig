@@ -35,7 +35,7 @@ pub inline fn setTyped(
 ///
 /// _Since Godot 4.1_
 pub inline fn index(self: *Dictionary, key: *const Variant) *Variant {
-    return @ptrCast(raw.dictionaryOperatorIndex(self.ptr(), key.constPtr()));
+    return @ptrCast(@alignCast(raw.dictionaryOperatorIndex(self.ptr(), key.constPtr())));
 }
 
 /// Gets a const pointer to a Variant in a Dictionary with the given key.
@@ -44,7 +44,39 @@ pub inline fn index(self: *Dictionary, key: *const Variant) *Variant {
 ///
 /// _Since Godot 4.1_
 pub inline fn indexConst(self: *const Dictionary, key: *const Variant) *const Variant {
-    return @ptrCast(raw.dictionaryOperatorIndexConst(self.constPtr(), key.constPtr()));
+    return @ptrCast(@alignCast(raw.dictionaryOperatorIndexConst(self.constPtr(), key.constPtr())));
+}
+
+pub const Iterator = struct {
+    dict: *const Dictionary,
+    keys: Array,
+    index: usize = 0,
+
+    pub const Entry = struct {
+        key: *const Variant,
+        value: *const Variant,
+    };
+
+    pub fn next(self: *Iterator) ?Entry {
+        const sz = self.keys.size();
+        if (self.index < sz) {
+            const key = self.keys.indexConst(self.index);
+            const value = self.dict.indexConst(key);
+            self.index += 1;
+            return .{ .key = key, .value = value };
+        }
+        return null;
+    }
+    
+    pub fn deinit(self: *Iterator) void {
+        self.keys.deinit();
+    }
+};
+
+/// Returns an iterator over the key-value pairs of the dictionary.
+/// The returned iterator allocates an array of keys and MUST be `deinit()`ed.
+pub inline fn iterator(self: *const Dictionary) Iterator {
+    return .{ .dict = self, .keys = self.keys() };
 }
 
 // @mixin stop

@@ -12,8 +12,7 @@ pub fn fromClass(allocator: Allocator, class_name: []const u8, api: GodotApi.Cla
     errdefer self.deinit(allocator);
 
     self.name = blk: {
-        // TODO: normalize
-        break :blk try allocator.dupe(u8, api.name);
+        break :blk try casez.allocConvert(allocator, gdzig_case.property, api.name);
     };
     self.name_api = api.name;
     self.index = if (api.index < 0) null else @intCast(api.index);
@@ -35,6 +34,10 @@ pub fn deinit(self: *Property, allocator: Allocator) void {
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+
+const casez = @import("casez");
+const common = @import("common");
+const gdzig_case = common.gdzig_case;
 
 const Context = @import("../Context.zig");
 const Function = Context.Function;

@@ -307,6 +307,29 @@ pub inline fn indexConst(self: *const String, index_: usize) *const u32 {
     return @ptrCast(raw.stringOperatorIndexConst(self.constPtr(), @intCast(index_)));
 }
 
+/// Formats a string directly into a Godot String using `std.fmt.bufPrint`.
+/// If the output is less than 4096 bytes, it uses a fast stack buffer.
+/// Otherwise, it falls back to the heap using the engine allocator.
+pub fn print(self: *String, comptime fmt: []const u8, args: anytype) !void {
+    var stack_buf: [4096]u8 = undefined;
+    const result = std.fmt.bufPrint(&stack_buf, fmt, args) catch |err| switch (err) {
+        error.NoSpaceLeft => {
+            // Fallback to dynamic allocation
+            const dyn_str = try std.fmt.allocPrint(gdzig.engine_allocator, fmt, args);
+            defer gdzig.engine_allocator.free(dyn_str);
+            const str = try String.fromUtf8(dyn_str);
+            self.deinit();
+            self.* = str;
+            return;
+        },
+    };
+    const str = try String.fromUtf8(result);
+    self.deinit();
+    self.* = str;
+}
+
+
+
 // @mixin stop
 
 const Self = gdzig.builtin.String;

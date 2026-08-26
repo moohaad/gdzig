@@ -1,6 +1,6 @@
 # HEAD
 
-- **Updated dependencies**: Zig 0.14.1 and Godot 4.4 support
+- **Updated dependencies**: Zig 0.16.0 and Godot 4.7 support
 - **Fully commented bindgens**: All generated bindings include complete documentation from Godot's API for convenient ZLS hover docs
   - Comprehensive reference docs are also now available at https://gdzig.github.io/gdzig/
 - **Eliminated `usingnamespace`**: Generated explicit methods for parent class functionality

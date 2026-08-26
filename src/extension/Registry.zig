@@ -430,6 +430,143 @@ pub fn Class(comptime T: type) type {
             pub const auto: ConstCreateOptions = .{};
         };
 
+        fn camelToSnake(comptime s: []const u8) [:0]const u8 {
+            comptime {
+                @setEvalBranchQuota(100000);
+                var buf: [256]u8 = undefined;
+                var len: usize = 0;
+                for (s) |c| {
+                    if (c >= 'A' and c <= 'Z') {
+                        if (len > 0) { buf[len] = '_'; len += 1; }
+                        buf[len] = c - 'A' + 'a';
+                        len += 1;
+                    } else {
+                        buf[len] = c;
+                        len += 1;
+                    }
+                }
+                buf[len] = 0;
+                var final: [len:0]u8 = undefined;
+                for (buf[0..len], 0..) |char, i| final[i] = char;
+                final[len] = 0;
+                const final_const = final;
+                return &final_const;
+            }
+        }
+
+        /// Automatically registers public methods, properties, and signals for this class.
+        pub fn autoBind(self: *Self) void {
+            const info = @typeInfo(T);
+            if (info != .@"struct") return;
+
+            // Auto-bind signals
+            if (@hasDecl(T, "signals")) {
+                const signals = @field(T, "signals");
+                const sig_info = @typeInfo(@TypeOf(signals));
+                if (sig_info == .@"struct" and sig_info.@"struct".is_tuple) {
+                    inline for (sig_info.@"struct".fields) |field| {
+                        self.addSignal(@field(signals, field.name));
+                    }
+                }
+            }
+
+            // Auto-bind methods
+            inline for (info.@"struct".decls) |decl| {
+                const is_ignored = comptime std.mem.eql(u8, decl.name, "create") or
+                    std.mem.eql(u8, decl.name, "recreate") or
+                    std.mem.eql(u8, decl.name, "destroy") or
+                    std.mem.eql(u8, decl.name, "register") or
+                    std.mem.eql(u8, decl.name, "unregister") or
+                    std.mem.eql(u8, decl.name, "signals") or
+                    std.mem.eql(u8, decl.name, "properties") or
+                    std.mem.startsWith(u8, decl.name, "_");
+
+                if (!is_ignored) {
+                    const decl_info = @typeInfo(@TypeOf(@field(T, decl.name)));
+                    if (decl_info == .@"fn") {
+                        const method_info = decl_info.@"fn";
+                        if (method_info.params.len > 0) {
+                            const first_param = method_info.params[0].type;
+                            if (first_param == *T or first_param == *const T) {
+                                const snake_name = comptime camelToSnake(decl.name);
+                                self.addMethod(snake_name, .auto);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Auto-bind properties
+            if (@hasDecl(T, "properties")) {
+                const properties = @field(T, "properties");
+                const prop_info = @typeInfo(@TypeOf(properties));
+                if (prop_info == .@"struct" and prop_info.@"struct".is_tuple) {
+                    inline for (prop_info.@"struct".fields) |field| {
+                        const prop_val = @field(properties, field.name);
+                        const val_info = @typeInfo(@TypeOf(prop_val));
+                        if (val_info == .@"struct" and val_info.@"struct".is_tuple) {
+                            const name_str = prop_val[0];
+                            const options = comptime blk: {
+                                var opts = Property(T, name_str).CreateOptions{};
+                                const opts_info = @typeInfo(@TypeOf(prop_val[1])).@"struct";
+                                for (opts_info.fields) |f| {
+                                    @field(opts, f.name) = @field(prop_val[1], f.name);
+                                }
+                                break :blk opts;
+                            };
+                            self.addProperty(name_str, options);
+                        } else {
+                            self.addProperty(prop_val, .auto);
+                        }
+                    }
+                }
+            }
+
+            // Auto-bind property groups
+            if (@hasDecl(T, "groups")) {
+                const groups = @field(T, "groups");
+                const grp_info = @typeInfo(@TypeOf(groups));
+                if (grp_info == .@"struct" and grp_info.@"struct".is_tuple) {
+                    inline for (grp_info.@"struct".fields) |field| {
+                        const grp_val = @field(groups, field.name);
+                        const grp_name = grp_val[0];
+                        const grp_options = comptime blk: {
+                            var opts = Group(T).CreateOptions{};
+                            const opts_info = @typeInfo(@TypeOf(grp_val[1])).@"struct";
+                            for (opts_info.fields) |f| {
+                                @field(opts, f.name) = @field(grp_val[1], f.name);
+                            }
+                            break :blk opts;
+                        };
+                        const group = self.createGroup(grp_name, grp_options);
+                        
+                        const grp_props = grp_val[2];
+                        const props_info = @typeInfo(@TypeOf(grp_props));
+                        if (props_info == .@"struct" and props_info.@"struct".is_tuple) {
+                            inline for (props_info.@"struct".fields) |pfield| {
+                                const prop_val = @field(grp_props, pfield.name);
+                                const val_info = @typeInfo(@TypeOf(prop_val));
+                                if (val_info == .@"struct" and val_info.@"struct".is_tuple) {
+                                    const name_str = prop_val[0];
+                                    const options = comptime blk: {
+                                        var opts = Property(T, name_str).CreateOptions{};
+                                        const o_info = @typeInfo(@TypeOf(prop_val[1])).@"struct";
+                                        for (o_info.fields) |f| {
+                                            @field(opts, f.name) = @field(prop_val[1], f.name);
+                                        }
+                                        break :blk opts;
+                                    };
+                                    group.addProperty(name_str, options);
+                                } else {
+                                    group.addProperty(prop_val, .auto);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         //
         // Registration
         //

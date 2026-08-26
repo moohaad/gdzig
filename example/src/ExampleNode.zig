@@ -6,25 +6,20 @@ const Examples = [_]struct { name: [:0]const u8, T: type }{
     .{ .name = "Signals", .T = SignalNode },
 };
 
+pub const properties = .{
+    "banner",
+    "property1",
+    .{ "property2", .{ .setter = .none } },
+    .{ "speed", .{ .setter = .none } },
+};
+
 pub fn register(r: *Registry) void {
     // createClass returns a builder for adding methods, properties, signals
     // .auto uses defaults; override with .{ .level = .editor } etc.
     const class = r.createClass(ExampleNode, r.allocator, .auto);
 
-    // Methods auto-detect decl from snake_case name (on_timeout -> onTimeout)
-    class.addMethod("on_timeout", .auto);
-    class.addMethod("on_resized", .auto);
-    class.addMethod("on_item_focused", .auto);
-
-    // Properties auto-detect getter/setter from getX/setX methods or field
-    class.addProperty("banner", .auto);
-    class.addProperty("property1", .auto);
-    // Override to make read-only (no setter)
-    class.addProperty("property2", .{ .setter = .none });
-
-    // Reuse a method as a property getter
-    const get_speed = class.createMethod("get_speed", .auto);
-    class.addProperty("speed", .{ .getter = .{ .method = get_speed }, .setter = .none });
+    // Auto-register methods, signals, and properties defined in the `properties` tuple
+    class.autoBind();
 }
 
 pub fn unregister(r: *Registry) void {
@@ -91,10 +86,9 @@ pub fn _process(self: *ExampleNode, _: f64) void {
     const label_size = self.fps_counter.getSize();
     self.fps_counter.setPosition(.{ .x = @floatFromInt(25), .y = @as(f32, @floatFromInt(sz.y - 25)) - label_size.y }, .{});
 
-    var fps_buf: [64]u8 = undefined;
-    const fps = std.fmt.bufPrint(&fps_buf, "FPS: {d}", .{Engine.getFramesPerSecond()}) catch @panic("Failed to format FPS");
-    var fps_string = String.fromLatin1(fps);
+    var fps_string = String.empty;
     defer fps_string.deinit();
+    fps_string.print("FPS: {d}", .{Engine.getFramesPerSecond()}) catch @panic("Failed to format FPS");
 
     self.fps_counter.setText(fps_string);
 }
@@ -146,6 +140,22 @@ pub fn _enterTree(self: *ExampleNode) void {
     const variant: Variant = .init(*ExampleNode, obj);
     const result = variant.as(*ExampleNode).?;
     _ = result;
+
+    // test Type-Safe Scene Instantiation
+    if (godot.instantiateAs(ConfigNode, "res://config.tscn")) |config_node| {
+        std.log.info("Successfully instantiated config.tscn via instantiateAs", .{});
+        config_node.base.destroy();
+    }
+
+    // test Idiomatic Iterators
+    var test_array = godot.builtin.Array.init();
+    defer test_array.deinit();
+    test_array.append(.init(i64, 42));
+    test_array.append(.init(i64, 100));
+    var arr_it = test_array.iterator();
+    while (arr_it.next()) |item| {
+        std.log.info("Array item: {d}", .{ item.as(i64).? });
+    }
 
     //initialize fields
     self.example_node = null;

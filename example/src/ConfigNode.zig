@@ -13,12 +13,11 @@
 
 const ConfigNode = @This();
 
+pub const properties = .{ "startup_delay" };
+
 pub fn register(r: *Registry) void {
     const class = r.createClass(ConfigNode, r.allocator, .auto);
-    class.addProperty("startup_delay", .auto);
-    class.addMethod("build_tag", .auto);
-    class.addMethod("cache_epoch", .auto);
-    class.addMethod("typeof_probe", .auto);
+    class.autoBind();
 }
 
 /// A value the *code* decides, unlike `startup_delay`, which Godot serialises

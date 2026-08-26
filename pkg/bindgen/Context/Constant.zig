@@ -69,8 +69,7 @@ pub fn fromClass(allocator: Allocator, api: GodotApi.Class.Constant, ctx: *const
     var self: Constant = .{};
     errdefer self.deinit(allocator);
 
-    // TODO: normalization
-    self.name = try allocator.dupe(u8, api.name);
+    self.name = try casez.allocConvert(allocator, gdzig_case.constant, api.name);
     self.type = try .from(allocator, "int", false, ctx);
     self.value = try std.fmt.allocPrint(allocator, "{d}", .{api.value});
 

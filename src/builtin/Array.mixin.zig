@@ -25,7 +25,7 @@ pub inline fn setTyped(self: *Array, comptime T: type, script: ?*const Variant) 
 ///
 /// **Since Godot 4.1**
 pub inline fn index(self: *Array, index_: usize) *Variant {
-    return @ptrCast(raw.arrayOperatorIndex(self.ptr(), @intCast(index_)));
+    return @ptrCast(@alignCast(raw.arrayOperatorIndex(self.ptr(), @intCast(index_))));
 }
 
 /// Gets a const pointer to a Variant in an Array.
@@ -34,7 +34,27 @@ pub inline fn index(self: *Array, index_: usize) *Variant {
 ///
 /// **Since Godot 4.1**
 pub inline fn indexConst(self: *const Array, index_: usize) *const Variant {
-    return @ptrCast(raw.arrayOperatorIndexConst(self.constPtr(), @intCast(index_)));
+    return @ptrCast(@alignCast(raw.arrayOperatorIndexConst(self.constPtr(), @intCast(index_))));
+}
+
+pub const Iterator = struct {
+    array: *const Array,
+    index: usize = 0,
+
+    pub fn next(self: *Iterator) ?*const Variant {
+        const sz = self.array.size();
+        if (self.index < sz) {
+            const val = self.array.indexConst(self.index);
+            self.index += 1;
+            return val;
+        }
+        return null;
+    }
+};
+
+/// Returns an iterator over the elements of the array.
+pub inline fn iterator(self: *const Array) Iterator {
+    return .{ .array = self };
 }
 
 // @mixin stop

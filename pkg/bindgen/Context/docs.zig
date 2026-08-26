@@ -77,38 +77,21 @@ pub const DocumentContext = struct {
 
     pub fn resolveSymbol(self: DocumentContext, symbol: []const u8, symbol_type: Element) ?[]const u8 {
         return switch (symbol_type) {
-            .@"enum" => self.resolveEnum(symbol),
-            .method => self.resolveMethod(symbol),
+            .@"enum", .method, .constant, .member, .annotation => self.resolveGeneric(symbol),
             else => null,
         };
     }
 
-    fn resolveEnum(self: DocumentContext, enum_name: []const u8) ?Symbol {
+    fn resolveGeneric(self: DocumentContext, name: []const u8) ?Symbol {
         if (self.current_class) |class_name| {
-            const qualified = std.fmt.allocPrint(self.codegen_ctx.rawAllocator(), "{s}.{s}", .{ class_name, enum_name }) catch return null;
+            const qualified = std.fmt.allocPrint(self.codegen_ctx.rawAllocator(), "{s}.{s}", .{ class_name, name }) catch return null;
             defer self.codegen_ctx.rawAllocator().free(qualified);
 
-            // Check if this qualified name exists in symbol_lookup
             if (self.symbolLookup(qualified)) |symbol| {
                 return symbol;
             }
         }
-        // Fall back to global lookup
-        return self.symbolLookup(enum_name);
-    }
-
-    fn resolveMethod(self: *const DocumentContext, method_name: []const u8) ?Symbol {
-        if (self.current_class) |class_name| {
-            const qualified = std.fmt.allocPrint(self.codegen_ctx.rawAllocator(), "{s}.{s}", .{ class_name, method_name }) catch return null;
-            defer self.codegen_ctx.rawAllocator().free(qualified);
-
-            // Check if this qualified name exists in symbol_lookup
-            if (self.symbolLookup(qualified)) |symbol| {
-                return symbol;
-            }
-        }
-        // Fall back to global lookup
-        return self.symbolLookup(method_name);
+        return self.symbolLookup(name);
     }
 
     pub fn symbolLookup(self: DocumentContext, key: []const u8) ?Symbol {
@@ -127,8 +110,14 @@ pub const DocumentContext = struct {
     }
 
     pub fn writeAnnotation(self: DocumentContext, node: Node) anyerror!bool {
-        // TODO: make it a link
         const annotation_name = try node.getValue() orelse return false;
+        
+        if (self.resolveGeneric(annotation_name)) |symbol| {
+            if (try self.writeSymbolLink(symbol)) {
+                return true;
+            }
+        }
+
         try self.writer.print("`{s}`", .{annotation_name});
         return true;
     }
@@ -136,7 +125,7 @@ pub const DocumentContext = struct {
     pub fn writeEnum(self: DocumentContext, node: Node) anyerror!bool {
         const enum_name = try node.getValue() orelse return false;
 
-        if (self.resolveEnum(enum_name)) |symbol| {
+        if (self.resolveGeneric(enum_name)) |symbol| {
             if (try self.writeSymbolLink(symbol)) {
                 return true;
             }
@@ -150,14 +139,27 @@ pub const DocumentContext = struct {
     }
 
     pub fn writeConstant(self: DocumentContext, node: Node) anyerror!bool {
-        // TODO: make it a link
         const constant_name = try node.getValue() orelse return false;
+
+        if (self.resolveGeneric(constant_name)) |symbol| {
+            if (try self.writeSymbolLink(symbol)) {
+                return true;
+            }
+        }
+
         try self.writer.print("`{s}`", .{constant_name});
         return true;
     }
 
     pub fn writeMember(self: DocumentContext, node: Node) anyerror!bool {
         const member_name = try node.getValue() orelse return false;
+
+        if (self.resolveGeneric(member_name)) |symbol| {
+            if (try self.writeSymbolLink(symbol)) {
+                return true;
+            }
+        }
+
         try self.writer.print("`{s}`", .{member_name});
         return true;
     }
@@ -165,7 +167,7 @@ pub const DocumentContext = struct {
     pub fn writeMethod(self: DocumentContext, node: Node) anyerror!bool {
         const method_name = try node.getValue() orelse return false;
 
-        if (self.resolveMethod(method_name)) |symbol| {
+        if (self.resolveGeneric(method_name)) |symbol| {
             if (try self.writeSymbolLink(symbol)) {
                 return true;
             }

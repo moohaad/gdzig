@@ -20,6 +20,7 @@ pub const gdzig_case = struct {
     pub const file: Config = .with(.snake, .{ .dictionary = dictionary });
     pub const func: Config = .with(.camel, .{ .dictionary = dictionary });
     pub const method: Config = .with(.camel, .{ .dictionary = dictionary });
+    pub const property: Config = .with(.camel, .{ .dictionary = dictionary });
     pub const signal: Config = .with(.pascal, .{ .dictionary = dictionary });
     pub const @"type": Config = .with(.pascal, .{ .dictionary = dictionary });
     pub const virtual_method: Config = .with(.camel, .{
@@ -107,6 +108,17 @@ test "virtual method conversion" {
     }) |case| {
         try testing.expectEqualStrings(case[0], comptimeConvert(godot_case.virtual_method, case[1]));
         try testing.expectEqualStrings(case[1], comptimeConvert(gdzig_case.virtual_method, case[0]));
+    }
+}
+
+test "property name conversion" {
+    inline for (&.{
+        // .{ godot, gdzig }
+        .{ "max_length", "maxLength" },
+        .{ "custom_minimum_size", "customMinimumSize" },
+    }) |case| {
+        try testing.expectEqualStrings(case[0], comptimeConvert(godot_case.property, case[1]));
+        try testing.expectEqualStrings(case[1], comptimeConvert(gdzig_case.property, case[0]));
     }
 }
 

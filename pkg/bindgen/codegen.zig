@@ -1863,6 +1863,7 @@ fn writeImports(w: *CodeWriter, imports: *const Context.Imports, class: ?*const 
     var classes: std.ArrayList([]const u8) = .empty;
     var globals: std.ArrayList([]const u8) = .empty;
     var typedefs: std.ArrayList([]const u8) = .empty;
+    var natives: std.ArrayList([]const u8) = .empty;
     const allocator = ctx.arena.allocator();
 
     var iter = imports.iterator();
@@ -1886,8 +1887,10 @@ fn writeImports(w: *CodeWriter, imports: *const Context.Imports, class: ?*const 
             try globals.append(allocator, import.*);
         } else if (ctx.dispatch_table.typedefs.contains(import.*)) {
             try typedefs.append(allocator, import.*);
+        } else if (ctx.native_structures.contains(import.*)) {
+            try natives.append(allocator, import.*);
         } else {
-            // TODO: native structures?
+            // Unrecognized import, likely an error in bindgen logic
         }
     }
 
@@ -1902,6 +1905,7 @@ fn writeImports(w: *CodeWriter, imports: *const Context.Imports, class: ?*const 
     std.mem.sort([]const u8, classes.items, {}, sortFn);
     std.mem.sort([]const u8, globals.items, {}, sortFn);
     std.mem.sort([]const u8, typedefs.items, {}, sortFn);
+    std.mem.sort([]const u8, natives.items, {}, sortFn);
 
     // c (gdextension)
     try w.writeLine(
@@ -1950,6 +1954,14 @@ fn writeImports(w: *CodeWriter, imports: *const Context.Imports, class: ?*const 
             if (c.hasCollision(name)) continue;
         }
         try w.printLine("const {0s} = gdzig.global.{0s};", .{name});
+    }
+    for (natives.items) |api_name| {
+        const name = if (ctx.native_structures.get(api_name)) |n| n.name else api_name;
+        // Check if this name collides with a signal/enum/flag in the class
+        if (class) |c| {
+            if (c.hasCollision(name)) continue;
+        }
+        try w.printLine("const {0s} = gdzig.native.{0s};", .{name});
     }
 }
 

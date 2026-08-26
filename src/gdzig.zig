@@ -175,3 +175,74 @@ test {
 }
 
 const std = @import("std");
+
+/// Automatically resolves `@onready` emulation for a given struct instance.
+/// 
+/// Evaluates the `pub const onready = .{ .{ "field", "NodePath" } };` tuple
+/// and populates the fields via `self.base.getNodeOrNull` and `class.castTo`.
+pub fn resolveOnReady(self: anytype) void {
+    const T = @TypeOf(self);
+    const ChildT = std.meta.Child(T);
+    if (!@hasDecl(ChildT, "onready")) return;
+
+    const onready = @field(ChildT, "onready");
+    const info = @typeInfo(@TypeOf(onready));
+    if (info == .@"struct" and info.@"struct".is_tuple) {
+        inline for (info.@"struct".fields) |field| {
+            const entry = @field(onready, field.name);
+            const prop_name = entry[0];
+            const node_path = entry[1];
+            
+            const PropType = @TypeOf(@field(self, prop_name));
+            const is_optional = @typeInfo(PropType) == .optional;
+            const PtrType = if (is_optional) std.meta.Child(PropType) else PropType;
+            
+            var godot_str = builtin.String.initUtf8(node_path) catch unreachable;
+            defer godot_str.deinit();
+            var path = builtin.NodePath.fromString(godot_str);
+            defer path.deinit();
+            
+            if (self.base.getNodeOrNull(path)) |node| {
+                if (class.castTo(std.meta.Child(PtrType), node)) |cast_node| {
+                    @field(self, prop_name) = cast_node;
+                }
+            }
+        }
+    }
+}
+
+/// Loads a PackedScene from the given path, instantiates it, and safely downcasts
+/// it to the requested type `T`. If the load or cast fails, it will free the 
+/// instantiated node (if it was created) and return `null`.
+pub fn instantiateAs(comptime T: type, comptime path: [:0]const u8) ?*T {
+    var pscene = load(class.PackedScene, path) orelse return null;
+    defer pscene.deinit();
+    
+    var instance = pscene.get().instantiate(.{}) orelse return null;
+    if (class.castTo(T, instance)) |narrowed| {
+        return narrowed;
+    }
+    
+    instance.destroy();
+    return null;
+}
+
+/// Safely calls an RPC on a node, automatically converting the method name to a StringName
+/// and expanding the arguments tuple.
+pub fn callRpc(self: anytype, comptime method_name: [:0]const u8, args: anytype) void {
+    var method_sn = builtin.StringName.fromLatin1(method_name);
+    defer method_sn.deinit();
+    
+    const node = class.castTo(class.Node, self.base) orelse return;
+    _ = @call(.auto, class.Node.rpc, .{ node, method_sn } ++ args) catch {};
+}
+
+/// Safely calls an RPC on a specific peer, automatically converting the method name to a StringName
+/// and expanding the arguments tuple.
+pub fn callRpcId(self: anytype, peer_id: i64, comptime method_name: [:0]const u8, args: anytype) void {
+    var method_sn = builtin.StringName.fromLatin1(method_name);
+    defer method_sn.deinit();
+    
+    const node = class.castTo(class.Node, self.base) orelse return;
+    _ = @call(.auto, class.Node.rpcId, .{ node, peer_id, method_sn } ++ args) catch {};
+}

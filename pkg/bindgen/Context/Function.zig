@@ -364,8 +364,6 @@ pub fn fromClass(allocator: Allocator, class_name: []const u8, has_singleton: bo
         );
     } else .void;
 
-    // TODO: default return values? rv.default_value
-
     return self;
 }
 

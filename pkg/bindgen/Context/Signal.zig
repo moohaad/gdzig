@@ -10,8 +10,7 @@ pub fn fromClass(allocator: Allocator, class_name: []const u8, api: GodotApi.Cla
     var self = Signal{};
 
     self.name = blk: {
-        // TODO: normalize
-        break :blk try allocator.dupe(u8, api.name);
+        break :blk try casez.allocConvert(allocator, gdzig_case.signal, api.name);
     };
     self.name_api = api.name;
 
@@ -47,8 +46,7 @@ pub const Parameter = struct {
         var self = Parameter{};
 
         self.name = blk: {
-            // TODO: normalize
-            break :blk try allocator.dupe(u8, api.name);
+            break :blk try casez.allocConvert(allocator, gdzig_case.property, api.name);
         };
         self.type = try Type.from(allocator, api.type, false, ctx);
 
