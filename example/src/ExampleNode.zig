@@ -149,12 +149,23 @@ pub fn _enterTree(self: *ExampleNode) void {
 
     // test Idiomatic Iterators
     var test_array = godot.builtin.Array.init();
-    defer test_array.deinit();
+    defer godot.cleanup(&test_array);
     test_array.append(.init(i64, 42));
     test_array.append(.init(i64, 100));
     var arr_it = test_array.iterator();
     while (arr_it.next()) |item| {
         std.log.info("Array item: {d}", .{ item.as(i64).? });
+    }
+
+    // test Phase 3 features
+    const test_path = godot.path("Player/Camera");
+    const test_name = godot.name("ui_accept");
+    _ = test_path;
+    _ = test_name;
+
+    const Actions = enum { ui_accept, ui_cancel };
+    if (godot.input.isActionPressed(Actions.ui_accept)) {
+        std.log.info("ui_accept pressed!", .{});
     }
 
     //initialize fields

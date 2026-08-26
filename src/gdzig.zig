@@ -37,6 +37,7 @@ pub const Scene = @import("scene.zig").Scene;
 pub const rpc = @import("rpc.zig");
 pub const coro = @import("coro.zig");
 pub const load = @import("load.zig").load;
+pub const input = @import("input.zig");
 
 const DispatchTable = @import("DispatchTable.zig");
 
@@ -197,12 +198,12 @@ pub fn resolveOnReady(self: anytype) void {
             const is_optional = @typeInfo(PropType) == .optional;
             const PtrType = if (is_optional) std.meta.Child(PropType) else PropType;
             
-            var godot_str = builtin.String.initUtf8(node_path) catch unreachable;
+            var godot_str = builtin.String.fromNullTerminatedUtf8(node_path);
             defer godot_str.deinit();
-            var path = builtin.NodePath.fromString(godot_str);
-            defer path.deinit();
+            var node_path_obj = builtin.NodePath.fromString(godot_str);
+            defer node_path_obj.deinit();
             
-            if (self.base.getNodeOrNull(path)) |node| {
+            if (self.base.getNodeOrNull(node_path_obj)) |node| {
                 if (class.castTo(std.meta.Child(PtrType), node)) |cast_node| {
                     @field(self, prop_name) = cast_node;
                 }
@@ -214,8 +215,8 @@ pub fn resolveOnReady(self: anytype) void {
 /// Loads a PackedScene from the given path, instantiates it, and safely downcasts
 /// it to the requested type `T`. If the load or cast fails, it will free the 
 /// instantiated node (if it was created) and return `null`.
-pub fn instantiateAs(comptime T: type, comptime path: [:0]const u8) ?*T {
-    var pscene = load(class.PackedScene, path) orelse return null;
+pub fn instantiateAs(comptime T: type, comptime scene_path: [:0]const u8) ?*T {
+    var pscene = load(class.PackedScene, scene_path) orelse return null;
     defer pscene.deinit();
     
     var instance = pscene.get().instantiate(.{}) orelse return null;
@@ -245,4 +246,47 @@ pub fn callRpcId(self: anytype, peer_id: i64, comptime method_name: [:0]const u8
     
     const node = class.castTo(class.Node, self.base) orelse return;
     _ = @call(.auto, class.Node.rpcId, .{ node, peer_id, method_sn } ++ args) catch {};
+}
+
+/// Creates or fetches an interned StringName from a comptime string.
+pub inline fn name(comptime str: [:0]const u8) builtin.StringName {
+    return builtin.StringName.interned(str);
+}
+
+/// Creates or fetches an interned NodePath from a comptime string.
+pub inline fn path(comptime str: [:0]const u8) builtin.NodePath {
+    return builtin.NodePath.interned(str);
+}
+
+/// A universal cleanup method. Safely calls `unreference`, `destroy`, or `deinit`
+/// depending on the type of the object. Prevents memory leaks.
+pub fn cleanup(obj: anytype) void {
+    const T = @TypeOf(obj);
+    if (@typeInfo(T) == .pointer) {
+        const ChildT = std.meta.Child(T);
+        if (@hasDecl(ChildT, "unreference")) {
+            if (obj.unreference()) {
+                obj.destroy();
+            }
+            return;
+        }
+        if (@hasDecl(ChildT, "destroy")) {
+            obj.destroy();
+            return;
+        }
+        if (@hasDecl(ChildT, "deinit")) {
+            obj.deinit();
+            return;
+        }
+        // If it's a Gd(T) wrapped refcounted object.
+        if (@hasDecl(T, "deinit")) {
+            obj.deinit();
+            return;
+        }
+    } else {
+        if (@hasDecl(T, "deinit")) {
+            var o = obj;
+            o.deinit();
+        }
+    }
 }
