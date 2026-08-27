@@ -27,7 +27,6 @@ fn ensureRegistered() void {
 }
 
 const AutoBindNode = struct {
-    allocator: Allocator,
     base: *Object,
 
     /// Bound because it is a field, and nothing names it anywhere else.
@@ -42,6 +41,11 @@ const AutoBindNode = struct {
     /// Underscored, which is how a field stays out of the inspector.
     _internal: i64 = 99,
 
+    /// Has a `getComputed` beside it, which is what a property getter written
+    /// by hand looks like. The default is deliberately not what the getter
+    /// returns, so a test can tell which of the two was used.
+    computed: i64 = 3,
+
     /// Only what needs options. A bare name here would say nothing that the
     /// field does not already say.
     pub const properties = .{
@@ -51,6 +55,33 @@ const AutoBindNode = struct {
     pub const groups = .{
         .{ "Grouped", .{}, .{"grouped_value"} },
     };
+
+    /// Named like `read_only`'s setter, and `read_only` is declared
+    /// `.setter = .none`. Binding this as an ordinary method would put a
+    /// `set_read_only` on the class anyway, so the option would say one thing
+    /// and the class surface another.
+    pub fn setReadOnly(self: *AutoBindNode, value: i64) void {
+        self.read_only = value;
+    }
+
+    /// The getter for `computed`, not a method in its own right.
+    pub fn getComputed(_: *AutoBindNode) i64 {
+        return 99;
+    }
+
+    /// Hand-written, like the other suites': gdzig would synthesise one, but a
+    /// test needs to reach it by name. `autoBind` ignores it either way.
+    pub fn create() !*AutoBindNode {
+        const self = try allocator.create(AutoBindNode);
+        self.* = .{ .base = Object.init() };
+        self.base.setInstance(AutoBindNode, self);
+        return self;
+    }
+
+    pub fn destroy(self: *AutoBindNode) void {
+        self.base.destroy();
+        allocator.destroy(self);
+    }
 
     /// Bound as `double_it`.
     pub fn doubleIt(self: *AutoBindNode) i64 {
@@ -151,10 +182,29 @@ fn countProperty(comptime name: [:0]const u8) usize {
 
 const std = @import("std");
 const testing = std.testing;
-const Allocator = std.mem.Allocator;
 
 const gdzig = @import("gdzig");
+const allocator = gdzig.testing.allocator;
 const ClassDb = gdzig.class.ClassDb;
 const Object = gdzig.class.Object;
 const Dictionary = gdzig.builtin.Dictionary;
+const StringName = gdzig.builtin.StringName;
 const String = gdzig.builtin.String;
+
+test "a `getX` decl beside a field becomes that property's getter, not a second method" {
+    ensureRegistered();
+
+    // Bound once. Before this was handled, the method loop registered
+    // `get_computed` and the property registered it again, Godot refused the
+    // second, and which one survived was down to ordering.
+    try testing.expect(hasMethod("get_computed"));
+    try testing.expectEqual(@as(usize, 1), countProperty("computed"));
+
+    // And the decl is what runs: reading the property gives the getter's 99
+    // rather than the field's 3.
+    const node = try AutoBindNode.create();
+    defer node.destroy();
+
+    const value = Object.upcast(node).get(StringName.fromComptimeLatin1("computed").*);
+    try testing.expectEqual(@as(i64, 99), value.as(i64).?);
+}

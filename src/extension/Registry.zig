@@ -441,6 +441,36 @@ pub fn Class(comptime T: type) type {
             pub const auto: ConstCreateOptions = .{};
         };
 
+        /// Whether a method name is really a property accessor -- `get_speed`
+        /// for a `speed` property -- and so already bound by that property.
+        fn isPropertyAccessor(comptime method_name: []const u8) bool {
+            const prop = if (std.mem.startsWith(u8, method_name, "get_"))
+                method_name["get_".len..]
+            else if (std.mem.startsWith(u8, method_name, "set_"))
+                method_name["set_".len..]
+            else
+                return false;
+            return bindsProperty(prop);
+        }
+
+        /// Whether `autoBind` will bind a property of this name: one the
+        /// `properties` tuple or a `groups` entry carries, or a field it takes
+        /// on its own.
+        fn bindsProperty(comptime prop: []const u8) bool {
+            if (isBoundByName(prop)) return true;
+            const info = @typeInfo(T);
+            if (info != .@"struct") return false;
+            inline for (info.@"struct".fields) |field| {
+                if (!std.mem.eql(u8, field.name, prop)) continue;
+                if (std.mem.eql(u8, field.name, "allocator")) return false;
+                if (std.mem.eql(u8, field.name, "base")) return false;
+                if (std.mem.eql(u8, field.name, "bus")) return false;
+                if (std.mem.startsWith(u8, field.name, "_")) return false;
+                return gdzig.builtin.Variant.Tag.forTypeOrNull(field.type) != null;
+            }
+            return false;
+        }
+
         /// Whether `name` is bound by `T`'s `properties` tuple or by one of its
         /// `groups`, either of which carries the property's own options.
         fn isBoundByName(comptime name: []const u8) bool {
@@ -546,7 +576,15 @@ pub fn Class(comptime T: type) type {
                             const first_param = method_info.params[0].type;
                             if (first_param == *T or first_param == *const T) {
                                 const snake_name = comptime camelToSnake(decl.name);
-                                self.addMethod(snake_name, .auto);
+                                // A `getSpeed` beside a `speed` property *is*
+                                // that property's getter: `autoDetectGetter`
+                                // prefers the decl over the field. Binding it
+                                // here as well registers `get_speed` twice, and
+                                // Godot refuses the second. Leave it to the
+                                // property, which runs the same body.
+                                if (comptime !isPropertyAccessor(snake_name)) {
+                                    self.addMethod(snake_name, .auto);
+                                }
                             }
                         }
                     }
