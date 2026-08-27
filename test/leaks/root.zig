@@ -24,7 +24,7 @@ test "Variant return from bound method holds a reference to borrowed RefCounted"
 
     try testing.expectEqual(@as(i32, 1), node.resource.getReferenceCount());
 
-    var result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_borrowed_resource").*, .{});
+    var result = gdzig.call(node, "get_borrowed_resource", .{});
     try testing.expectEqual(node.resource, result.as(*Resource).?);
     try testing.expectEqual(@as(i32, 2), node.resource.getReferenceCount());
 

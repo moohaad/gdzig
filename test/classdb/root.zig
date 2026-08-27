@@ -184,11 +184,11 @@ test "a method called with too few arguments is rejected, not run on garbage" {
 
     // `add_value` takes one argument. Supplying none used to leave the
     // parameter `undefined` -- 0xAA... in Debug -- and run the body anyway.
-    const before = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_counter").*, .{});
-    var ignored = Object.call(.upcast(node), StringName.fromComptimeLatin1("add_value").*, .{});
+    const before = gdzig.call(node, "get_counter", .{});
+    var ignored = gdzig.call(node, "add_value", .{});
     ignored.deinit();
 
-    const after = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_counter").*, .{});
+    const after = gdzig.call(node, "get_counter", .{});
     try testing.expectEqual(before.as(i64), after.as(i64));
 }
 
@@ -216,15 +216,15 @@ test "create custom class and call methods" {
     const node = try TestNode.create();
     defer node.base.destroy();
 
-    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("increment").*, .{});
+    _ = gdzig.call(node, "increment", .{});
 
-    var result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_counter").*, .{});
+    var result = gdzig.call(node, "get_counter", .{});
     try testing.expectEqual(@as(i64, 1), result.as(i64).?);
 
-    result = Object.call(.upcast(node), StringName.fromComptimeLatin1("add_value").*, .{@as(i64, 10)});
+    result = gdzig.call(node, "add_value", .{@as(i64, 10)});
     try testing.expectEqual(@as(i64, 11), result.as(i64).?);
 
-    result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_counter").*, .{});
+    result = gdzig.call(node, "get_counter", .{});
     try testing.expectEqual(@as(i64, 11), result.as(i64).?);
 }
 
@@ -234,12 +234,12 @@ test "custom class properties" {
     const node = try TestNode.create();
     defer node.base.destroy();
 
-    var result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_my_property").*, .{});
+    var result = gdzig.call(node, "get_my_property", .{});
     try testing.expectEqual(@as(i64, 42), result.as(i64).?);
 
-    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("set_my_property").*, .{@as(i64, 100)});
+    _ = gdzig.call(node, "set_my_property", .{@as(i64, 100)});
 
-    result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_my_property").*, .{});
+    result = gdzig.call(node, "get_my_property", .{});
     try testing.expectEqual(@as(i64, 100), result.as(i64).?);
 }
 
@@ -252,12 +252,12 @@ test "indexed properties" {
     const node = try TestNode.create();
     defer node.base.destroy();
 
-    var result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_indexed_value").*, .{@as(i64, 1)});
+    var result = gdzig.call(node, "get_indexed_value", .{@as(i64, 1)});
     try testing.expectEqual(@as(i64, 200), result.as(i64).?);
 
-    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("set_indexed_value").*, .{ @as(i64, 1), @as(i64, 999) });
+    _ = gdzig.call(node, "set_indexed_value", .{ @as(i64, 1), @as(i64, 999) });
 
-    result = Object.call(.upcast(node), StringName.fromComptimeLatin1("get_indexed_value").*, .{@as(i64, 1)});
+    result = gdzig.call(node, "get_indexed_value", .{@as(i64, 1)});
     try testing.expectEqual(@as(i64, 999), result.as(i64).?);
 }
 
@@ -341,14 +341,14 @@ test "a registered method accepts a nullable object, null included" {
     // A real object arrives as itself.
     const other = Node.init();
     defer other.destroy();
-    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("take_optional_node").*, .{other});
+    _ = gdzig.call(node, "take_optional_node", .{other});
     try testing.expectEqual(@as(i64, 1), node.counter);
 
     // And null arrives as null, rather than being rejected as an unconvertible
     // argument, which is what made this worth fixing.
     var nil: Variant = .nil;
     defer nil.deinit();
-    _ = Object.call(.upcast(node), StringName.fromComptimeLatin1("take_optional_node").*, .{nil});
+    _ = gdzig.call(node, "take_optional_node", .{nil});
     try testing.expectEqual(@as(i64, -1), node.counter);
 }
 
@@ -375,14 +375,14 @@ test "an optional object parameter narrows to the declared class" {
     // it anyway, typed as something it is not.
     const plain = Node.init();
     defer plain.destroy();
-    _ = Object.call(.upcast(node), name, .{plain});
-    var result = Object.call(.upcast(node), counter, .{});
+    _ = gdzig.call(node, name, .{plain});
+    var result = gdzig.call(node, counter, .{});
     try testing.expectEqual(@as(i64, -1), result.as(i64).?);
 
     // A real Node3D arrives as itself.
     const spatial = Node3d.init();
     defer spatial.destroy();
-    _ = Object.call(.upcast(node), name, .{spatial});
-    result = Object.call(.upcast(node), counter, .{});
+    _ = gdzig.call(node, name, .{spatial});
+    result = gdzig.call(node, counter, .{});
     try testing.expectEqual(@as(i64, 1), result.as(i64).?);
 }

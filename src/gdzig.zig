@@ -302,6 +302,36 @@ pub fn cleanup(obj: anytype) void {
     }
 }
 
+/// Calls a method by name on whatever engine object `receiver` carries.
+///
+/// `Object.call` wants a `*Object`. When your class holds the engine object
+/// directly that is just `self.base.call(...)` -- `call` is flattened onto every
+/// engine class. But a class deriving from another of yours has a *struct* at
+/// `base`, and that struct has no `call`, so reaching the object means writing
+/// `Object.upcast(self)` at the call site.
+///
+/// This takes either shape, and an owning handle too, and walks to the object
+/// itself:
+///
+/// ```zig
+/// const hp = godot.call(enemy, "get_health", .{}).as(i64).?;
+/// ```
+///
+/// Prefer calling the method directly when you can. This is for the cases where
+/// the name is the only handle you have on it: a method on a GDScript node, one
+/// resolved at runtime, or one reached generically.
+pub inline fn call(receiver: anytype, method: anytype, args: anytype) builtin.Variant {
+    return class.upcast(*class.Object, receiver).call(method, args);
+}
+
+/// `call`, run at the end of the frame instead of now.
+///
+/// The scene tree is not safe to restructure mid-signal; this is how a handler
+/// asks for something that has to wait until it is.
+pub inline fn callDeferred(receiver: anytype, method: anytype, args: anytype) builtin.Variant {
+    return class.upcast(*class.Object, receiver).callDeferred(method, args);
+}
+
 /// A wrapper for ergonomic signal connection and emission.
 pub fn SignalBinder(comptime OwnerT: type, comptime SignalT: type) type {
     return struct {
