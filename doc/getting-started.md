@@ -311,8 +311,10 @@ and `getViewport` are declared on different ancestors, but the bindgen re-emits 
 inherited method onto each generated class with the concrete receiver type. So
 `self.base.getViewport()` resolves even though `getViewport` is a `Node` method.
 `Node.upcast(self.base).getViewport()` also works and does the same thing — it is just
-noise. You *do* need `upcast` for your own classes: a user class is a plain Zig struct,
-so nothing is flattened onto it, and `Object.upcast(self).destroy()` is the only way in.
+noise. You *do* need it for your own classes: a user class is a plain Zig struct, so
+nothing is flattened onto it and `Object.upcast(self)` is the way to the engine object --
+though `gdzig.call(self, "name", .{})` and `godot.cleanup(self)` cover the common reasons
+without naming it. [what-gdzig-gives-you.md](what-gdzig-gives-you.md) has the full rule.
 
 **Actions are enum variants, not strings.** `godot.input` rejects anything else at
 comptime, which keeps the set of actions a node reads in one declaration instead of

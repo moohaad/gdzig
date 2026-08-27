@@ -31,6 +31,21 @@ breaks the build instead of failing at runtime. Needs `godot_project` set in `ad
 `Child` remains right for what a scene cannot type: an instanced sub-scene, a node added at
 runtime, or a node reached before it enters the tree.
 
+Four shapes in all, and which applies depends only on what you know at compile time:
+
+| you know | use |
+|---|---|
+| the path and the type | `Child(T, "path")` |
+| the target is the parent | `Parent(T)` |
+| the path only at runtime | `node.getNodeAs(T, path)` |
+| only that you want every `T` | `node.childrenAs(T)` |
+
+The first two are fields: resolved once before `_ready`, and the log names the field and path
+when the scene disagrees. The last two are calls, and answer with null or with nothing instead
+of complaining -- a missing node, or a child of some other type, is the ordinary case there.
+
+None of them ends in a cast, which is the point. `getNode` can only promise `?*Node`.
+
 ## "I need the autoload"
 
 ```zig
@@ -104,6 +119,36 @@ Nothing. Every generated class parameter is `anytype` and upcasts on the way in,
 You still write `upcast` where a *declared type* demands it -- a struct field typed `*Node`, a
 `const x: *Node =`, or `Variant.init(?*Node, ...)`. Zig has no implicit pointer coercion and a
 struct field cannot be `anytype`, so those stay.
+
+## "Do I need `upcast` to call an inherited method?"
+
+No. The bindgen re-emits every inherited method onto each generated class with the concrete
+receiver type, so `self.base.getViewport()` resolves even though `getViewport` belongs to
+`Node`. `Node.upcast(self.base).getViewport()` compiles and does exactly the same thing; it is
+noise, and it is the most common thing to write by mistake.
+
+Where it is not noise:
+
+* **your own classes** -- a plain Zig struct, with nothing flattened onto it. `Object.upcast(self)`
+  is the way to the engine object, or `gdzig.call(self, "name", .{})` to skip naming it.
+* **generic code** -- an `anytype` may be holding a user struct, which is not the object.
+* **a declared type** -- a field typed `*Node`, a `const x: *Node =`, `Variant.init(?*Node, ...)`.
+
+`castTo` is the other direction and can fail, so it is never noise. It answers null when the
+object is not a `T`.
+
+## "This handler is given a `Node` and I want my own type"
+
+Declare the type you want:
+
+```zig
+pub fn onBodyEntered(self: *Player, body: ?*Area3d) void {
+    const area = body orelse return; // not an Area3D; nothing to do
+```
+
+Object arguments are narrowed on the way in, engine classes and yours alike. Optional says a
+mismatch is a case and gives you null; non-optional says it is an error, and the call is
+rejected rather than handing the body a pointer typed as a class the object is not.
 
 ## "I need a class"
 

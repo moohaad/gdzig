@@ -9,6 +9,7 @@ pub fn register(r: *gdzig.extension.Registry) void {
     class.addMethod("set_indexed_value", .auto);
     class.addMethod("take_optional_node", .auto);
     class.addMethod("take_narrow_node", .auto);
+    class.addMethod("take_required_node", .auto);
 
     registerWide(r);
 }
@@ -298,6 +299,14 @@ const TestNode = struct {
         self.counter = if (node == null) -1 else 1;
     }
 
+    /// The same narrowing, declared non-optional. There is no null to hand a
+    /// `*Node3d` parameter, so a mismatch has to be refused rather than
+    /// smuggled through.
+    pub fn takeRequiredNode(self: *TestNode, node: *Node3d) void {
+        _ = node;
+        self.counter = 7;
+    }
+
     pub fn getCounter(self: *TestNode) i64 {
         return self.counter;
     }
@@ -385,4 +394,30 @@ test "an optional object parameter narrows to the declared class" {
     _ = gdzig.call(node, name, .{spatial});
     result = gdzig.call(node, counter, .{});
     try testing.expectEqual(@as(i64, 1), result.as(i64).?);
+}
+
+test "a non-optional object parameter refuses a mismatch rather than casting it" {
+    ensureRegistered();
+
+    const node = try TestNode.create();
+    defer Object.upcast(node).destroy();
+
+    const counter = StringName.fromComptimeLatin1("get_counter").*;
+    _ = gdzig.call(node, "set_my_property", .{@as(i64, 0)});
+
+    // A plain Node where a `*Node3d` is declared. The body sets the counter to
+    // 7; it must not run, because there is no null to give it and the
+    // alternative is a pointer typed as a class the object is not.
+    const plain = Node.init();
+    defer plain.destroy();
+    _ = gdzig.call(node, "take_required_node", .{plain});
+    var result = gdzig.call(node, counter, .{});
+    try testing.expect(result.as(i64).? != 7);
+
+    // A real Node3D gets through.
+    const spatial = Node3d.init();
+    defer spatial.destroy();
+    _ = gdzig.call(node, "take_required_node", .{spatial});
+    result = gdzig.call(node, counter, .{});
+    try testing.expectEqual(@as(i64, 7), result.as(i64).?);
 }
