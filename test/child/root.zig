@@ -115,4 +115,27 @@ const gdzig = @import("gdzig");
 const Child = gdzig.Child;
 const allocator = gdzig.testing.allocator;
 const Node = gdzig.class.Node;
+const Node3d = gdzig.class.Node3d;
 const StringName = gdzig.builtin.StringName;
+
+test "getNodeAs narrows to the asked-for type, and nulls rather than complaining" {
+    ensureRegistered();
+
+    const obj = try WithReady.create();
+    const marker = try stage(obj.base);
+
+    // Found, and it is what was asked for. A plain string for the path: the
+    // parameter coerces, so there is no NodePath to build and free.
+    try testing.expectEqual(marker, obj.base.getNodeAs(Node, "Marker").?);
+
+    // Found, but a plain Node is not a Node3D. The answer is null, not a
+    // pointer typed as a class the object is not -- which is the whole reason
+    // this exists rather than a cast at the call site.
+    try testing.expectEqual(@as(?*Node3d, null), obj.base.getNodeAs(Node3d, "Marker"));
+
+    // Nothing at that path. `get_node_or_null` underneath, so an absent node is
+    // a case to branch on and not an engine error in the log.
+    try testing.expectEqual(@as(?*Node, null), obj.base.getNodeAs(Node, "Nope"));
+
+    obj.base.queueFree();
+}

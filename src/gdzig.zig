@@ -395,7 +395,7 @@ pub fn coerceNodePath(val: anytype) CoercedNodePath {
     if (comptime isStringish(T)) {
         var str = builtin.String.fromUtf8(val) catch |err| {
             std.log.err("gdzig: cannot coerce to NodePath: {s}", .{@errorName(err)});
-            return .{ .value = builtin.NodePath.fromString(.empty), .allocates = true };
+            return .{ .value = builtin.NodePath.fromString(builtin.String.empty), .allocates = true };
         };
         defer str.deinit();
         return .{ .value = builtin.NodePath.fromString(str), .allocates = true };

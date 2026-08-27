@@ -464,6 +464,11 @@ The bottom row never moves — the camera was dragged along and `smoothing` is d
 resolves it once before `_ready`, and logs `no child '..' of type Node3d` if the parent
 is not one. Same for children (`Child(T, "path")`) and autoloads (`Autoload(T, name)`).
 
+When the path is only known at runtime there is no field to declare, so ask for the
+type at the call instead: `self.base.getNodeAs(Marker3d, path)` is null both when
+nothing is there and when it is not a `Marker3d`, and prints no engine error either
+way.
+
 ## 8. The scene and the input map
 
 `Player.tscn` — no assets, just built-in resources:
