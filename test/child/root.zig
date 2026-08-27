@@ -139,3 +139,29 @@ test "getNodeAs narrows to the asked-for type, and nulls rather than complaining
 
     obj.base.queueFree();
 }
+
+test "childrenAs yields the children of that type and skips the rest" {
+    ensureRegistered();
+
+    const owner = Node.init();
+    // Freeing a node frees its children, so the two below need no cleanup.
+    defer owner.destroy();
+
+    const plain = Node.init();
+    owner.addChild(plain, .{});
+    const spatial = Node3d.init();
+    owner.addChild(spatial, .{});
+
+    // A mixed set of children is the normal case: the plain Node is skipped
+    // rather than reported, and the Node3D comes back as itself.
+    var spatials = owner.childrenAs(Node3d);
+    try testing.expectEqual(spatial, spatials.next().?);
+    try testing.expectEqual(@as(?*Node3d, null), spatials.next());
+
+    // Asking for the wider type gets both -- the filter is "is a T", not
+    // "is exactly a T".
+    var nodes = owner.childrenAs(Node);
+    var count: usize = 0;
+    while (nodes.next()) |_| count += 1;
+    try testing.expectEqual(@as(usize, 2), count);
+}

@@ -4,6 +4,7 @@ const Examples = [_]struct { name: [:0]const u8, T: type }{
     .{ .name = "Sprites", .T = SpritesNode },
     .{ .name = "GUI", .T = GuiNode },
     .{ .name = "Signals", .T = SignalNode },
+    .{ .name = "Tree", .T = TreeNode },
 };
 
 /// Only the properties that need non-default options. A plain field binds on
@@ -287,4 +288,5 @@ const ViewportTexture = godot.class.ViewportTexture;
 const ConfigNode = @import("ConfigNode.zig");
 const GuiNode = @import("GuiNode.zig");
 const SignalNode = @import("SignalNode.zig");
+const TreeNode = @import("TreeNode.zig");
 const SpritesNode = @import("SpriteNode.zig");

@@ -37,6 +37,25 @@ pub inline fn getNodeAs(self: *const Self, comptime T: type, path: anytype) ?*T 
     return gdzig.class.castTo(T, node);
 }
 
+/// The children that are a `T`, skipping the rest.
+///
+/// ```zig
+/// var mobs = self.base.childrenAs(Mob);
+/// while (mobs.next()) |mob| mob.hurt(1);
+/// ```
+///
+/// The alternative is `getChildren`, which is an `Array` of `Variant`: unpack
+/// each one, cast it, skip what does not match, free the array. This yields the
+/// typed children directly and allocates nothing.
+///
+/// `T` may be an engine class or one of yours. Children of another type are
+/// skipped rather than reported -- a mixed set of children is the normal case,
+/// not a mistake.
+pub inline fn childrenAs(self: *const Self, comptime T: type) gdzig.Children(T) {
+    const owner = gdzig.class.upcast(*const gdzig.class.Node, self);
+    return .{ .owner = owner, .count = owner.getChildCount(.{}) };
+}
+
 // @mixin stop
 
 const Self = gdzig.class.Node;

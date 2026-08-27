@@ -143,6 +143,42 @@ pub fn Parent(comptime T: type) type {
     return Child(T, "..");
 }
 
+/// Walks a node's children, yielding only the ones that are a `T`.
+///
+/// Returned by `Node.childrenAs`; there is no reason to name this type.
+///
+/// `get_children` hands back an `Array` of `Variant`, so doing this by hand
+/// means unpacking each element, casting it, deciding what to do with the ones
+/// that do not match, and freeing the array. This walks by index instead: no
+/// array is built, so there is nothing to free.
+///
+/// The child count is read once. Adding or removing children while iterating is
+/// therefore on you -- `queueFree` is deferred and safe, `removeChild` is not.
+pub fn Children(comptime T: type) type {
+    comptime oopz.assertIsA(class.Object, T);
+
+    return struct {
+        const Self = @This();
+
+        owner: *const Node,
+        count: i32,
+        index: i32 = 0,
+        include_internal: bool = false,
+
+        /// The next child that is a `T`, or null at the end.
+        pub fn next(self: *Self) ?*T {
+            while (self.index < self.count) {
+                const child = self.owner.getChild(self.index, .{ .include_internal = self.include_internal });
+                self.index += 1;
+                if (child) |node| {
+                    if (class.castTo(T, node)) |typed| return typed;
+                }
+            }
+            return null;
+        }
+    };
+}
+
 /// Whether `T` declares any `Child` fields, and so needs a `_ready` even if the
 /// user did not write one.
 pub fn hasAny(comptime T: type) bool {

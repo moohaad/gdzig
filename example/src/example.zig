@@ -8,9 +8,11 @@ pub fn register(r: *Registry) void {
     r.addModule(ExampleNode);
     r.addModule(GuiNode);
     r.addModule(SignalNode);
+    r.addModule(TreeNode);
 }
 
 pub fn unregister(r: *Registry) void {
+    r.removeModule(TreeNode);
     r.removeModule(SignalNode);
     r.removeModule(GuiNode);
     r.removeModule(ExampleNode);
@@ -36,4 +38,5 @@ const ToolPlugin = @import("ToolPlugin.zig");
 const ExampleNode = @import("ExampleNode.zig");
 const GuiNode = @import("GuiNode.zig");
 const SignalNode = @import("SignalNode.zig");
+const TreeNode = @import("TreeNode.zig");
 const SpriteNode = @import("SpriteNode.zig");

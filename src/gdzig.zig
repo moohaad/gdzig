@@ -34,6 +34,7 @@ pub const Weak = @import("weak.zig").Weak;
 pub const Child = @import("child.zig").Child;
 pub const Autoload = @import("child.zig").Autoload;
 pub const Parent = @import("child.zig").Parent;
+pub const Children = @import("child.zig").Children;
 pub const Scene = @import("scene.zig").Scene;
 pub const rpc = @import("rpc.zig");
 pub const coro = @import("coro.zig");
