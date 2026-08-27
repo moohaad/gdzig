@@ -8,6 +8,7 @@ pub fn register(r: *gdzig.extension.Registry) void {
     class.addMethod("get_indexed_value", .auto);
     class.addMethod("set_indexed_value", .auto);
     class.addMethod("take_optional_node", .auto);
+    class.addMethod("take_narrow_node", .auto);
 
     registerWide(r);
 }
@@ -288,6 +289,15 @@ const TestNode = struct {
         self.counter = if (node == null) -1 else 1;
     }
 
+    /// Declares a *narrower* type than the caller has to pass. Godot hands the
+    /// slot a `Node`; an `Area3d`-shaped declaration is the ordinary thing to
+    /// write in a signal handler, and the optional is what makes it safe --
+    /// null when the object is not one, rather than a pointer typed as a class
+    /// it is not.
+    pub fn takeNarrowNode(self: *TestNode, node: ?*Node3d) void {
+        self.counter = if (node == null) -1 else 1;
+    }
+
     pub fn getCounter(self: *TestNode) i64 {
         return self.counter;
     }
@@ -347,6 +357,32 @@ const allocator = gdzig.testing.allocator;
 const CharacterBody2d = gdzig.class.CharacterBody2d;
 const ClassDb = gdzig.class.ClassDb;
 const Node = gdzig.class.Node;
+const Node3d = gdzig.class.Node3d;
 const Object = gdzig.class.Object;
 const StringName = gdzig.builtin.StringName;
 const Variant = gdzig.builtin.Variant;
+
+test "an optional object parameter narrows to the declared class" {
+    ensureRegistered();
+
+    const node = try TestNode.create();
+    defer Object.upcast(node).destroy();
+
+    const name = StringName.fromComptimeLatin1("take_narrow_node").*;
+    const counter = StringName.fromComptimeLatin1("get_counter").*;
+
+    // A plain Node is not a Node3D. Without narrowing the method would receive
+    // it anyway, typed as something it is not.
+    const plain = Node.init();
+    defer plain.destroy();
+    _ = Object.call(.upcast(node), name, .{plain});
+    var result = Object.call(.upcast(node), counter, .{});
+    try testing.expectEqual(@as(i64, -1), result.as(i64).?);
+
+    // A real Node3D arrives as itself.
+    const spatial = Node3d.init();
+    defer spatial.destroy();
+    _ = Object.call(.upcast(node), name, .{spatial});
+    result = Object.call(.upcast(node), counter, .{});
+    try testing.expectEqual(@as(i64, 1), result.as(i64).?);
+}

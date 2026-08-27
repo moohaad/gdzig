@@ -1,8 +1,7 @@
 const GuiNode = @This();
 
 pub fn register(r: *Registry) void {
-    const class = r.createClass(GuiNode, r.allocator, .auto);
-    class.autoBind();
+    r.autoRegister(GuiNode);
 }
 
 pub fn unregister(r: *Registry) void {
@@ -45,13 +44,13 @@ pub fn _enterTree(self: *GuiNode) void {
     self.base.addChild(normal_btn, .{});
     normal_btn.setPosition(Vector2.initXY(100, 20), .{});
     normal_btn.setSize(Vector2.initXY(100, 50), .{});
-    normal_btn.setText(.fromLatin1("Press Me"));
+    normal_btn.setText("Press Me");
 
     var toggle_btn = CheckBox.init();
     self.base.addChild(toggle_btn, .{});
     toggle_btn.setPosition(.initXY(320, 20), .{});
     toggle_btn.setSize(.initXY(100, 50), .{});
-    toggle_btn.setText(.fromLatin1("Toggle Me"));
+    toggle_btn.setText("Toggle Me");
 
     toggle_btn.connect(Button.Toggled, self, &onToggled);
     normal_btn.connect(Button.Pressed, self, &onPressed);

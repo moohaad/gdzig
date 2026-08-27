@@ -148,6 +148,12 @@ fn writeInstantiation(w: *CodeWriter, function: *const Context.Function, class: 
             const api_name = param.type.class;
             const name = if (ctx.classes.get(api_name)) |c| c.name else api_name;
             try w.print("@as(*gdzig.class.{s}, undefined)", .{name});
+        } else if (param.type == .string) {
+            try w.writeAll("@as(gdzig.builtin.String, undefined)");
+        } else if (param.type == .string_name) {
+            try w.writeAll("@as(gdzig.builtin.StringName, undefined)");
+        } else if (param.type == .node_path) {
+            try w.writeAll("@as(gdzig.builtin.NodePath, undefined)");
         } else {
             try w.writeAll("undefined");
         }
@@ -748,7 +754,7 @@ fn writeClassFunctionVarargWrapper(w: *CodeWriter, class: *const Context.Class, 
     for (function.parameters.values()) |param| {
         if (!is_first) try w.writeAll(", ");
         try w.print("{s}: ", .{param.name});
-        try writeTypeAtParameter(w, &param.type, class, ctx);
+        try writeTypeForSignature(w, &param.type, class, ctx);
         is_first = false;
     }
 
@@ -835,7 +841,7 @@ fn writeFunctionAlloc(w: *CodeWriter, function: *const Context.Function, class: 
             try w.writeAll(", ");
         }
         try w.print("{s}: ", .{param.name});
-        try writeTypeAtParameter(w, &param.type, class, ctx);
+        try writeTypeForSignature(w, &param.type, class, ctx);
         is_first = false;
     }
 
@@ -885,6 +891,19 @@ fn writeFunctionAlloc(w: *CodeWriter, function: *const Context.Function, class: 
                 try w.print("args[{d}] = @constCast(&Variant.wrap(", .{i});
                 try writeClassPointerType(w, param.type.class, class, ctx);
                 try w.printLine(", &arg{d}_obj));", .{i});
+            } else if (param.type == .string_name or param.type == .string or param.type == .node_path) {
+                try w.print("var arg{d}_str = ", .{i});
+                if (param.type == .string_name) {
+                    try w.printLine("gdzig.coerceStringName({s});", .{param.name});
+                } else if (param.type == .string) {
+                    try w.printLine("gdzig.coerceString({s});", .{param.name});
+                } else if (param.type == .node_path) {
+                    try w.printLine("gdzig.coerceNodePath({s});", .{param.name});
+                }
+                try w.printLine("defer arg{d}_str.deinit();", .{i});
+                try w.print("args[{d}] = @constCast(&Variant.wrap(", .{i});
+                try writeTypeAtParameter(w, &param.type, class, ctx);
+                try w.printLine(", &arg{d}_str.value));", .{i});
             } else {
                 try w.print("args[{d}] = @constCast(&Variant.wrap(", .{i});
                 try writeTypeAtParameter(w, &param.type, class, ctx);
@@ -1141,7 +1160,7 @@ fn writeClassProperty(w: *CodeWriter, class: *const Context.Class, property: *co
         property.name_api, setter.name, setter_index,
     });
     try w.print("pub fn {0s}(self: *{1s}, p_value: ", .{ setter_name, class.name });
-    try writeTypeAtParameter(w, &setter_params[1].type, class, ctx);
+    try writeTypeForSignature(w, &setter_params[1].type, class, ctx);
     try w.writeLine(") void {");
     w.indent += 1;
     try w.printLine("self.{0s}(.{1s}, p_value);", .{ setter.name, setter_index });
@@ -1518,7 +1537,7 @@ fn writeFunctionHeader(w: *CodeWriter, function: *const Context.Function, class:
         if (function.is_vararg and param.type.allocatesAsVariant(ctx)) {
             try w.writeAll("Variant");
         } else {
-            try writeTypeAtParameter(w, &param.type, class, ctx);
+            try writeTypeForSignature(w, &param.type, class, ctx);
         }
         is_first = false;
     }
@@ -1758,6 +1777,20 @@ fn writeArgSlot(w: *CodeWriter, i: usize, param: *const Context.Function.Paramet
         try writeClassPointerType(w, param.type.class, class, ctx);
         try w.printLine(", {s});", .{src});
         try w.printLine("args[{d}] = @ptrCast(&arg{d}_obj);", .{ i, i });
+        return;
+    }
+
+    if (materialized == null and (param.type == .string_name or param.type == .string or param.type == .node_path)) {
+        try w.print("var arg{d}_str = ", .{i});
+        if (param.type == .string_name) {
+            try w.printLine("gdzig.coerceStringName({s});", .{src});
+        } else if (param.type == .string) {
+            try w.printLine("gdzig.coerceString({s});", .{src});
+        } else if (param.type == .node_path) {
+            try w.printLine("gdzig.coerceNodePath({s});", .{src});
+        }
+        try w.printLine("defer arg{d}_str.deinit();", .{i});
+        try w.printLine("args[{d}] = @ptrCast(&arg{d}_str.value);", .{ i, i });
         return;
     }
 
@@ -2197,7 +2230,7 @@ fn writeModuleFunctionVarargWrapper(w: *CodeWriter, function: *const Context.Fun
     for (function.parameters.values()) |param| {
         if (!is_first) try w.writeAll(", ");
         try w.print("{s}: ", .{param.name});
-        try writeTypeAtParameter(w, &param.type, null, ctx);
+        try writeTypeForSignature(w, &param.type, null, ctx);
         is_first = false;
     }
 
@@ -2455,6 +2488,14 @@ fn writeTypeAtParameter(w: *CodeWriter, @"type": *const Context.Type, class: ?*c
             try w.writeAll(name);
         },
         inline else => |s| try w.writeAll(s),
+    }
+}
+
+fn writeTypeForSignature(w: *CodeWriter, @"type": *const Context.Type, class: ?*const Context.Class, ctx: *const Context) !void {
+    if (@"type".* == .string_name or @"type".* == .string or @"type".* == .node_path) {
+        try w.writeAll("anytype");
+    } else {
+        try writeTypeAtParameter(w, @"type", class, ctx);
     }
 }
 

@@ -38,6 +38,9 @@ pub fn build(b: *Build) !void {
         .entry_symbol = "my_extension_init",
         .target = target,
         .optimize = optimize,
+        // Names every `.tscn` under the project for `Scene(@embedFile(...))`,
+        // and lets gdzig preflight the project before Godot has to.
+        .godot_project = "project",
     }) orelse return;
 
     // Install

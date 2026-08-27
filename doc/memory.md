@@ -187,3 +187,42 @@ The non-allocating versions protect you from accidental allocations. If you need
 **Packed arrays in varargs**: Using `PackedByteArray` etc. in `call()` or `emit()` is a compile error by design. Use the Alloc variants.
 
 **Storing RefCounted references**: Storing raw pointers to RefCounted objects won't prevent collection - you must call `reference()` to prevent the object from being freed.
+
+## Universal Cleanup: godot.cleanup vs defer
+
+In `gdzig`, you will frequently see `defer` and `godot.cleanup()` used together, but they serve two distinct purposes:
+
+- **`defer`** is a Zig keyword that **schedules** a statement to run at the end of the current scope (right before the function returns).
+- **`godot.cleanup()`** is a helper function that safely **executes** the correct destruction logic for any Godot object (e.g., calling `.deinit()`, `.destroy()`, or `.unreference()`), regardless of its specific type.
+
+### How to use them
+
+**1. Together for temporary local variables:**
+If you create a Godot object or data structure inside a function and you want it destroyed when the function finishes, use them together:
+```zig
+pub fn doSomething() void {
+    var my_array = godot.builtin.Array.init();
+    
+    // We schedule godot.cleanup to run automatically when doSomething() finishes
+    defer godot.cleanup(&my_array); 
+    
+    my_array.append(.init(i64, 42));
+    // ... when the function ends here, cleanup is automatically called!
+}
+```
+
+**2. `godot.cleanup()` WITHOUT `defer` for permanent objects:**
+If an object needs to stay alive for the entire lifespan of your game (like an enemy or a UI node), you **do not** use `defer` when creating it, otherwise it will be destroyed immediately! Instead, you manually call `godot.cleanup()` when the object is actually supposed to die:
+```zig
+pub fn killEnemy(self: *Enemy) void {
+    // The enemy is dead, clean up its Godot node immediately
+    godot.cleanup(self.base); 
+}
+```
+
+**3. `defer` WITHOUT `godot.cleanup()` for native Zig memory:**
+If you are allocating normal Zig memory (not Godot objects), you use `defer` with standard Zig allocators:
+```zig
+const buffer = try allocator.alloc(u8, 100);
+defer allocator.free(buffer); // Standard Zig memory cleanup
+```

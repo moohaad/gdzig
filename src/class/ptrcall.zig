@@ -53,7 +53,12 @@ pub fn readArg(comptime T: type, raw_p_arg: ?*const anyopaque) T {
                 const object = readArg(?*Handle.Owns, p_arg) orelse break :blk null;
                 break :blk Handle.borrow(object);
             }
-            if (comptime class.isStructClassPtr(info.child)) {
+            // Any class pointer, engine or user. A handler is free to declare
+            // a narrower type than the signal or method promises -- `?*Area3d`
+            // where Godot says `Node` -- and the point of the optional is to
+            // get null when it is something else, rather than a pointer typed
+            // as a class the object is not.
+            if (comptime class.isClassPtr(info.child)) {
                 const object = @as(*const ?*class.Object, @ptrCast(@alignCast(p_arg))).* orelse break :blk null;
                 break :blk class.castTo(std.meta.Child(info.child), object);
             }
@@ -66,6 +71,12 @@ pub fn readArg(comptime T: type, raw_p_arg: ?*const anyopaque) T {
             // a Zig struct that holds the object, and reading the slot as `*T`
             // hands the method the engine object typed as its own class --
             // measured 1.5 MB apart, two separate allocations.
+            // Only user classes here. For one of yours the blind read is
+            // *always* wrong -- the instance is a Zig struct that holds the
+            // object -- so it has to be narrowed whatever the declaration says.
+            // For an engine class the pointer already is the object, so a
+            // non-optional declaration is taken as the assertion it looks like
+            // and costs nothing. Declare it `?*T` to have the engine check.
             if (comptime class.isStructClassPtr(T)) {
                 const object = @as(*const ?*class.Object, @ptrCast(@alignCast(p_arg))).* orelse
                     @panic("gdzig: null object in a ptrcall slot declared non-optional");
@@ -246,8 +257,10 @@ fn writeIntSlot(comptime Int: type, p_ret: *anyopaque, value: anytype) void {
 }
 
 test "a standard ptrcall object argument is one dereference away" {
-    // Not real objects: this is pointer marshalling and nothing dereferences
-    // the value, so a live engine is not needed.
+    // Not real objects: a non-optional engine-class argument is pointer
+    // marshalling and nothing dereferences the value, so a live engine is not
+    // needed. Declaring the parameter optional is what asks the engine to check
+    // the type, and that case cannot be tested here.
     const object: *gdzig.class.Node = @ptrFromInt(0xDEAD_0000);
     const resource: *gdzig.class.Resource = @ptrFromInt(0xBEEF_0000);
 

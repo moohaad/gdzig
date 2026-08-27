@@ -74,7 +74,11 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
     const dep = options.dependency orelse getSelfDependency(b);
     const is_wasm = options.target.result.cpu.arch.isWasm();
 
-    if (options.godot_project) |project| addSceneImports(b, options.root_module, project);
+    if (options.godot_project) |project| {
+        addSceneImports(b, options.root_module, project);
+        clearReloadLeftovers(b, project, options.name);
+        warnIfNotImported(b, project, options.name);
+    }
 
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "entry_symbol", options.entry_symbol);
@@ -122,6 +126,62 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
 ///
 /// Scenes that are never embedded cost nothing but a module entry, so this
 /// takes the whole directory rather than asking which ones you meant.
+/// Godot writes `~<name>.dll` beside the real library while hot-reloading. One
+/// left behind by a crashed or killed editor blocks the *next* load, and what
+/// Godot reports then says nothing about the file -- so it reads as the
+/// extension being broken. Clear ours before installing over it.
+fn clearReloadLeftovers(b: *Build, project: []const u8, name: []const u8) void {
+    const io = b.graph.io;
+    const lib_path = b.pathJoin(&.{ project, "lib" });
+
+    var dir = b.build_root.handle.openDir(io, lib_path, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+
+    const prefix = b.fmt("~{s}.", .{name});
+    var iter = dir.iterate();
+    while (iter.next(io) catch null) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.startsWith(u8, entry.name, prefix)) continue;
+        dir.deleteFile(io, entry.name) catch continue;
+        std.log.warn("gdzig: removed stale reload artifact {s}/{s}", .{ lib_path, entry.name });
+    }
+}
+
+/// Godot does not scan for `.gdextension` files at startup. It reads
+/// `.godot/extension_list.cfg`, which an import pass writes. A project that has
+/// never been imported has no such file, so *no* extension loads: every class
+/// is simply absent, `ClassDB.class_exists` is false, and nothing is logged
+/// anywhere. Saying so at build time is the difference between a two-second fix
+/// and an afternoon.
+fn warnIfNotImported(b: *Build, project: []const u8, name: []const u8) void {
+    const io = b.graph.io;
+    const list_path = b.pathJoin(&.{ project, ".godot", "extension_list.cfg" });
+
+    var file = b.build_root.handle.openFile(io, list_path, .{}) catch {
+        std.log.warn(
+            "gdzig: '{s}' has no .godot/extension_list.cfg, so Godot will load no extension " ++
+                "at all and your classes will be missing with no error. Open the project in the " ++
+                "editor once, or run: godot --path {s} --headless --import",
+            .{ project, project },
+        );
+        return;
+    };
+    defer file.close(io);
+
+    var buf: [4096]u8 = undefined;
+    var reader = file.reader(io, &buf);
+    const body = reader.interface.allocRemaining(b.allocator, .limited(1 << 20)) catch return;
+
+    const needle = b.fmt("{s}.gdextension", .{name});
+    if (std.mem.indexOf(u8, body, needle) == null) {
+        std.log.warn(
+            "gdzig: .godot/extension_list.cfg does not list '{s}', so Godot will not load it. " ++
+                "Re-import the project: godot --path {s} --headless --import",
+            .{ needle, project },
+        );
+    }
+}
+
 fn addSceneImports(b: *Build, mod: *Build.Module, project: []const u8) void {
     const io = b.graph.io;
 

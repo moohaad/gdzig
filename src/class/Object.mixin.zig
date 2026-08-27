@@ -247,6 +247,36 @@ pub fn disconnectCallable(self: *Self, comptime S: type, callable: Callable) voi
 ///
 /// The signal type parameter is named `S`, not `Signal`, to match `connect` and
 /// to avoid shadowing the `Signal` builtin, which classes import whenever their
+/// Calls a method dynamically and discards the return value. Handles string conversion and variant cleanup automatically.
+pub fn callVoid(self: *Self, method_name: []const u8, args: anytype) void {
+    var string_name = StringName.fromSlice(method_name);
+    defer string_name.deinit();
+
+    const fields = @typeInfo(@TypeOf(args)).@"struct".fields;
+    var variant_args: [fields.len]Variant = undefined;
+    var variant_ptrs: [fields.len]*const Variant = undefined;
+
+    inline for (fields, 0..) |field, i| {
+        variant_args[i] = Variant.init(field.type, @field(args, field.name));
+        variant_ptrs[i] = &variant_args[i];
+    }
+
+    defer {
+        inline for (fields, 0..) |field, i| {
+            if (allocatesAsVariant(field.type)) variant_args[i].deinit();
+        }
+    }
+
+    var self_variant = Variant.init(*Self, self);
+    defer if (allocatesAsVariant(*Self)) self_variant.deinit();
+
+    var result = self_variant.call(string_name, &variant_ptrs) catch |err| {
+        std.log.err("callVoid failed on {s}.{s}: {}", .{ self_name, method_name, err });
+        return;
+    };
+    defer if (result.tag.allocates()) result.deinit();
+}
+
 /// API mentions it (`Tween.tweenAwait` in Godot 4.7+).
 pub fn emit(self: *Self, comptime S: type, signal: AssertNonAllocating(S)) EmitError!void {
     const signal_name = StringName.fromSignal(S);

@@ -33,6 +33,7 @@ pub const Gd = @import("gd.zig").Gd;
 pub const Weak = @import("weak.zig").Weak;
 pub const Child = @import("child.zig").Child;
 pub const Autoload = @import("child.zig").Autoload;
+pub const Parent = @import("child.zig").Parent;
 pub const Scene = @import("scene.zig").Scene;
 pub const rpc = @import("rpc.zig");
 pub const coro = @import("coro.zig");
@@ -262,8 +263,22 @@ pub inline fn path(comptime str: [:0]const u8) builtin.NodePath {
 /// depending on the type of the object. Prevents memory leaks.
 pub fn cleanup(obj: anytype) void {
     const T = @TypeOf(obj);
+    if (@typeInfo(T) == .optional) {
+        if (obj) |val| cleanup(val);
+        return;
+    }
     if (@typeInfo(T) == .pointer) {
         const ChildT = std.meta.Child(T);
+        if (@typeInfo(ChildT) == .pointer or @typeInfo(ChildT) == .optional) {
+            cleanup(obj.*);
+            return;
+        }
+        
+        switch (@typeInfo(ChildT)) {
+            .@"struct", .@"union", .@"enum", .@"opaque" => {},
+            else => return,
+        }
+
         if (@hasDecl(ChildT, "unreference")) {
             if (obj.unreference()) {
                 obj.destroy();
@@ -278,15 +293,129 @@ pub fn cleanup(obj: anytype) void {
             obj.deinit();
             return;
         }
-        // If it's a Gd(T) wrapped refcounted object.
-        if (@hasDecl(T, "deinit")) {
-            obj.deinit();
-            return;
-        }
     } else {
         if (@hasDecl(T, "deinit")) {
             var o = obj;
             o.deinit();
         }
     }
+}
+
+/// A wrapper for ergonomic signal connection and emission.
+pub fn SignalBinder(comptime OwnerT: type, comptime SignalT: type) type {
+    return struct {
+        owner: *OwnerT,
+
+        pub inline fn init(owner: *OwnerT) @This() {
+            return .{ .owner = owner };
+        }
+
+        pub inline fn connect(self: @This(), receiver: anytype, comptime method: anytype) void {
+            self.owner.connect(SignalT, receiver, method);
+        }
+
+        pub inline fn connectCallable(self: @This(), callable: builtin.Callable) void {
+            self.owner.connectCallable(SignalT, callable);
+        }
+
+        pub inline fn emit(self: @This(), args: SignalT) !void {
+            return self.owner.emit(SignalT, args);
+        }
+    };
+}
+
+// Coercion helpers for implicit string conversions
+pub const CoercedStringName = struct {
+    value: builtin.StringName,
+    allocates: bool,
+    pub inline fn deinit(self: *const CoercedStringName) void {
+        if (self.allocates) {
+            // Need a mutable pointer to call deinit. But value is passed by value?
+            // Actually, StringName.deinit takes *StringName, so we can cast it.
+            var mut_val = self.value;
+            mut_val.deinit();
+        }
+    }
+};
+
+pub fn coerceStringName(val: anytype) CoercedStringName {
+    const T = @TypeOf(val);
+    if (T == builtin.StringName) return .{ .value = val, .allocates = false };
+    if (T == *builtin.StringName or T == *const builtin.StringName) return .{ .value = val.*, .allocates = false };
+    if (comptime isStringish(T)) {
+        return .{ .value = builtin.StringName.fromUtf8(val), .allocates = true };
+    }
+    @compileError("Cannot coerce " ++ @typeName(T) ++ " to StringName");
+}
+
+pub const CoercedString = struct {
+    value: builtin.String,
+    allocates: bool,
+    pub inline fn deinit(self: *const CoercedString) void {
+        if (self.allocates) {
+            var mut_val = self.value;
+            mut_val.deinit();
+        }
+    }
+};
+
+pub fn coerceString(val: anytype) CoercedString {
+    const T = @TypeOf(val);
+    if (T == builtin.String) return .{ .value = val, .allocates = false };
+    if (T == *builtin.String or T == *const builtin.String) return .{ .value = val.*, .allocates = false };
+    if (comptime isStringish(T)) {
+        // `fromUtf8` fails on bytes the engine cannot decode. Nothing can be
+        // returned here -- the generated setters that call this are `void` --
+        // so report it and pass the empty string rather than something
+        // half-decoded.
+        const str = builtin.String.fromUtf8(val) catch |err| {
+            std.log.err("gdzig: cannot coerce to String: {s}", .{@errorName(err)});
+            return .{ .value = .empty, .allocates = false };
+        };
+        return .{ .value = str, .allocates = true };
+    }
+    @compileError("Cannot coerce " ++ @typeName(T) ++ " to String");
+}
+
+pub const CoercedNodePath = struct {
+    value: builtin.NodePath,
+    allocates: bool,
+    pub inline fn deinit(self: *const CoercedNodePath) void {
+        if (self.allocates) {
+            var mut_val = self.value;
+            mut_val.deinit();
+        }
+    }
+};
+
+pub fn coerceNodePath(val: anytype) CoercedNodePath {
+    const T = @TypeOf(val);
+    if (T == builtin.NodePath) return .{ .value = val, .allocates = false };
+    if (T == *builtin.NodePath or T == *const builtin.NodePath) return .{ .value = val.*, .allocates = false };
+    if (comptime isStringish(T)) {
+        var str = builtin.String.fromUtf8(val) catch |err| {
+            std.log.err("gdzig: cannot coerce to NodePath: {s}", .{@errorName(err)});
+            return .{ .value = builtin.NodePath.fromString(.empty), .allocates = true };
+        };
+        defer str.deinit();
+        return .{ .value = builtin.NodePath.fromString(str), .allocates = true };
+    }
+    @compileError("Cannot coerce " ++ @typeName(T) ++ " to NodePath");
+}
+
+
+fn isStringish(comptime T: type) bool {
+    switch (@typeInfo(T)) {
+        .pointer => |p| {
+            if (p.size == .slice and p.child == u8) return true;
+            if (p.size == .one) {
+                switch (@typeInfo(p.child)) {
+                    .array => |a| if (a.child == u8) return true,
+                    else => {}
+                }
+            }
+        },
+        else => {}
+    }
+    return false;
 }

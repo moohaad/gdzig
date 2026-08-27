@@ -124,6 +124,25 @@ pub fn Autoload(comptime T: type, comptime name: [:0]const u8) type {
     return Child(T, std.fmt.comptimePrint("/root/{s}", .{name}));
 }
 
+/// The node this one is parented to, resolved before `_ready` like any other
+/// field:
+///
+/// ```zig
+/// target: Parent(Node3d) = .pending,
+/// ```
+///
+/// `..` is Godot's own spelling for the parent in a NodePath, so this is a
+/// `Child` pointed one level up.
+///
+/// It exists to delete a cast. Reaching a parent otherwise means `getParent()`,
+/// which returns `?*Node` because that is all Godot promises, and then a
+/// `castTo` at every use site. Naming the type here does that narrowing once,
+/// at `_ready`, and turns "I assume my parent is a Node3D" from a cast repeated
+/// every tick into a declaration that says so and logs if it is wrong.
+pub fn Parent(comptime T: type) type {
+    return Child(T, "..");
+}
+
 /// Whether `T` declares any `Child` fields, and so needs a `_ready` even if the
 /// user did not write one.
 pub fn hasAny(comptime T: type) bool {

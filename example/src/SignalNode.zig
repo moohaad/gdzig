@@ -7,10 +7,8 @@ pub const groups = .{
 };
 
 pub fn register(r: *Registry) void {
-    const class = r.createClass(SignalNode, r.allocator, .auto);
-
-    // Automatically binds all methods, signals, properties, and groups
-    class.autoBind();
+    // Binds every method, signal, property and group the struct declares.
+    r.autoRegister(SignalNode);
 }
 
 pub fn unregister(r: *Registry) void {
@@ -63,19 +61,19 @@ pub fn _enterTree(self: *SignalNode) void {
     var signal1_btn = Button.init();
     signal1_btn.setPosition(.initXY(100, 20), .{});
     signal1_btn.setSize(.initXY(100, 50), .{});
-    signal1_btn.setText(.fromLatin1("Signal1"));
+    signal1_btn.setText("Signal1");
     self.base.addChild(signal1_btn, .{});
 
     var signal2_btn = Button.init();
     signal2_btn.setPosition(.initXY(250, 20), .{});
     signal2_btn.setSize(.initXY(100, 50), .{});
-    signal2_btn.setText(.fromLatin1("Signal2"));
+    signal2_btn.setText("Signal2");
     self.base.addChild(signal2_btn, .{});
 
     var signal3_btn = Button.init();
     signal3_btn.setPosition(.initXY(400, 20), .{});
     signal3_btn.setSize(.initXY(100, 50), .{});
-    signal3_btn.setText(.fromLatin1("Signal3"));
+    signal3_btn.setText("Signal3");
     self.base.addChild(signal3_btn, .{});
 
     self.color_rect = ColorRect.init();

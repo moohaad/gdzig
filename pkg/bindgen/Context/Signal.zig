@@ -2,6 +2,7 @@ const Signal = @This();
 
 name: []const u8 = "_",
 name_api: []const u8 = "_",
+name_api_camel: []const u8 = "_",
 struct_name: []const u8 = "_",
 doc: ?[]const u8 = null,
 parameters: StringArrayHashMap(Parameter) = .empty,
@@ -13,6 +14,7 @@ pub fn fromClass(allocator: Allocator, class_name: []const u8, api: GodotApi.Cla
         break :blk try casez.allocConvert(allocator, gdzig_case.signal, api.name);
     };
     self.name_api = api.name;
+    self.name_api_camel = try casez.allocConvert(allocator, gdzig_case.method, api.name);
 
     self.struct_name = try casez.allocConvert(allocator, gdzig_case.type, api.name);
 
@@ -30,6 +32,7 @@ pub fn fromClass(allocator: Allocator, class_name: []const u8, api: GodotApi.Cla
 
 pub fn deinit(self: *Signal, allocator: Allocator) void {
     allocator.free(self.name);
+    allocator.free(self.name_api_camel);
     for (self.parameters.values()) |*parameter| {
         parameter.deinit(allocator);
     }

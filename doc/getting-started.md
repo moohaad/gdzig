@@ -94,6 +94,10 @@ pub fn build(b: *Build) !void {
         .entry_symbol = "mygame_init",
         .target = target,
         .optimize = optimize,
+        // Flat layout, so the Godot project *is* the build root. Worth setting:
+        // it names every `.tscn` for `Scene(@embedFile(...))`, and it lets the
+        // build warn about step 4 below instead of leaving you to guess.
+        .godot_project = ".",
     }) orelse return;
 
     // `../lib` escapes zig-out and lands beside project.godot, which is where
@@ -153,9 +157,9 @@ const PlayerNode = @import("PlayerNode.zig");
 const FollowCameraNode = @import("FollowCameraNode.zig");
 ```
 
-`addModule` defers to a `register` function on the file itself, which keeps each
-node's registration next to the node. `r.addClass(PlayerNode, r.allocator, .auto)`
-registers one directly, if you would rather keep it all here.
+`addModule` defers to a `register` function on the file itself, which keeps each node's
+registration next to the node. `r.autoRegister(PlayerNode)` works here directly too, if
+you would rather keep it all in one place.
 
 ## 3. Build
 
@@ -175,10 +179,21 @@ one Zig prints and run again. You get `lib/mygame.dll` (or `.so` / `.dylib`).
 
 ## 4. Let Godot discover the extension
 
-**This is the step that fails silently.** Godot does not scan for `.gdextension`
-files at startup; it reads `.godot/extension_list.cfg`, which is written during an
-import pass. A project that has never been opened has no such file, so no extension
-loads, `ClassDB.class_exists("PlayerNode")` is `false`, and nothing anywhere says why.
+**This step used to fail silently.** Godot does not scan for `.gdextension` files at
+startup; it reads `.godot/extension_list.cfg`, which is written during an import pass.
+A project that has never been opened has no such file, so no extension loads,
+`ClassDB.class_exists("PlayerNode")` is `false`, and the engine says nothing at all.
+
+With `godot_project` set, `zig build` now checks for you and prints the fix:
+
+```
+warning: gdzig: '.' has no .godot/extension_list.cfg, so Godot will load no extension
+at all and your classes will be missing with no error. Open the project in the editor
+once, or run: godot --path . --headless --import
+```
+
+It says the same when the file exists but does not name your `.gdextension`, which is
+what you get after adding one to a project that was imported earlier.
 
 Opening the project in the editor once writes it. Headless equivalent:
 
@@ -211,11 +226,12 @@ Methods named after Godot virtuals (`_ready`, `_process`, `_physicsProcess`,
 ```zig
 const PlayerNode = @This();
 
+/// The actions this node reads. `godot.input` takes variants rather than
+/// strings, so each name is spelled once and the set is visible in one place.
+const Actions = enum { forward, backward, left, right, jump };
+
 pub fn register(r: *Registry) void {
-    const class = r.createClass(PlayerNode, r.allocator, .auto);
-    class.addProperty("speed", .auto);
-    class.addProperty("jump_velocity", .auto);
-    class.addProperty("gravity", .auto);
+    r.autoRegister(PlayerNode);
 }
 
 pub fn unregister(r: *Registry) void {
@@ -240,18 +256,18 @@ pub fn _physicsProcess(self: *PlayerNode, delta: f64) void {
     var velocity = self.base.getVelocity();
 
     if (self.base.isOnFloor()) {
-        if (Input.isActionJustPressed(.interned("jump"), .{})) {
+        if (godot.input.isActionJustPressed(Actions.jump)) {
             velocity.y = @floatCast(self.jump_velocity);
         }
     } else {
         velocity.y -= @floatCast(self.gravity * delta);
     }
 
-    const input = Input.getVector(
-        .interned("left"),
-        .interned("right"),
-        .interned("forward"),
-        .interned("backward"),
+    const input = godot.input.getVector(
+        Actions.left,
+        Actions.right,
+        Actions.forward,
+        Actions.backward,
         .{},
     );
 
@@ -264,8 +280,29 @@ pub fn _physicsProcess(self: *PlayerNode, delta: f64) void {
 }
 ```
 
-`addProperty` is what makes a field visible in the inspector. It is also what makes it
-survive hot reload — plain fields are reset.
+`autoRegister` binds the class and everything it can find on it: every Variant-typed
+field becomes a property, and every `pub fn` taking `*PlayerNode` becomes a method.
+`allocator`, `base` and any `_`-prefixed field are skipped, which is how you keep a
+field internal.
+
+Being a property is also what makes a field survive hot reload — plain fields are reset.
+
+Declare a `properties` tuple only when a property needs non-default options; a plain
+field already binds without being listed:
+
+```zig
+pub const properties = .{
+    .{ "speed", .{ .setter = .none } },   // read-only in the inspector
+};
+```
+
+When `autoRegister` is not enough — `.{ .level = .editor }`, or hand-written
+`addMethod` / `addProperty` / `addSignal` — use the long form it wraps:
+
+```zig
+const class = r.createClass(PlayerNode, r.allocator, .auto);
+class.autoBind();
+```
 
 Two things worth noticing in that code, because they are not obvious from the Zig side:
 
@@ -277,8 +314,17 @@ inherited method onto each generated class with the concrete receiver type. So
 noise. You *do* need `upcast` for your own classes: a user class is a plain Zig struct,
 so nothing is flattened onto it, and `Object.upcast(self).destroy()` is the only way in.
 
-**`.interned("jump")`** builds the `StringName` once at comptime instead of allocating
-one per tick.
+**Actions are enum variants, not strings.** `godot.input` rejects anything else at
+comptime, which keeps the set of actions a node reads in one declaration instead of
+spelled out at each call site. Each variant interns its `StringName` at comptime, so
+nothing is allocated per tick.
+
+The raw `godot.class.Input` bindings are still there and take a `StringName` — or any
+Zig string, since the parameter is `anytype`. Prefer the enum module: a plain `"jump"`
+goes through `StringName.fromUtf8` on every call, which is not what you want inside
+`_physicsProcess`. Note also that a decl literal — `.interned("jump")` — does *not*
+work in argument position, because an `anytype` parameter gives it no type to resolve
+against.
 
 ## 6. Camera-relative movement
 
@@ -314,7 +360,6 @@ const godot = @import("godot");
 const Registry = godot.extension.Registry;
 const CharacterBody3d = godot.class.CharacterBody3d;
 const Engine = godot.class.Engine;
-const Input = godot.class.Input;
 const Basis = godot.builtin.Basis;
 const Vector2 = godot.builtin.Vector2;
 const Vector3 = godot.builtin.Vector3;
@@ -332,9 +377,7 @@ horizontal part of a tilted basis vector is shorter.
 const FollowCameraNode = @This();
 
 pub fn register(r: *Registry) void {
-    const class = r.createClass(FollowCameraNode, r.allocator, .auto);
-    class.addProperty("offset", .auto);
-    class.addProperty("smoothing", .auto);
+    r.autoRegister(FollowCameraNode);
 }
 
 pub fn unregister(r: *Registry) void {
@@ -343,6 +386,10 @@ pub fn unregister(r: *Registry) void {
 
 allocator: Allocator,
 base: *Camera3d,
+
+/// What this camera follows. Declaring the type here is what removes the
+/// `getParent()` + cast that every use would otherwise need.
+target: Parent(Node3d) = .pending,
 
 /// Where the camera sits relative to the target: back along +Z and up.
 offset: Vector3 = .initXYZ(0, 4, 7),
@@ -357,7 +404,8 @@ pub fn _ready(self: *FollowCameraNode) void {
     self.base.setAsTopLevel(true);
 
     // Start where it belongs rather than easing in from wherever the scene put it.
-    if (self.targetPosition()) |target| {
+    if (self.target.get()) |node| {
+        const target = node.getGlobalPosition();
         self.base.setGlobalPosition(target.add(self.offset));
         self.base.lookAt(target, .{});
     }
@@ -366,7 +414,7 @@ pub fn _ready(self: *FollowCameraNode) void {
 pub fn _physicsProcess(self: *FollowCameraNode, delta: f64) void {
     if (Engine.isEditorHint()) return;
 
-    const target = self.targetPosition() orelse return;
+    const target = (self.target.get() orelse return).getGlobalPosition();
     const wanted = target.add(self.offset);
 
     // Frame-rate independent easing: the fraction of the remaining distance
@@ -380,18 +428,12 @@ pub fn _physicsProcess(self: *FollowCameraNode, delta: f64) void {
     self.base.lookAt(target, .{});
 }
 
-/// The node this camera follows: whatever it is parented to.
-fn targetPosition(self: *FollowCameraNode) ?Vector3 {
-    const parent = self.base.getParent() orelse return null;
-    const spatial = godot.class.castTo(Node3d, parent) orelse return null;
-    return spatial.getGlobalPosition();
-}
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const godot = @import("godot");
 const Registry = godot.extension.Registry;
+const Parent = godot.Parent;
 const Camera3d = godot.class.Camera3d;
 const Engine = godot.class.Engine;
 const Node3d = godot.class.Node3d;
@@ -416,9 +458,11 @@ both world-space, so the camera ends up pointing the right way either way. Only 
 
 The bottom row never moves — the camera was dragged along and `smoothing` is dead code.
 
-`castTo` in `targetPosition` is the one cast you cannot drop: `getParent()` returns
-`?*Node`, `Node` is not spatial and has no `getGlobalPosition`. Unlike `upcast`, it can
-fail, and returns null if the parent is not a `Node3D`.
+**No casts.** `getParent()` returns `?*Node`, and `Node` is not spatial — it has no
+`getGlobalPosition` — so reaching the parent as a `Node3D` would normally mean a
+`castTo` at every use. `Parent(Node3d)` names the type on the field instead: gdzig
+resolves it once before `_ready`, and logs `no child '..' of type Node3d` if the parent
+is not one. Same for children (`Child(T, "path")`) and autoloads (`Autoload(T, name)`).
 
 ## 8. The scene and the input map
 
@@ -538,8 +582,10 @@ symptom is `class_exists` returning false with no error anywhere.
 "extension failed to load", not as a missing symbol.
 
 **A stale `lib/~mygame.dll`.** Godot writes `~`-prefixed copies while hot-reloading,
-and a leftover one blocks loading afterwards. If loading breaks for no visible reason,
-`rm lib/~*` before looking anywhere else.
+and one left by a killed editor blocks the next load — with an error that says nothing
+about the file. With `godot_project` set the build clears its own and tells you:
+`gdzig: removed stale reload artifact lib/~mygame.dll`. Without it, `rm lib/~*` before
+looking anywhere else.
 
 **Forgetting `r.addModule`.** The build succeeds, the class is simply absent.
 

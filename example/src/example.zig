@@ -25,6 +25,8 @@ test "godot version is 4.x" {
     try std.testing.expectEqual(4, godot.version.major);
 }
 
+
+
 const std = @import("std");
 const godot = @import("godot");
 const Registry = godot.extension.Registry;

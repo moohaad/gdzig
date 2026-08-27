@@ -64,6 +64,17 @@ pub fn addClass(self: *Registry, comptime T: type, userdata: ClassUserdataValue(
     _ = self.createClass(T, userdata, options);
 }
 
+/// Automatically register a class, bypassing the need for manual configuration.
+/// Only supports classes where userdata is `Allocator` or `void`.
+pub fn autoRegister(self: *Registry, comptime T: type) void {
+    const UserdataVal = ClassUserdataValue(T);
+    const userdata: UserdataVal = if (UserdataVal == void) {}
+    else if (UserdataVal == Allocator) self.allocator
+    else @compileError("autoRegister only supports Allocator or void userdata. Use createClass and autoBind for custom userdata.");
+    const class = self.createClass(T, userdata, .auto);
+    class.autoBind();
+}
+
 /// Create a class and return it for further configuration.
 pub fn createClass(self: *Registry, comptime T: type, userdata: ClassUserdataValue(T), options: Class(T).CreateOptions) *Class(T) {
     const alloc = self.arena.allocator();
@@ -430,6 +441,51 @@ pub fn Class(comptime T: type) type {
             pub const auto: ConstCreateOptions = .{};
         };
 
+        /// Whether `name` is bound by `T`'s `properties` tuple or by one of its
+        /// `groups`, either of which carries the property's own options.
+        fn isBoundByName(comptime name: []const u8) bool {
+            return isNamedInProperties(name) or isNamedInGroups(name);
+        }
+
+        /// The property name of a `properties`/group entry, which is either a
+        /// bare string or the first element of a `.{ name, options }` pair.
+        fn entryName(comptime val: anytype) []const u8 {
+            const info = @typeInfo(@TypeOf(val));
+            return if (info == .@"struct" and info.@"struct".is_tuple) val[0] else val;
+        }
+
+        /// Whether `name` appears in one of `T`'s `groups` property lists.
+        fn isNamedInGroups(comptime name: []const u8) bool {
+            if (!@hasDecl(T, "groups")) return false;
+            const groups = @field(T, "groups");
+            const info = @typeInfo(@TypeOf(groups));
+            if (info != .@"struct" or !info.@"struct".is_tuple) return false;
+            inline for (info.@"struct".fields) |field| {
+                const grp = @field(groups, field.name);
+                const props = grp[2];
+                const props_info = @typeInfo(@TypeOf(props));
+                if (props_info == .@"struct" and props_info.@"struct".is_tuple) {
+                    inline for (props_info.@"struct".fields) |pfield| {
+                        if (std.mem.eql(u8, entryName(@field(props, pfield.name)), name)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// Whether `name` appears in `T`'s `properties` tuple, as a bare string
+        /// or as the first element of a `.{ name, options }` pair.
+        fn isNamedInProperties(comptime name: []const u8) bool {
+            if (!@hasDecl(T, "properties")) return false;
+            const properties = @field(T, "properties");
+            const info = @typeInfo(@TypeOf(properties));
+            if (info != .@"struct" or !info.@"struct".is_tuple) return false;
+            inline for (info.@"struct".fields) |field| {
+                if (std.mem.eql(u8, entryName(@field(properties, field.name)), name)) return true;
+            }
+            return false;
+        }
+
         fn camelToSnake(comptime s: []const u8) [:0]const u8 {
             comptime {
                 @setEvalBranchQuota(100000);
@@ -479,6 +535,7 @@ pub fn Class(comptime T: type) type {
                     std.mem.eql(u8, decl.name, "unregister") or
                     std.mem.eql(u8, decl.name, "signals") or
                     std.mem.eql(u8, decl.name, "properties") or
+                    std.mem.eql(u8, decl.name, "onready") or
                     std.mem.startsWith(u8, decl.name, "_");
 
                 if (!is_ignored) {
@@ -495,6 +552,27 @@ pub fn Class(comptime T: type) type {
                     }
                 }
             }
+
+            // Auto-bind properties from fields
+            inline for (info.@"struct".fields) |field| {
+                const is_ignored = comptime std.mem.eql(u8, field.name, "allocator") or
+                    std.mem.eql(u8, field.name, "base") or
+                    std.mem.eql(u8, field.name, "bus") or
+                    std.mem.startsWith(u8, field.name, "_") or
+                    // Listed in `properties` or in a `groups` entry below,
+                    // either of which binds it with its own options. Binding it
+                    // here too would register the same property twice, and
+                    // Godot refuses the second with "already has property" --
+                    // leaving the options ignored.
+                    isBoundByName(field.name);
+                
+                if (!is_ignored) {
+                    if (comptime gdzig.builtin.Variant.Tag.forTypeOrNull(field.type) != null) {
+                        self.addProperty(field.name ++ "", .auto);
+                    }
+                }
+            }
+
 
             // Auto-bind properties
             if (@hasDecl(T, "properties")) {

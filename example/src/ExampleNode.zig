@@ -6,20 +6,19 @@ const Examples = [_]struct { name: [:0]const u8, T: type }{
     .{ .name = "Signals", .T = SignalNode },
 };
 
+/// Only the properties that need non-default options. A plain field binds on
+/// its own, so listing one here with no options would say nothing.
 pub const properties = .{
-    "banner",
-    "property1",
     .{ "property2", .{ .setter = .none } },
     .{ "speed", .{ .setter = .none } },
 };
 
 pub fn register(r: *Registry) void {
-    // createClass returns a builder for adding methods, properties, signals
-    // .auto uses defaults; override with .{ .level = .editor } etc.
-    const class = r.createClass(ExampleNode, r.allocator, .auto);
-
-    // Auto-register methods, signals, and properties defined in the `properties` tuple
-    class.autoBind();
+    // Binds every method and signal it finds, the Variant-typed fields, and the
+    // `properties` tuple above. When that is not enough -- `.{ .level = .editor }`,
+    // or hand-written `addMethod` / `addProperty` / `addSignal` -- drop to
+    // `r.createClass(ExampleNode, r.allocator, .auto)`, which returns the builder.
+    r.autoRegister(ExampleNode);
 }
 
 pub fn unregister(r: *Registry) void {
@@ -75,7 +74,7 @@ pub fn recreate(allocator: *Allocator, obj: *Object) *ExampleNode {
 
 pub fn destroy(self: *ExampleNode, allocator: *Allocator) void {
     std.log.info("destroy {s}", .{@typeName(ExampleNode)});
-    self.base.destroy();
+    godot.cleanup(self.base);
     allocator.destroy(self);
 }
 
@@ -87,7 +86,7 @@ pub fn _process(self: *ExampleNode, _: f64) void {
     self.fps_counter.setPosition(.{ .x = @floatFromInt(25), .y = @as(f32, @floatFromInt(sz.y - 25)) - label_size.y }, .{});
 
     var fps_string = String.empty;
-    defer fps_string.deinit();
+    defer godot.cleanup(&fps_string);
     fps_string.print("FPS: {d}", .{Engine.getFramesPerSecond()}) catch @panic("Failed to format FPS");
 
     self.fps_counter.setText(fps_string);
@@ -100,7 +99,7 @@ fn clearScene(self: *ExampleNode) void {
         // reliably gets here first, so a stored `*Node` would also work -- but
         // only because of that ordering, and nothing in the types said so.
         // The handle makes the assumption unnecessary instead of load-bearing.
-        if (handle.get()) |node| node.destroy();
+        if (handle.get()) |node| godot.cleanup(node);
         self.example_node = null;
     }
 }
@@ -144,7 +143,7 @@ pub fn _enterTree(self: *ExampleNode) void {
     // test Type-Safe Scene Instantiation
     if (godot.instantiateAs(ConfigNode, "res://config.tscn")) |config_node| {
         std.log.info("Successfully instantiated config.tscn via instantiateAs", .{});
-        config_node.base.destroy();
+        godot.cleanup(config_node.base);
     }
 
     // test Idiomatic Iterators
@@ -154,18 +153,17 @@ pub fn _enterTree(self: *ExampleNode) void {
     test_array.append(.init(i64, 100));
     var arr_it = test_array.iterator();
     while (arr_it.next()) |item| {
-        std.log.info("Array item: {d}", .{ item.as(i64).? });
+        std.log.info("Array item: {d}", .{item.as(i64).?});
     }
 
-    // test Phase 3 features
-    const test_path = godot.path("Player/Camera");
-    const test_name = godot.name("ui_accept");
-    _ = test_path;
-    _ = test_name;
-
+    // Actions are enum variants rather than loose strings, so every action a
+    // node uses is declared in one place instead of respelled at each call.
     const Actions = enum { ui_accept, ui_cancel };
     if (godot.input.isActionPressed(Actions.ui_accept)) {
         std.log.info("ui_accept pressed!", .{});
+    }
+    if (godot.input.isActionPressed(Actions.ui_cancel)) {
+        std.log.info("ui_cancel pressed!", .{});
     }
 
     //initialize fields

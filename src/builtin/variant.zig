@@ -233,7 +233,18 @@ pub const Variant = extern struct {
             variantToType(@ptrCast(&object), @ptrCast(@constCast(&self)));
             if (object == null) return if (comptime optional) @as(T, null) else null;
             if (comptime class.isOpaqueClassPtr(Ptr)) {
-                return @as(Ptr, @ptrCast(@alignCast(object)));
+                // Narrowed, not reinterpreted. A handler is free to declare a
+                // type narrower than the caller has to pass -- `?*Area3d` where
+                // the signal says `Node` -- and blindly casting there hands it a
+                // pointer typed as a class the object is not, which is a wrong
+                // vtable away from anything.
+                //
+                // Optional means the mismatch is a case: a *present* null. Not
+                // optional means it is an error, and returning "no value" is how
+                // `method.zig` is told to reject the call.
+                const narrowed = class.castTo(std.meta.Child(Ptr), object.?);
+                if (comptime optional) return @as(T, narrowed);
+                return narrowed;
             } else {
                 // Straight to `asInstance` on the object. Going via
                 // `BaseOf` was both unnecessary and unbuildable for a
@@ -622,7 +633,7 @@ pub const Variant = extern struct {
             return forType(@TypeOf(value));
         }
 
-        pub fn forType(comptime T: type) Tag {
+        pub fn forTypeOrNull(comptime T: type) ?Tag {
             const tag: ?Tag = comptime switch (T) {
                 Aabb => .aabb,
                 Array => .array,
@@ -681,7 +692,7 @@ pub const Variant = extern struct {
                             .int
                         else
                             null,
-                        .pointer => |p| if (class.isClassPtr(T)) .object else forType(p.child),
+                        .pointer => |p| if (class.isClassPtr(T)) .object else forTypeOrNull(p.child),
                         // A nullable object. Godot's object Variant is nullable
                         // by nature -- a null one is simply NIL -- so `?*Node`
                         // is as ordinary a parameter type as `*Node`, and
@@ -690,12 +701,17 @@ pub const Variant = extern struct {
                         .optional => |o| if (class.isClassPtr(o.child) or gd.isGd(o.child))
                             .object
                         else
-                            forType(o.child),
+                            forTypeOrNull(o.child),
                         else => null,
                     };
                 },
             };
 
+            return tag;
+        }
+
+        pub fn forType(comptime T: type) Tag {
+            const tag = comptime forTypeOrNull(T);
             return tag orelse @compileError("Cannot construct a 'Variant' from type '" ++ @typeName(T) ++ "'");
         }
 

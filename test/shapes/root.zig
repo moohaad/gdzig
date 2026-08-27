@@ -295,7 +295,7 @@ test "void <- (float, int), float <- (int), int <- (Variant, float, float?, int)
     try testing.expectEqual(@as(i64, 7), value.as(i64).?);
 
     // And a NodePath return, which is its own shape again.
-    var path: NodePath = .fromString(.fromLatin1("Sprite2D:position"));
+    var path: NodePath = .fromString("Sprite2D:position");
     defer path.deinit();
     animation.get().trackSetPath(track, path);
 
