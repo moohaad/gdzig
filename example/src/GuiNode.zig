@@ -1,13 +1,5 @@
 const GuiNode = @This();
 
-pub fn register(r: *Registry) void {
-    r.autoRegister(GuiNode);
-}
-
-pub fn unregister(r: *Registry) void {
-    r.removeClass(GuiNode);
-}
-
 allocator: Allocator,
 base: *Control,
 sprite: *Sprite2D = undefined,
@@ -55,7 +47,7 @@ pub fn _enterTree(self: *GuiNode) void {
     toggle_btn.connect(Button.Toggled, self, &onToggled);
     normal_btn.connect(Button.Pressed, self, &onPressed);
 
-    var texture = godot.load(Texture2D, "res://textures/logo.png").?;
+    var texture = godot.res(Texture2D, "res://textures/logo.png").?;
     defer texture.deinit();
     self.sprite = Sprite2D.init();
     self.sprite.setTexture(texture);
@@ -73,7 +65,7 @@ pub fn onPressed(self: *GuiNode) void {
     std.debug.print("onPressed \n", .{});
 }
 
-pub fn onToggled(self: *GuiNode, toggled_on: bool) void {
+pub fn onToggled(self: *GuiNode, toggled_on: ?bool) void {
     _ = self;
     std.debug.print("on_toggled {any}\n", .{toggled_on});
 }

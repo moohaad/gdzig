@@ -148,12 +148,14 @@ pub fn asInstance(self: *Self, comptime T: type) ?*T {
 /// every class, and singletons generate a class-level `pub var instance` that
 /// a parameter of that name shadows.
 pub fn connect(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) void {
+    gdzig.signal_util.assertSignalSignature(S, @TypeOf(receiver), @TypeOf(method));
     self.connectCallable(S, .fromClosure(receiver, method));
 }
 
 /// `connect`, for the caller that wants to handle a failed connection rather
 /// than have it logged.
 pub fn tryConnect(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) ConnectError!void {
+    gdzig.signal_util.assertSignalSignature(S, @TypeOf(receiver), @TypeOf(method));
     return self.tryConnectCallable(S, .fromClosure(receiver, method));
 }
 
@@ -187,11 +189,13 @@ pub fn tryConnectCallable(self: *Self, comptime S: type, callable: Callable) Con
 /// That is the one case `await` genuinely buys something, and it is not worth a
 /// coroutine runtime to get.
 pub fn once(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) void {
+    gdzig.signal_util.assertSignalSignature(S, @TypeOf(receiver), @TypeOf(method));
     self.onceCallable(S, .fromClosure(receiver, method));
 }
 
 /// `once`, returning the failure instead of logging it.
 pub fn tryOnce(self: *Self, comptime S: type, receiver: anytype, comptime method: anytype) ConnectError!void {
+    gdzig.signal_util.assertSignalSignature(S, @TypeOf(receiver), @TypeOf(method));
     return self.tryOnceCallable(S, .fromClosure(receiver, method));
 }
 

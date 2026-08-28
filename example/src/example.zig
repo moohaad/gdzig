@@ -1,25 +1,19 @@
-pub fn register(r: *Registry) void {
-    // Register a class inline - simplest approach
-    r.addClass(SpriteNode, r.allocator, .auto);
+const nodes = .{
+    SpriteNode,
+    ConfigNode,
+    ToolPlugin,
+    ExampleNode,
+    GuiNode,
+    SignalNode,
+    TreeNode,
+};
 
-    // Use modules to organize registration into separate files
-    r.addModule(ConfigNode);
-    r.addModule(ToolPlugin);
-    r.addModule(ExampleNode);
-    r.addModule(GuiNode);
-    r.addModule(SignalNode);
-    r.addModule(TreeNode);
+pub fn register(r: *Registry) void {
+    r.registerAll(nodes);
 }
 
 pub fn unregister(r: *Registry) void {
-    r.removeModule(TreeNode);
-    r.removeModule(SignalNode);
-    r.removeModule(GuiNode);
-    r.removeModule(ExampleNode);
-    r.removeModule(ToolPlugin);
-    r.removeModule(ConfigNode);
-
-    r.removeClass(SpriteNode);
+    r.unregisterAll(nodes);
 }
 
 test "godot version is 4.x" {

@@ -18,6 +18,7 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
         .@"godot-version" = godot_version,
         .@"godot-path" = godot_path,
+        .godot_project = b.pathFromRoot("project"),
     });
 
     // Extension module

@@ -14,17 +14,7 @@ pub const properties = .{
     .{ "speed", .{ .setter = .none } },
 };
 
-pub fn register(r: *Registry) void {
-    // Binds every method and signal it finds, the Variant-typed fields, and the
-    // `properties` tuple above. When that is not enough -- `.{ .level = .editor }`,
-    // or hand-written `addMethod` / `addProperty` / `addSignal` -- drop to
-    // `r.createClass(ExampleNode, r.allocator, .auto)`, which returns the builder.
-    r.autoRegister(ExampleNode);
-}
 
-pub fn unregister(r: *Registry) void {
-    r.removeClass(ExampleNode);
-}
 
 allocator: Allocator,
 base: *Node,
@@ -119,9 +109,12 @@ pub fn getSpeed(self: *ExampleNode) f64 {
     return self.speed;
 }
 
-pub fn onItemFocused(self: *ExampleNode, idx: i64) void {
+pub fn onItemFocused(self: *ExampleNode, idx: ?i64) void {
+    if (idx == null) return;
+    const real_idx = idx.?;
+    std.log.info("on_item_focused: {}", .{real_idx});
     self.clearScene();
-    switch (idx) {
+    switch (real_idx) {
         inline 0...Examples.len - 1 => |i| {
             const n = Examples[i].T.create(&self.allocator) catch unreachable;
             self.example_node = .init(n);

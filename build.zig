@@ -15,6 +15,7 @@ pub fn build(b: *Build) !void {
     // declaration, which is work the default build should not repeat on every
     // invocation; CI runs it as its own step so regressions still gate.
     const surface_audit = b.option(bool, "surface-audit", "Type-check every generated declaration") orelse false;
+    const godot_project = b.option([]const u8, "godot_project", "Path to the Godot project");
 
     //
     // Steps
@@ -128,6 +129,25 @@ pub fn build(b: *Build) !void {
     audit_step.dependOn(&b.addInstallArtifact(apiaudit_exe, .{}).step);
 
     //
+    // Scaffolding tool
+    //
+
+    const init_exe = b.addExecutable(.{
+        .name = "init",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/init.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_init = b.addRunArtifact(init_exe);
+    if (b.args) |args| {
+        run_init.addArgs(args);
+    }
+    const init_step = b.step("init-gdzig", "Scaffold a new gdzig project");
+    init_step.dependOn(&run_init.step);
+
+    //
     // Library
     //
 
@@ -141,6 +161,33 @@ pub fn build(b: *Build) !void {
     gdzig_options.addOption([]const u8, "architecture", architecture);
     gdzig_options.addOption([]const u8, "precision", precision);
     gdzig_options.addOption(bool, "surface_audit", surface_audit);
+
+    var valid_res: std.ArrayList([]const u8) = .empty;
+    if (godot_project) |project_path| {
+        gdzig_options.addOption(?[]const u8, "godot_project", project_path);
+
+        const io = b.graph.io;
+        var dir = b.build_root.handle.openDir(io, project_path, .{ .iterate = true }) catch null;
+        if (dir) |*d| {
+            defer d.close(io);
+            var walker = d.walk(b.allocator) catch @panic("OOM");
+            defer walker.deinit();
+            while (walker.next(io) catch null) |entry| {
+                if (entry.kind != .file) continue;
+                if (std.mem.startsWith(u8, entry.path, ".godot")) continue;
+                if (std.mem.startsWith(u8, entry.path, ".git")) continue;
+                
+                const path = b.dupe(entry.path);
+                std.mem.replaceScalar(u8, path, '\\', '/');
+                const res_path = b.fmt("res://{s}", .{path});
+                valid_res.append(b.allocator, res_path) catch @panic("OOM");
+            }
+        }
+        gdzig_options.addOption([]const []const u8, "res_paths", valid_res.items);
+    } else {
+        gdzig_options.addOption(?[]const u8, "godot_project", null);
+        gdzig_options.addOption([]const []const u8, "res_paths", &.{});
+    }
 
     const gdzig_mod = b.addModule("gdzig", .{
         .root_source_file = gdzig_combined.path(b, "gdzig.zig"),
@@ -284,8 +331,10 @@ const godot = @import("build/godot/build.zig");
 const api = @import("build/api.zig");
 pub const addExtension = api.addExtension;
 pub const addTest = api.addTest;
+pub const addWatchStep = api.addWatchStep;
 pub const Extension = api.Extension;
 pub const ExtensionOptions = api.ExtensionOptions;
+pub const WatchOptions = api.WatchOptions;
 pub const TestOptions = api.TestOptions;
 pub const InitializationLevel = api.InitializationLevel;
 const apiaudit = @import("build/apiaudit.zig");

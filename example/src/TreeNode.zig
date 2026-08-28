@@ -23,13 +23,7 @@
 
 const TreeNode = @This();
 
-pub fn register(r: *Registry) void {
-    r.autoRegister(TreeNode);
-}
 
-pub fn unregister(r: *Registry) void {
-    r.removeClass(TreeNode);
-}
 
 allocator: Allocator,
 base: *Control,

@@ -6,14 +6,7 @@ pub const groups = .{
     .{ "Colors", .{}, .{ "colors_signal2", "colors_signal3" } },
 };
 
-pub fn register(r: *Registry) void {
-    // Binds every method, signal, property and group the struct declares.
-    r.autoRegister(SignalNode);
-}
 
-pub fn unregister(r: *Registry) void {
-    r.removeClass(SignalNode);
-}
 
 allocator: Allocator,
 base: *Control, //this makes @Self a valid gdextension class

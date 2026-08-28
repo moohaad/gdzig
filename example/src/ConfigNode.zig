@@ -13,9 +13,7 @@
 
 const ConfigNode = @This();
 
-pub fn register(r: *Registry) void {
-    r.autoRegister(ConfigNode);
-}
+
 
 /// A value the *code* decides, unlike `startup_delay`, which Godot serialises
 /// across a reload and replays. A property surviving proves the instance
@@ -44,9 +42,7 @@ pub fn typeofProbe(_: *ConfigNode) i64 {
     return godot.general.typeof(.init(i64, 7));
 }
 
-pub fn unregister(r: *Registry) void {
-    r.removeClass(ConfigNode);
-}
+
 
 allocator: Allocator,
 base: *Node,

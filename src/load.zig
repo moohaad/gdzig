@@ -60,6 +60,30 @@ pub fn load(comptime T: type, comptime path: [:0]const u8) ?Gd(T) {
     return null;
 }
 
+/// A macro that performs compile-time verification of `res://` paths before delegating to `load`.
+/// Requires `.godot_project = "path/to/project"` to be passed to the `gdzig` dependency.
+pub fn res(comptime T: type, comptime path: [:0]const u8) ?Gd(T) {
+    comptime {
+        const build_options = @import("build_options");
+        if (@hasDecl(build_options, "godot_project")) {
+            if (build_options.godot_project != null) {
+                const paths = build_options.res_paths;
+                var found = false;
+                for (paths) |p| {
+                    if (std.mem.eql(u8, p, path)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    @compileError("Resource not found in godot_project: " ++ path);
+                }
+            }
+        }
+    }
+    return load(T, path);
+}
+
 test {
     // Behaviour needs a live engine and a project to load from; see test/load.
     std.testing.refAllDecls(@This());
