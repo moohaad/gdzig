@@ -44,7 +44,16 @@ pub fn main(init: std.process.Init) !void {
 
     // Every file the scaffolder promises. Checked by name before building, so a
     // missing one is reported as missing rather than as a compile error.
-    for ([_][]const u8{ "build.zig", "build.zig.zon", name ++ ".gdextension", "src/" ++ name ++ ".zig" }) |wanted| {
+    for ([_][]const u8{
+        "build.zig",
+        "build.zig.zon",
+        // The quickstart tells the reader to open this in Godot. Without it
+        // there is no project to open and the scaffold is unusable, so it is
+        // checked like any other file the scaffolder promises.
+        "project.godot",
+        name ++ ".gdextension",
+        "src/" ++ name ++ ".zig",
+    }) |wanted| {
         _ = dir.statFile(io, wanted, .{}) catch |err| {
             return fail("scaffolder did not write '{s}': {s}", .{ wanted, @errorName(err) });
         };

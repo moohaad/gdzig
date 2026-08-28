@@ -152,6 +152,25 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(ext_filename);
     try dir.writeFile(init.io, .{ .sub_path = ext_filename, .data = extension });
 
+    // Without this there is no Godot project to open, and the `.gdextension`
+    // beside it has nothing to be found by: Godot reads
+    // `.godot/extension_list.cfg`, which only an import pass writes, and only a
+    // real project can be imported. The scaffold is not usable without it.
+    const project_godot = try std.fmt.allocPrint(allocator,
+        \\; Written by `zig build init-gdzig`. Godot rewrites this file itself once
+        \\; the project has been opened in the editor.
+        \\
+        \\config_version=5
+        \\
+        \\[application]
+        \\
+        \\config/name="{s}"
+        \\config/features=PackedStringArray("4.7")
+        \\
+    , .{project_name});
+    defer allocator.free(project_godot);
+    try dir.writeFile(init.io, .{ .sub_path = "project.godot", .data = project_godot });
+
     const entry_src = try std.fmt.allocPrint(allocator,
         \\const godot = @import("godot");
         \\

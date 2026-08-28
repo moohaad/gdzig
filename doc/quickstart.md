@@ -16,11 +16,13 @@ cd gdzig
 zig build init-gdzig -- --name my_awesome_game
 ```
 
-This will automatically create a directory named `my_awesome_game` alongside `gdzig`, populated with:
+This creates `my_awesome_game/` **inside** the `gdzig` checkout, populated with:
+(pass `--out ../my_awesome_game` if you would rather it went elsewhere.)
 * `build.zig` and `build.zig.zon` correctly referencing the `gdzig` dependency.
 * `my_awesome_game.gdextension` configured to load the compiled Zig DLL.
 * `project.godot` configured for the editor.
-* `src/main.zig` with a valid entry point and `registerAll` call.
+* `src/my_awesome_game.zig` with a valid entry point and `registerAll` call.
+  The file is named after the project, not `main.zig`.
 
 ## Open in Godot
 
@@ -31,13 +33,13 @@ Open the Godot Editor and import the generated `my_awesome_game/project.godot` f
 Open a terminal, navigate into your newly generated project, and compile your Zig extension:
 
 ```sh
-cd ../my_awesome_game
+cd my_awesome_game
 zig build
 ```
 
 The compiled library will appear in `my_awesome_game/lib/`. 
 
-Return to Godot, and your extension will automatically load! You can now start adding logic in `src/main.zig` and run `zig build` (or `zig build watch`) whenever you want to update the engine.
+Return to Godot, and your extension will automatically load! You can now start adding logic in `src/my_awesome_game.zig` and run `zig build` (or `zig build watch`) whenever you want to update the engine.
 
 ---
 
