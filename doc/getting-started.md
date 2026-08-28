@@ -41,180 +41,34 @@ mygame/
 
 Only the install path differs between the two. Nothing else in this tutorial changes.
 
-## 1. Depend on gdzig
+## 1. Scaffold a project
+
+For the fastest possible setup, use the gdzig CLI scaffold. This handles downloading dependencies, configuring the `.gdextension` manifest, generating `build.zig`, and creating the initial Zig entry point.
 
 ```sh
-zig fetch --save git+https://github.com/moohaad/gdzig
+git clone https://github.com/moohaad/gdzig
+cd gdzig
+zig build init-gdzig -- --name mygame
 ```
 
-Or point at a local checkout in `build.zig.zon`:
+This generates a `mygame` directory alongside `gdzig`. 
 
-```zig
-.gdzig = .{ .path = "../gdzig" },
-```
+> [!NOTE]
+> If you prefer to understand exactly what this script generates (and how to construct `build.zig` and the `.gdextension` file manually), read the [Quickstart Setup Reference](quickstart.md).
 
-## 2. The four scaffolding files
+## 2. Compile and link
 
-> [!TIP]
-> **Fast Track:** You can skip writing these files manually by cloning the `gdzig` repository and running `zig build init-gdzig --name mygame`. This will automatically scaffold a new flat-layout project for you! If you prefer to understand the moving parts, here is what that script generates.
-
-**`build.zig.zon`.** Leave the fingerprint at `0x0` — Zig will tell you the real one.
-
-```zig
-.{
-    .name = .mygame,
-    .version = "0.0.0",
-    .fingerprint = 0x0,
-    .minimum_zig_version = "0.16.0",
-    .dependencies = .{
-        .gdzig = .{ .path = "../gdzig" },
-    },
-    .paths = .{ "build.zig", "build.zig.zon", "src" },
-}
-```
-
-**`build.zig`.** Take the dependency, make a module that imports it as `godot`, hand
-that module to `addExtension`, install the result where the `.gdextension` says to
-look.
-
-```zig
-pub fn build(b: *Build) !void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-
-    const gdzig_dep = b.dependency("gdzig", .{ .target = target, .optimize = optimize });
-
-    const mod = b.createModule(.{
-        .root_source_file = b.path("src/mygame.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "godot", .module = gdzig_dep.module("gdzig") }},
-    });
-
-    const extension = gdzig.addExtension(b, .{
-        .name = "mygame",
-        .root_module = mod,
-        .entry_symbol = "mygame_init",
-        .target = target,
-        .optimize = optimize,
-        // Flat layout, so the Godot project *is* the build root. Worth setting:
-        // it names every `.tscn` for `Scene(@embedFile(...))`, and it lets the
-        // build warn about step 4 below instead of leaving you to guess.
-        .godot_project = ".",
-    }) orelse return;
-
-    // `../lib` escapes zig-out and lands beside project.godot, which is where
-    // the .gdextension says to look. In the nested layout this is
-    // `../project/lib` instead.
-    const install = b.addInstallFileWithDir(extension.output, .{ .custom = "../lib" }, extension.filename);
-    b.default_step.dependOn(&install.step);
-}
-
-const std = @import("std");
-const Build = std.Build;
-const gdzig = @import("gdzig");
-```
-
-**`mygame.gdextension`.** Hand-written. `entry_symbol` has to match `build.zig`
-exactly; a mismatch reports as "extension failed to load" rather than as a missing
-symbol.
-
-```ini
-[configuration]
-
-entry_symbol = "mygame_init"
-compatibility_minimum = "4.7"
-reloadable = true
-
-[libraries]
-
-windows.debug.x86_64 = "lib/mygame.dll"
-windows.release.x86_64 = "lib/mygame.dll"
-linux.debug.x86_64 = "lib/libmygame.so"
-linux.release.x86_64 = "lib/libmygame.so"
-macos.debug = "lib/libmygame.dylib"
-macos.release = "lib/libmygame.dylib"
-```
-
-`compatibility_minimum` is the engine gdzig itself requires. Claiming an older one
-does not buy compatibility — Godot loads the extension and gdzig then refuses it,
-which is a worse error than Godot declining up front.
-
-**`src/mygame.zig`.** gdzig supplies the entry point; your root module only registers.
-A class that is not reachable from here does not exist, and nothing warns you.
-
-```zig
-pub fn register(r: *Registry) void {
-    r.addModule(PlayerNode);
-    r.addModule(FollowCameraNode);
-}
-
-pub fn unregister(r: *Registry) void {
-    r.removeModule(FollowCameraNode);
-    r.removeModule(PlayerNode);
-}
-
-const godot = @import("godot");
-const Registry = godot.extension.Registry;
-const PlayerNode = @import("PlayerNode.zig");
-const FollowCameraNode = @import("FollowCameraNode.zig");
-```
-
-`addModule` defers to a `register` function on the file itself, which keeps each node's
-registration next to the node. `r.autoRegister(PlayerNode)` works here directly too, if
-you would rather keep it all in one place.
-
-## 3. Build
+Navigate into your new project, build it, and then explicitly ask Godot to discover the extension for the first time by opening the Godot Editor or running it headlessly:
 
 ```sh
+cd ../mygame
 zig build
-```
 
-The first run fails on purpose:
-
-```
-build.zig.zon:1:2: error: invalid fingerprint: 0x0; if this is a new or forked
-package, use this value: 0xf305d10960ee2873
-```
-
-The value is derived from the package name and path, so yours will differ. Paste the
-one Zig prints and run again. You get `lib/mygame.dll` (or `.so` / `.dylib`).
-
-## 4. Let Godot discover the extension
-
-**This step used to fail silently.** Godot does not scan for `.gdextension` files at
-startup; it reads `.godot/extension_list.cfg`, which is written during an import pass.
-A project that has never been opened has no such file, so no extension loads,
-`ClassDB.class_exists("PlayerNode")` is `false`, and the engine says nothing at all.
-
-With `godot_project` set, `zig build` now checks for you and prints the fix:
-
-```
-warning: gdzig: '.' has no .godot/extension_list.cfg, so Godot will load no extension
-at all and your classes will be missing with no error. Open the project in the editor
-once, or run: godot --path . --headless --import
-```
-
-It says the same when the file exists but does not name your `.gdextension`, which is
-what you get after adding one to a project that was imported earlier.
-
-Opening the project in the editor once writes it. Headless equivalent:
-
-```sh
+# Tell Godot to scan for extensions
 godot --path . --headless --import
 ```
 
-Then check:
-
-```sh
-cat .godot/extension_list.cfg     # res://mygame.gdextension
-```
-
-That first pass can exit noisily — it is importing scenes that may reference classes
-the engine does not know yet. What matters is the file's contents. Re-run it if in
-doubt.
-
-## 5. A node
+## 3. A node
 
 Every gdzig node is a struct with two required fields:
 
@@ -332,7 +186,7 @@ builds a `StringName` and destroys it again on every call, measured at 77 ns aga
 work in argument position, because an `anytype` parameter gives it no type to resolve
 against.
 
-## 6. Camera-relative movement
+## 4. Camera-relative movement
 
 Forward should mean "away from the camera", not "along -Z". Rotate the input by the
 camera's basis, flatten it, then renormalise:
@@ -375,7 +229,7 @@ Without flattening, a camera angled downward pushes the character into the floor
 Without renormalising, movement slows the steeper the camera angle, because the
 horizontal part of a tilted basis vector is shorter.
 
-## 7. A camera that follows
+## 5. A camera that follows
 
 `src/FollowCameraNode.zig`:
 
@@ -475,7 +329,7 @@ type at the call instead: `self.base.getNodeAs(Marker3d, path)` is null both whe
 nothing is there and when it is not a `Marker3d`, and prints no engine error either
 way.
 
-## 8. The scene and the input map
+## 6. The scene and the input map
 
 `Player.tscn` — no assets, just built-in resources:
 
