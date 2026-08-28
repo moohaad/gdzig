@@ -90,7 +90,7 @@ pub fn _enterTree(self: *SignalNode) void {
     self.base.connect(Signal2, self, &onSignal2);
     self.base.connect(Signal3, self, &onSignal3);
 
-    self.base.addToGroup(godot.builtin.StringName.fromLatin1("test_group", true), .{});
+    self.base.addToGroup("test_group", .{});
     if (self.base.getTree()) |tree| {
         if (godot.getNodesInGroupAs(tree, SignalNode, "test_group", self.allocator)) |n| {
             var nodes = n;

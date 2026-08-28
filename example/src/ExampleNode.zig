@@ -179,8 +179,7 @@ pub fn _enterTree(self: *ExampleNode) void {
 
     var itemList = ItemList.init();
     inline for (0..Examples.len) |i| {
-        const name = String.fromLatin1(Examples[i].name);
-        _ = itemList.addItem(name, .{});
+        _ = itemList.addItem(Examples[i].name, .{});
     }
 
     // Reading the owning field above. `gd.get` unwraps the optional and
