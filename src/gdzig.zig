@@ -43,6 +43,9 @@ pub const coro = @import("coro.zig");
 pub const collections = @import("collections.zig");
 pub const array = collections.array;
 pub const dict = collections.dict;
+pub const macros = @import("macros.zig");
+pub const callable = macros.callable;
+pub const print = macros.print;
 pub const persist = @import("persist.zig");
 pub const autoPersist = persist.autoPersist;
 pub const autoRestore = persist.autoRestore;
@@ -365,8 +368,8 @@ pub fn SignalBinder(comptime OwnerT: type, comptime SignalT: type) type {
             self.owner.connect(SignalT, receiver, method);
         }
 
-        pub inline fn connectCallable(self: @This(), callable: builtin.Callable) void {
-            self.owner.connectCallable(SignalT, callable);
+        pub inline fn connectCallable(self: @This(), cb: builtin.Callable) void {
+            self.owner.connectCallable(SignalT, cb);
         }
 
         pub inline fn emit(self: @This(), args: SignalT) !void {

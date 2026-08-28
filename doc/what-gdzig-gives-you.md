@@ -233,11 +233,55 @@ toggle_btn.connect(Button.Toggled, self, &onToggled);
 
 gdzig hooks into Zig's compile-time reflection to validate your handler's signature. `Button.Toggled` requires a boolean indicating state, so `onToggled(self: *GuiNode, toggled: ?bool)` is validated before the extension even builds. You will never encounter Godot's runtime `Method expected X arguments, received Y` crash again.
 
+**Connecting to free functions and lambdas:**
+If you want to connect a signal to a simple Zig function that isn't attached to a class, use `godot.callable`:
+
+```zig
+fn myFreeFunction(self: *GuiNode) void {
+    self.clicks += 1;
+}
+
+// ...
+const cb = godot.callable(self.allocator, self, myFreeFunction);
+free_btn.connectCallable(Button.Pressed, cb);
+```
+
+`godot.callable` handles all GDExtension boilerplate and dynamically unwraps Godot `Variant` arguments into your Zig parameter types securely at runtime.
+
+## "I need Godot Arrays and Dictionaries"
+
+Godot's native Array and Dictionary APIs are verbose in GDExtension. gdzig provides macros to build them effortlessly from Zig literals:
+
+```zig
+var my_array = godot.array(.{ 42, 100, "hello" });
+defer my_array.deinit();
+
+var my_dict = godot.dict(.{ .name = "Player", .health = 100 });
+defer my_dict.deinit();
+```
+
+## "I need to print to the Godot console"
+
+Printing to Godot's built-in console (and ensuring it properly formats variables) usually requires manually constructing `Variant`s and `String`s. gdzig gives you a macro that wraps Zig's native `std.fmt` formatting system:
+
+```zig
+godot.print("Player {s} took {d} damage", .{ player_name, damage });
+```
+
+This acts as a drop-in replacement for `std.debug.print` but flawlessly outputs to the Godot Editor Output console. Under the hood, it uses a massive static buffer, so it is 100% fast and allocation-free!
+
+## "I need Enums in the Godot Inspector"
+
+If you export a Zig `enum` as a property, gdzig's reflection will automatically detect it and generate a `PROPERTY_HINT_ENUM` metadata string for Godot. This gives you a seamless dropdown in the Godot editor, perfectly mapped to your Zig enum variants without any extra configuration!
+
 ## "I need to iterate without restarting Godot"
 
 Godot supports native hot-reloading for GDExtensions, but managing it can be finicky (especially when a crash leaves behind locked `~name.dll` files).
 
 gdzig gives you `zig build watch`. It recursively watches your `src/` directory, automatically cleans any stale crash artifacts, instantly rebuilds the extension upon save, and can even automatically launch and restart your Godot project if it crashes. Iterate fearlessly!
+
+**Surviving Hot-Reloads:**
+When Godot hot-reloads your DLL, it preserves exported properties but destroys any internal state in your Zig structs (like timers or temporary counters). gdzig provides `godot.autoPersist(self)` and `godot.autoRestore(self)` to seamlessly save and restore your struct's private state to Godot's metadata during DLL swaps. Put `autoRestore` in your `recreate` and `autoPersist` in your `destroy`!
 
 ## Also worth knowing
 

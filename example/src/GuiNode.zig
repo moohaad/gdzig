@@ -53,9 +53,19 @@ pub fn _enterTree(self: *GuiNode) void {
     defer test_array.deinit();
     var test_dict = godot.dict(.{ .name = "Player", .health = 100 });
     defer test_dict.deinit();
-    std.debug.print("Array size: {d}, Dict size: {d}\n", .{test_array.size(), test_dict.size()});
+    godot.print("Array size: {d}, Dict size: {d}", .{test_array.size(), test_dict.size()});
     normal_btn.setSize(Vector2.initXY(100, 50), .{});
     normal_btn.setText("Press Me");
+
+    var free_btn = Button.init();
+    self.base.addChild(free_btn, .{});
+    free_btn.setPosition(Vector2.initXY(100, 100), .{});
+    free_btn.setSize(Vector2.initXY(100, 50), .{});
+    free_btn.setText("Free Func");
+    
+    // Connect to a free function using godot.callable
+    const callb = godot.callable(self.allocator, self, onFreeFunction);
+    free_btn.connectCallable(Button.Pressed, callb);
 
     var toggle_btn = CheckBox.init();
     self.base.addChild(toggle_btn, .{});
@@ -71,6 +81,10 @@ pub fn _enterTree(self: *GuiNode) void {
     self.sprite = Sprite2D.init();
     self.sprite.setTexture(texture);
     self.sprite.setPosition(.initXY(400, 300));
+    // Test godot.path macro
+    var my_path = godot.path("PlayerSprite");
+    defer my_path.deinit();
+
     self.sprite.setScale(.initXY(0.6, 0.6));
     self.base.addChild(self.sprite, .{});
 }
@@ -81,12 +95,17 @@ pub fn _exitTree(self: *GuiNode) void {
 
 pub fn onPressed(self: *GuiNode) void {
     self.clicks += 1;
-    std.debug.print("onPressed, clicks: {d}\n", .{self.clicks});
+    godot.print("onPressed, clicks: {d}", .{self.clicks});
 }
 
 pub fn onToggled(self: *GuiNode, toggled_on: ?bool) void {
     _ = self;
-    std.debug.print("on_toggled {any}\n", .{toggled_on});
+    godot.print("on_toggled {any}", .{toggled_on});
+}
+
+fn onFreeFunction(self: *GuiNode) void {
+    godot.print("Free function called via godot.callable!", .{});
+    self.clicks += 10;
 }
 
 const std = @import("std");
