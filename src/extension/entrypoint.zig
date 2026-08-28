@@ -49,6 +49,7 @@ fn entrypoint(
     }
 
     extension.register(&registry);
+    if (options.log_registration) registry.logRegistered();
 
     r_initialization.* = .{
         .minimum_initialization_level = @intFromEnum(options.minimum_initialization_level),

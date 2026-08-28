@@ -106,6 +106,46 @@ pub fn removeModule(self: *Registry, comptime Module: type) void {
     Module.unregister(self);
 }
 
+/// Automatically registers a tuple of modules or classes.
+/// If the type has a `register(r: *Registry)` function, it calls it (module behavior).
+/// Otherwise, it assumes it's a class and calls `autoRegister` on it.
+pub fn registerAll(self: *Registry, comptime items: anytype) void {
+    const info = @typeInfo(@TypeOf(items));
+    if (info != .@"struct" or !info.@"struct".is_tuple) {
+        @compileError("registerAll expects a tuple of types");
+    }
+    inline for (info.@"struct".fields) |field| {
+        const T = @field(items, field.name);
+        if (@hasDecl(T, "register")) {
+            self.addModule(T);
+        } else {
+            self.autoRegister(T);
+        }
+    }
+}
+
+/// Automatically unregisters a tuple of modules or classes.
+/// Must be called with the exact same tuple used in `registerAll`, and it unregisters them in reverse order.
+/// If the type has a `unregister(r: *Registry)` function, it calls it.
+/// Otherwise, it assumes it's a class and calls `removeClass`.
+pub fn unregisterAll(self: *Registry, comptime items: anytype) void {
+    const info = @typeInfo(@TypeOf(items));
+    if (info != .@"struct" or !info.@"struct".is_tuple) {
+        @compileError("unregisterAll expects a tuple of types");
+    }
+    const fields = info.@"struct".fields;
+    comptime var i = fields.len;
+    inline while (i > 0) {
+        i -= 1;
+        const T = @field(items, fields[i].name);
+        if (@hasDecl(T, "unregister")) {
+            self.removeModule(T);
+        } else {
+            self.removeClass(T);
+        }
+    }
+}
+
 /// Explicitly unregister a class from Godot's ClassDB.
 /// Inheritors must be unregistered before their parents.
 pub fn removeClass(self: *Registry, comptime T: type) void {
@@ -194,6 +234,27 @@ pub fn exit(self: *Registry, level: InitializationLevel) void {
 }
 
 /// Type-erased class handle for heterogeneous storage.
+/// Names what registration actually produced.
+///
+/// A class that never reaches `register` is simply absent from Godot: no error,
+/// no warning, and the only symptom is a type missing from the Create Node
+/// dialog. Several ways of getting that wrong are caught at build time now, but
+/// a list of what *did* register turns whatever is left into something visible
+/// at a glance rather than something to deduce.
+///
+/// Off unless asked for -- `zig build -Dlog-registration` -- since a shipping
+/// game has no use for it.
+pub fn logRegistered(self: *const Registry) void {
+    std.log.info("gdzig: {d} class(es) registered", .{self.classes.items.len});
+
+    var buf: [128]u8 = undefined;
+    for (self.classes.items) |any| {
+        var text: String = .fromStringName(any.name.*);
+        defer text.deinit();
+        std.log.info("gdzig:   {s}", .{text.toLatin1Buf(buf[0..])});
+    }
+}
+
 const AnyClass = struct {
     commit: *const fn (*AnyClass, InitializationLevel) void,
     /// For the sweep in `deinit`: what to check, and what to do about it.

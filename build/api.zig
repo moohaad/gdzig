@@ -28,6 +28,11 @@ pub const ExtensionOptions = struct {
     /// import one instance while your module imports another, and the build
     /// fails with `file exists in modules 'gdzig' and 'gdzig0'`.
     dependency: ?*Build.Dependency = null,
+    /// Log the classes the extension registers, at startup.
+    ///
+    /// Null takes it from `-Dlog-registration`, so any project gets the flag
+    /// without wiring one up. Set it explicitly to decide for yourself.
+    log_registration: ?bool = null,
     /// For web builds, the Emscripten SDK path (optional, auto-fetched if not provided).
     emsdk_path: ?Build.LazyPath = null,
     /// For web builds, the Emscripten version to use.
@@ -85,6 +90,8 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "entry_symbol", options.entry_symbol);
     build_options.addOption(InitializationLevel, "minimum_initialization_level", options.minimum_initialization_level);
+    build_options.addOption(bool, "log_registration", options.log_registration orelse
+        b.option(bool, "log-registration", "Log the classes the extension registers at startup") orelse false);
 
     const mod = b.createModule(.{
         .root_source_file = dep.path("src/extension/entrypoint.zig"),
