@@ -208,6 +208,38 @@ pub fn build(b: *Build) !void {
     const signal_test_step = b.step("test-signals", "Check that signal handler signatures are verified at comptime");
     signal_test_step.dependOn(&run_signal_test.step);
 
+    // The watcher is a loop that never returns, so this observes it from
+    // outside -- through files it deletes, never through its output, which
+    // would turn a failure into a hung job -- and kills it when done.
+    const watch_exe = b.addExecutable(.{
+        .name = "watch",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/watch.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const watch_test_exe = b.addExecutable(.{
+        .name = "watch-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/watch_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_watch_test = b.addRunArtifact(watch_test_exe);
+    run_watch_test.addArtifactArg(init_exe);
+    run_watch_test.addArtifactArg(watch_exe);
+    run_watch_test.addArg(".zig-cache/watch-test/watchprobe");
+    run_watch_test.addArg("../../..");
+    // The watcher's path arrives relative to this build root, and the test
+    // spawns it with the scratch project as its working directory -- where a
+    // relative path does not resolve. The root is passed so it can be joined.
+    run_watch_test.addArg(b.pathFromRoot("."));
+    run_watch_test.has_side_effects = true;
+    const watch_test_step = b.step("test-watch", "Check that the watcher cleans artifacts and reacts to changes");
+    watch_test_step.dependOn(&run_watch_test.step);
+
     //
     // Library
     //

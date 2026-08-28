@@ -118,7 +118,10 @@ pub fn main(init: std.process.Init) !void {
 
 fn getMaxMTime(io: std.Io, src_dir_path: []const u8) !i128 {
     var max_mtime: i128 = 0;
-    var dir = std.Io.Dir.openDir(.cwd(), io, src_dir_path, .{}) catch return 0;
+    // `.iterate` is required to walk it. Without it the walk yields nothing,
+    // the maximum stays 0, and `current > last` is never true -- so the watcher
+    // starts, builds once, and then silently never notices another change.
+    var dir = std.Io.Dir.openDir(.cwd(), io, src_dir_path, .{ .iterate = true }) catch return 0;
     defer dir.close(io);
 
     var walker = try dir.walk(std.heap.page_allocator);
@@ -141,7 +144,14 @@ fn cleanStaleArtifacts(io: std.Io, lib_dir_path: []const u8) void {
 
     var iter = dir.iterate();
     while (iter.next(io) catch null) |entry| {
-        if (entry.kind == .file and std.mem.startsWith(u8, entry.name, "~") and std.mem.endsWith(u8, entry.name, ".dll")) {
+        // Every platform's shared library, not just Windows': Godot writes the
+        // same `~` copies beside a `.so` and a `.dylib`, and a leftover blocks
+        // the next load there too.
+        const stale = std.mem.startsWith(u8, entry.name, "~") and
+            (std.mem.endsWith(u8, entry.name, ".dll") or
+                std.mem.endsWith(u8, entry.name, ".so") or
+                std.mem.endsWith(u8, entry.name, ".dylib"));
+        if (entry.kind == .file and stale) {
             dir.deleteFile(io, entry.name) catch continue;
             std.debug.print("[watch] Cleaned stale hot-reload artifact: {s}/{s}\n", .{ lib_dir_path, entry.name });
         }

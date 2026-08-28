@@ -197,3 +197,10 @@ runs:
     - name: Check signal handler signatures are verified at comptime
       shell: bash
       run: zig build test-signals
+
+    # The watcher never returns, so this observes it through files it deletes
+    # rather than its output, and every wait has a deadline: a failure must not
+    # become a hung job.
+    - name: Check the watcher cleans artifacts and reacts to changes
+      shell: bash
+      run: zig build test-watch
