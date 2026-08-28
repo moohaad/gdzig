@@ -152,21 +152,34 @@ rejected rather than handing the body a pointer typed as a class the object is n
 
 ## "I need a class"
 
-Fields, `register`, and whatever the class actually does:
+Just fields and whatever the class actually does. No `register` boilerplate required!
 
 ```zig
+const MyNode = @This();
 allocator: Allocator,
 base: *Node,
-
-pub fn register(r: *Registry) void {
-    r.addClass(MyNode, r.allocator, .auto);
-}
 ```
 
 `create`, `recreate` and `destroy` are written for you when the class has those two fields.
 Declare one to override it -- a class with something to release writes its own `destroy` and
 gets the other two free. A field with no default means writing `create` yourself, because the
 synthesized one initialises the struct in one go.
+
+To register your classes, list them in your entry module (`src/main.zig`) using `registerAll`:
+
+```zig
+const nodes = .{ MyNode, PlayerNode };
+
+pub fn register(r: *Registry) void {
+    r.registerAll(nodes);
+}
+
+pub fn unregister(r: *Registry) void {
+    r.unregisterAll(nodes);
+}
+```
+
+If a class needs a custom registration (e.g., an EditorPlugin), simply define `pub fn register(r: *Registry) void` and `pub fn unregister(r: *Registry) void` on the class itself. `registerAll` will detect and call them instead of using `autoRegister`.
 
 ## "I need to extend the editor"
 
@@ -183,12 +196,48 @@ run -- `zig build run` does not register it, which is the point.
 
 ## "I need a name Godot understands"
 
-`StringName.fromComptimeLatin1("walk")` interns once per literal and hands back a
-`*const StringName` you must not destroy. Method names, property names, groups, animations.
+`godot.name("walk")` interns once per literal and hands back a copy you must not destroy.
+`godot.path("Player/Camera")` does the same for a `NodePath`. Method names, property names,
+groups, animations.
+
+Every parameter that wants a name is `anytype` and will coerce a plain Zig string, so
+`node.setName("walk")` compiles and reads better. Know what it costs before putting one in
+`_process`: coercing a literal builds a `StringName` and destroys it again, which is two
+engine calls that no optimiser can remove.
+
+| | ReleaseFast |
+|---|---|
+| `godot.name("walk")` | ~0 ns |
+| coercing `"walk"` | 77 ns |
+
+Measured over 200k iterations against 4.7.1. Once per `_ready` the literal is fine and
+clearer. Per frame, per node, it is the difference worth knowing about.
+
+A decl literal -- `.interned("walk")` -- works only where the target type is known, such as
+`const clip: StringName = .interned("walk")`. In argument position there is no type for it to
+resolve against, because the parameter is `anytype`.
 
 ## "I need to load something"
 
-`godot.load(Texture2d, "res://icon.png")` gives `?Gd(T)`.
+`godot.res(Texture2d, "res://icon.png")` gives `?Gd(T)`. 
+
+If your `build.zig` defines `godot_project` (which it does if you use the flat layout), `godot.res` uses Zig's compile-time reflection to read the Godot project and statically assert that the asset exists on disk. If you rename or delete `icon.png`, `godot.res` immediately generates a `@compileError` so you never ship a broken game. 
+
+If you are loading dynamic paths (e.g., from player data), use `godot.load(T, path)` which handles it purely at runtime.
+
+## "I need to connect a signal"
+
+```zig
+toggle_btn.connect(Button.Toggled, self, &onToggled);
+```
+
+gdzig hooks into Zig's compile-time reflection to validate your handler's signature. `Button.Toggled` requires a boolean indicating state, so `onToggled(self: *GuiNode, toggled: ?bool)` is validated before the extension even builds. You will never encounter Godot's runtime `Method expected X arguments, received Y` crash again.
+
+## "I need to iterate without restarting Godot"
+
+Godot supports native hot-reloading for GDExtensions, but managing it can be finicky (especially when a crash leaves behind locked `~name.dll` files).
+
+gdzig gives you `zig build watch`. It recursively watches your `src/` directory, automatically cleans any stale crash artifacts, instantly rebuilds the extension upon save, and can even automatically launch and restart your Godot project if it crashes. Iterate fearlessly!
 
 ## Also worth knowing
 
