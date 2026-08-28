@@ -24,11 +24,6 @@ pub fn main(init: std.process.Init) !void {
     const arena = arena_state.allocator();
     const io = init.io;
 
-    if (@import("builtin").os.tag != .windows) {
-        std.debug.print("watch: skipped, the artifact cleaner only matches .dll\n", .{});
-        return;
-    }
-
     var args = try init.minimal.args.iterateAllocator(arena);
     _ = args.next();
 
