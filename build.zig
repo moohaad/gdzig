@@ -240,6 +240,18 @@ pub fn build(b: *Build) !void {
     const watch_test_step = b.step("test-watch", "Check that the watcher cleans artifacts and reacts to changes");
     watch_test_step.dependOn(&run_watch_test.step);
 
+    // The four gates above are separate steps because each scaffolds a project
+    // and runs nested builds, which is minutes rather than seconds -- too slow
+    // to put on the command everyone runs constantly. But being reachable only
+    // from CI is how the features they cover went untested to begin with, so
+    // there is one command that runs everything.
+    const test_all_step = b.step("test-all", "Run the unit tests and every integration gate");
+    test_all_step.dependOn(test_step);
+    test_all_step.dependOn(init_test_step);
+    test_all_step.dependOn(res_test_step);
+    test_all_step.dependOn(signal_test_step);
+    test_all_step.dependOn(watch_test_step);
+
     //
     // Library
     //

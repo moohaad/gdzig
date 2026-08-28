@@ -86,9 +86,15 @@ runs:
       shell: bash
       run: '"$GODOT_BIN" --version'
 
+    # `--test-timeout` is not about slow tests. The runner's default deadline is
+    # one minute of silence *between* tests, and a shared runner under load can
+    # starve a Godot-hosted suite for that long -- which fails the build while
+    # reporting every assertion passed. Seen locally twice, as PIPE_CLOSING and
+    # as "test runner failed to respond for 1m". Ten minutes is generous enough
+    # that a real hang is still caught.
     - name: Run tests
       shell: bash
-      run: zig build test -Dgodot-path="$GODOT_BIN"
+      run: zig build test -Dgodot-path="$GODOT_BIN" --test-timeout 10m
 
     # Separate step so a surface regression is distinguishable from a test
     # failure. Kept off the default build: it analyses every generated
@@ -96,7 +102,7 @@ runs:
     # test` when CI can carry it.
     - name: Type-check the generated surface
       shell: bash
-      run: zig build test -Dgodot-path="$GODOT_BIN" -Dsurface-audit
+      run: zig build test -Dgodot-path="$GODOT_BIN" -Dsurface-audit --test-timeout 10m
 
     # The two steps above cannot see a marshalling path that nothing calls: a
     # new shape still type-checks, and still passes every test that does not

@@ -2,7 +2,6 @@ const GuiNode = @This();
 
 allocator: Allocator,
 
-
 base: *Control,
 sprite: *Sprite2D = undefined,
 state: PlayerState = .idle,
@@ -47,13 +46,13 @@ pub fn _enterTree(self: *GuiNode) void {
     var normal_btn = Button.init();
     self.base.addChild(normal_btn, .{});
     normal_btn.setPosition(Vector2.initXY(100, 20), .{});
-    
+
     // Test collection macros!
     var test_array = godot.array(.{ 42, 100, "hello" });
     defer test_array.deinit();
     var test_dict = godot.dict(.{ .name = "Player", .health = 100 });
     defer test_dict.deinit();
-    godot.print("Array size: {d}, Dict size: {d}", .{test_array.size(), test_dict.size()});
+    godot.print("Array size: {d}, Dict size: {d}", .{ test_array.size(), test_dict.size() });
     normal_btn.setSize(Vector2.initXY(100, 50), .{});
     normal_btn.setText("Press Me");
 
@@ -62,7 +61,7 @@ pub fn _enterTree(self: *GuiNode) void {
     free_btn.setPosition(Vector2.initXY(100, 100), .{});
     free_btn.setSize(Vector2.initXY(100, 50), .{});
     free_btn.setText("Free Func");
-    
+
     // Connect to a free function using godot.callable
     const callb = godot.callable(self.allocator, self, onFreeFunction);
     free_btn.connectCallable(Button.Pressed, callb);

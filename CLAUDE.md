@@ -11,6 +11,20 @@ Run `zig build -h` to confirm the available steps.
   Godot headers (to `zig-out/vendor`)
 - `zig build check` - Check the build without installing artifacts
 - `zig build test` - Run unit tests plus the Godot integration tests under `test/`
+- `zig build test-all` - The above plus every integration gate below, which is what
+  CI runs. Each of those scaffolds a project and runs nested builds, so it is minutes
+  rather than seconds -- but they are the only coverage the build tooling has, and
+  leaving them reachable only from CI is how they came to be missing in the first place:
+  - `zig build test-init` - `init-gdzig` produces a project that compiles
+  - `zig build test-res` - a `res://` path the project lacks is a compile error
+  - `zig build test-signals` - a handler that does not match its signal will not compile
+  - `zig build test-watch` - the watcher cleans stale artifacts and notices a change
+- `zig build test --test-timeout 10m` - Same, with a longer deadline. The runner gives
+  up after one minute of silence *between* tests, and on a loaded machine a Godot-hosted
+  suite can be starved for that long. The failure is recognisable because it reports
+  every assertion passing and fails anyway: `test runner failed to respond for 1m`, or a
+  `PIPE_CLOSING` / `NoResponse` from the same cause. It is not a test failure; re-run or
+  raise the timeout. CI passes this flag.
 - `zig build test -Dsurface-audit` - Additionally type-check every generated declaration.
   Zig only analyses referenced functions, so the plain build proves the bindings parse, not
   that they compile; CI runs this as its own step

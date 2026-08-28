@@ -223,7 +223,11 @@ resolve against, because the parameter is `anytype`.
 
 If your `build.zig` defines `godot_project` (which it does if you use the flat layout), `godot.res` uses Zig's compile-time reflection to read the Godot project and statically assert that the asset exists on disk. If you rename or delete `icon.png`, `godot.res` immediately generates a `@compileError` so you never ship a broken game. 
 
-If you are loading dynamic paths (e.g., from player data), use `godot.load(T, path)` which handles it purely at runtime.
+If you are loading dynamic paths (e.g., from player data), use `godot.load(T, path)` which handles it purely at runtime:
+
+```zig
+var my_scene = godot.load(PackedScene, dynamic_path) orelse return;
+```
 
 ## "I need to connect a signal"
 
@@ -274,6 +278,14 @@ This acts as a drop-in replacement for `std.debug.print` but flawlessly outputs 
 
 If you export a Zig `enum` as a property, gdzig's reflection will automatically detect it and generate a `PROPERTY_HINT_ENUM` metadata string for Godot. This gives you a seamless dropdown in the Godot editor, perfectly mapped to your Zig enum variants without any extra configuration!
 
+```zig
+const PlayerState = enum { idle, walking, jumping };
+// ...
+
+// Automatically becomes an Inspector dropdown!
+state: PlayerState = .idle, 
+```
+
 ## "I need to iterate without restarting Godot"
 
 Godot supports native hot-reloading for GDExtensions, but managing it can be finicky (especially when a crash leaves behind locked `~name.dll` files).
@@ -282,6 +294,20 @@ gdzig gives you `zig build watch`. It recursively watches your `src/` directory,
 
 **Surviving Hot-Reloads:**
 When Godot hot-reloads your DLL, it preserves exported properties but destroys any internal state in your Zig structs (like timers or temporary counters). gdzig provides `godot.autoPersist(self)` and `godot.autoRestore(self)` to seamlessly save and restore your struct's private state to Godot's metadata during DLL swaps. Put `autoRestore` in your `recreate` and `autoPersist` in your `destroy`!
+
+```zig
+clicks: i32 = 0, // We want this internal state to survive hot-reload!
+
+pub fn recreate(self: *MyNode, allocator: *Allocator) !void {
+    // ... basic setup ...
+    godot.autoRestore(self); // Restores `clicks` from before the DLL swap
+}
+
+pub fn destroy(self: *MyNode, allocator: *Allocator) void {
+    godot.autoPersist(self); // Saves `clicks` right before the DLL swap
+    // ... teardown ...
+}
+```
 
 ## Also worth knowing
 
