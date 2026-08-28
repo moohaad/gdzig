@@ -176,3 +176,11 @@ runs:
         zig build -Dgodot-path="$GODOT_BIN"
 
         zig build reload-test -Dgodot-path="$GODOT_BIN"
+
+    # The scaffolder writes four interlocking files and is the first thing a
+    # newcomer runs, so "does its output compile" is worth a gate. Uses a path
+    # dependency on this checkout rather than the GitHub fetch it ends with, so
+    # it needs no network and checks the code under test.
+    - name: Scaffold a project and build it
+      shell: bash
+      run: zig build test-init

@@ -147,6 +147,30 @@ pub fn build(b: *Build) !void {
     const init_step = b.step("init-gdzig", "Scaffold a new gdzig project");
     init_step.dependOn(&run_init.step);
 
+    // Scaffolds a throwaway project and builds it. The scaffolder writes four
+    // interlocking files and is the first thing a newcomer runs, so "does its
+    // output compile" is the assertion worth having.
+    const init_test_exe = b.addExecutable(.{
+        .name = "init-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/init_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_init_test = b.addRunArtifact(init_test_exe);
+    run_init_test.addArtifactArg(init_exe);
+    run_init_test.addArg(".zig-cache/init-test/initprobe");
+    // How the scaffolded project reaches this checkout: three levels up from
+    // where it is written. A path dependency rather than the GitHub fetch the
+    // scaffolder ends with, so the test needs no network and checks the tree it
+    // is running in.
+    run_init_test.addArg("../../..");
+    // Spawns processes and writes outside the cache, so it must not be elided.
+    run_init_test.has_side_effects = true;
+    const init_test_step = b.step("test-init", "Scaffold a project with init-gdzig and build it");
+    init_test_step.dependOn(&run_init_test.step);
+
     //
     // Library
     //
