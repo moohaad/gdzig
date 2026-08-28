@@ -117,27 +117,36 @@ fn make(step: *Step, _: Step.MakeOptions) !void {
     // Zig 0.15 and earlier left an extracted directory at p/<hash>, which this
     // step used to copy out of. Zig 0.16's `zig fetch` stores the compressed
     // tarball instead and offers no flag to extract it, so unpack it here.
-    const pkg_subpath = try std.fmt.allocPrint(arena, "p{c}{s}.tar.gz", .{ std.fs.path.sep, pkg_hash });
+    // Only when the directory is not already holding one. `std.tar.extract`
+    // refuses to write over an existing entry, so a run that left the output in
+    // place but not the cache manifest -- an interrupted build, a deleted
+    // `.zig-cache/h`, two build roots racing on the same digest -- made every
+    // later build fail with `PathAlreadyExists` until someone deleted the
+    // directory by hand. An extracted Godot sitting there is a cache hit, not a
+    // conflict, and skipping the work also spares re-reading 84 MB.
+    if (extractedExecutable(step, io, cache_dir) == null) {
+        const pkg_subpath = try std.fmt.allocPrint(arena, "p{c}{s}.tar.gz", .{ std.fs.path.sep, pkg_hash });
 
-    var tarball = b.graph.global_cache_root.handle.openFile(io, pkg_subpath, .{}) catch |err| {
-        return step.fail("failed to open fetched tarball '{s}': {s}", .{ pkg_subpath, @errorName(err) });
-    };
-    defer tarball.close(io);
+        var tarball = b.graph.global_cache_root.handle.openFile(io, pkg_subpath, .{}) catch |err| {
+            return step.fail("failed to open fetched tarball '{s}': {s}", .{ pkg_subpath, @errorName(err) });
+        };
+        defer tarball.close(io);
 
-    var file_buf: [64 * 1024]u8 = undefined;
-    var tarball_reader = tarball.reader(io, &file_buf);
+        var file_buf: [64 * 1024]u8 = undefined;
+        var tarball_reader = tarball.reader(io, &file_buf);
 
-    var window: [std.compress.flate.max_window_len]u8 = undefined;
-    var decompress: std.compress.flate.Decompress = .init(&tarball_reader.interface, .gzip, &window);
+        var window: [std.compress.flate.max_window_len]u8 = undefined;
+        var decompress: std.compress.flate.Decompress = .init(&tarball_reader.interface, .gzip, &window);
 
-    std.tar.extract(io, cache_dir, &decompress.reader, .{
-        // The archive wraps its contents in a single <hash>/ directory.
-        .strip_components = 1,
-        // Keeps the +x bit on the Godot binary, which matters off Windows.
-        .mode_mode = .executable_bit_only,
-    }) catch |err| {
-        return step.fail("failed to extract '{s}': {s}", .{ pkg_subpath, @errorName(err) });
-    };
+        std.tar.extract(io, cache_dir, &decompress.reader, .{
+            // The archive wraps its contents in a single <hash>/ directory.
+            .strip_components = 1,
+            // Keeps the +x bit on the Godot binary, which matters off Windows.
+            .mode_mode = .executable_bit_only,
+        }) catch |err| {
+            return step.fail("failed to extract '{s}': {s}", .{ pkg_subpath, @errorName(err) });
+        };
+    }
 
     // Find the Godot executable and store its path
     const exe_name = try findGodotExecutable(step, io, cache_dir);
@@ -164,10 +173,15 @@ fn readExeName(arena: std.mem.Allocator, io: Io, cache_root: Io.Dir, cache_path:
 
 /// Find the Godot executable in the directory
 fn findGodotExecutable(step: *Step, io: Io, dir: Io.Dir) ![]const u8 {
+    return extractedExecutable(step, io, dir) orelse
+        step.fail("could not find Godot executable in extracted archive", .{});
+}
+
+/// The Godot executable in `dir`, or null if it does not hold one. Answers
+/// rather than fails, so it can double as "has this already been extracted?".
+fn extractedExecutable(step: *Step, io: Io, dir: Io.Dir) ?[]const u8 {
     var iter = dir.iterate();
-    while (iter.next(io) catch |err| {
-        return step.fail("failed to iterate directory: {s}", .{@errorName(err)});
-    }) |entry| {
+    while (iter.next(io) catch null) |entry| {
         const name = entry.name;
 
         // macOS app bundle - return path to executable inside
@@ -189,5 +203,5 @@ fn findGodotExecutable(step: *Step, io: Io, dir: Io.Dir) ![]const u8 {
         }
     }
 
-    return step.fail("could not find Godot executable in extracted archive", .{});
+    return null;
 }
