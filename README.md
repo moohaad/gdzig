@@ -32,14 +32,23 @@ zig build -Dgodot-version=4.7
 zig build -Dgodot-path=/absolute/path/to/godot   # must be absolute
 ```
 
+In a project of your own, `zig build watch` rebuilds on every change and restarts Godot,
+clearing the stale `~`-prefixed libraries that otherwise block the next load.
+
+`zig build test` runs the unit and Godot tests; `zig build test-all` adds the
+integration gates that cover the build tooling itself, which is what CI runs.
+
 ## Starting a project
 
-New to gdzig? [doc/getting-started.md](doc/getting-started.md) walks this same setup
-end to end and finishes with a character you can drive with WASD. What follows is the
-condensed reference.
+Fastest route: `zig build init-gdzig -- --name mygame` scaffolds a working project.
+[doc/quickstart.md](doc/quickstart.md) is that path end to end.
 
-There is no template to generate; a project is four files and a directory. The
-[example](example/) is the working reference for all of it.
+To build one by hand instead, [doc/getting-started.md](doc/getting-started.md) walks
+this same setup and finishes with a character you can drive with WASD. What follows is
+the condensed reference for the files involved.
+
+By hand a project is four files and a directory. The [example](example/) is the working
+reference for all of it.
 
 Your Zig code and a normal Godot project sit side by side, and the build installs the
 library into the Godot project:
