@@ -126,11 +126,29 @@ pub fn getNodesInGroupAs(
         defer variant.deinit();
 
         if (variant.as(*gdzig.class.Node)) |node| {
-            if (node.asInstance(T)) |instance| {
+            if (gdzig.class.castTo(T, node)) |instance| {
                 try list.append(allocator, instance);
             }
         }
     }
-
     return list;
+}
+
+pub fn getNodeAs(
+    node: anytype,
+    comptime T: type,
+    path: []const u8,
+) !?*T {
+    var string = gdzig.builtin.String.fromLatin1(path);
+    defer string.deinit();
+
+    var p = gdzig.builtin.NodePath.fromString(string);
+    defer p.deinit();
+
+    if (node.getNodeOrNull(p)) |child| {
+        if (gdzig.class.castTo(T, child)) |instance| {
+            return instance;
+        }
+    }
+    return null;
 }

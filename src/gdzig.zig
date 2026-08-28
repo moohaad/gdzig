@@ -47,6 +47,7 @@ pub const macros = @import("macros.zig");
 pub const callable = macros.callable;
 pub const print = macros.print;
 pub const getNodesInGroupAs = macros.getNodesInGroupAs;
+pub const getNodeAs = macros.getNodeAs;
 pub const persist = @import("persist.zig");
 pub const autoPersist = persist.autoPersist;
 pub const autoRestore = persist.autoRestore;

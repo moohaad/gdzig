@@ -11,6 +11,7 @@ pub const groups = .{
 allocator: Allocator,
 base: *Control, //this makes @Self a valid gdextension class
 color_rect: *ColorRect = undefined,
+my_enum: TestEnum = .OptionA,
 
 // Colors group
 colors_signal2: Color = Color.initRGBA(0, 1, 0, 1),
@@ -22,6 +23,12 @@ pub const Signal1 = struct {
 };
 pub const Signal2 = struct {};
 pub const Signal3 = struct {};
+
+pub const TestEnum = enum(i64) {
+    OptionA = 0,
+    OptionB = 1,
+    OptionC = 2,
+};
 
 pub fn recreate(allocator: *Allocator, obj: *Object) *SignalNode {
     const self = allocator.create(SignalNode) catch @panic("OOM");
@@ -52,6 +59,7 @@ pub fn _enterTree(self: *SignalNode) void {
     if (Engine.isEditorHint()) return;
 
     var signal1_btn = Button.init();
+    signal1_btn.setName("signal1_btn");
     signal1_btn.setPosition(.initXY(100, 20), .{});
     signal1_btn.setSize(.initXY(100, 50), .{});
     signal1_btn.setText("Signal1");
@@ -90,6 +98,11 @@ pub fn _enterTree(self: *SignalNode) void {
             godot.print("Found {d} SignalNodes in 'test_group'!", .{nodes.items.len});
         } else |_| {}
     }
+
+    if (godot.getNodeAs(self.base, Button, "signal1_btn")) |btn| {
+        godot.print("Found signal1_btn via getNodeAs!", .{});
+        _ = btn;
+    } else |_| {}
 }
 
 pub fn _exitTree(self: *SignalNode) void {
