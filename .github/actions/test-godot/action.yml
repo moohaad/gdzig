@@ -191,3 +191,9 @@ runs:
     - name: Check res:// paths are verified at comptime
       shell: bash
       run: zig build test-res
+
+    # `assertSignalSignature`'s job is to fail, so the only way to know it works
+    # is to build a handler that must not compile and read the message back.
+    - name: Check signal handler signatures are verified at comptime
+      shell: bash
+      run: zig build test-signals

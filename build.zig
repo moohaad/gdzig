@@ -190,6 +190,24 @@ pub fn build(b: *Build) !void {
     const res_test_step = b.step("test-res", "Check that res:// paths are verified at comptime");
     res_test_step.dependOn(&run_res_test.step);
 
+    // Same shape as test-res: `assertSignalSignature`'s job is to fail, so
+    // proving it works means building code that must not compile.
+    const signal_test_exe = b.addExecutable(.{
+        .name = "signal-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/signal_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_signal_test = b.addRunArtifact(signal_test_exe);
+    run_signal_test.addArtifactArg(init_exe);
+    run_signal_test.addArg(".zig-cache/signal-test/sigprobe");
+    run_signal_test.addArg("../../..");
+    run_signal_test.has_side_effects = true;
+    const signal_test_step = b.step("test-signals", "Check that signal handler signatures are verified at comptime");
+    signal_test_step.dependOn(&run_signal_test.step);
+
     //
     // Library
     //
