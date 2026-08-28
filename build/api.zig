@@ -74,6 +74,8 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
     const dep = options.dependency orelse getSelfDependency(b);
     const is_wasm = options.target.result.cpu.arch.isWasm();
 
+    warnIfUnregistered(b, options.root_module);
+
     if (options.godot_project) |project| {
         addSceneImports(b, options.root_module, project);
         clearReloadLeftovers(b, project, options.name);
@@ -130,6 +132,79 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
 /// left behind by a crashed or killed editor blocks the *next* load, and what
 /// Godot reports then says nothing about the file -- so it reads as the
 /// extension being broken. Clear ours before installing over it.
+/// A class whose `register` nothing reaches does not exist, and nothing says so:
+/// the build succeeds, and the class is simply absent from Godot's Create Node
+/// dialog with no error anywhere. Same silent shape as a project that was never
+/// imported, and just as cheap to look for.
+///
+/// A file counts as reached if any other source beside it names it. That is
+/// deliberately loose, and it fits how registration is actually written: the
+/// entry module lists the types in a tuple for `registerAll`, so naming one and
+/// registering it are the same act. Looking for an `addModule(Foo)` call
+/// instead would miss that form entirely and warn about every correctly wired
+/// class.
+///
+/// False negatives are the right way to be wrong here. A false positive would
+/// teach people to ignore the warning, which costs more than the case it
+/// catches.
+fn warnIfUnregistered(b: *Build, root_module: *Build.Module) void {
+    const io = b.graph.io;
+
+    const root_source = root_module.root_source_file orelse return;
+    const src = switch (root_source) {
+        .src_path => |sp| sp,
+        // Generated or dependency-owned: not the user's source tree to audit.
+        else => return,
+    };
+    const dir_path = std.fs.path.dirname(src.sub_path) orelse return;
+    const entry_name = std.fs.path.basename(src.sub_path);
+
+    var dir = src.owner.build_root.handle.openDir(io, dir_path, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+
+    var names: std.ArrayList([]const u8) = .empty;
+    var bodies: std.ArrayList([]const u8) = .empty;
+
+    var iter = dir.iterate();
+    while (iter.next(io) catch null) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+
+        var file = dir.openFile(io, entry.name, .{}) catch continue;
+        defer file.close(io);
+
+        var buf: [4096]u8 = undefined;
+        var reader = file.reader(io, &buf);
+        const body = reader.interface.allocRemaining(b.allocator, .limited(4 << 20)) catch continue;
+
+        names.append(b.allocator, b.dupe(entry.name)) catch @panic("OOM");
+        bodies.append(b.allocator, body) catch @panic("OOM");
+    }
+
+    for (names.items, bodies.items) |name, body| {
+        if (std.mem.eql(u8, name, entry_name)) continue;
+        if (std.mem.indexOf(u8, body, "pub fn register(") == null) continue;
+
+        const stem = name[0 .. name.len - ".zig".len];
+
+        var reached = false;
+        for (names.items, bodies.items) |other, other_body| {
+            if (std.mem.eql(u8, other, name)) continue;
+            if (std.mem.indexOf(u8, other_body, stem) != null) {
+                reached = true;
+                break;
+            }
+        }
+
+        if (!reached) std.log.warn(
+            "gdzig: '{s}/{s}' declares `register` but nothing imports or registers it, so " ++
+                "its class will be missing from Godot with no error. Add it to the entry " ++
+                "module's list: {s},",
+            .{ dir_path, name, stem },
+        );
+    }
+}
+
 fn clearReloadLeftovers(b: *Build, project: []const u8, name: []const u8) void {
     const io = b.graph.io;
     const lib_path = b.pathJoin(&.{ project, "lib" });
@@ -394,6 +469,45 @@ pub fn addTestImpl(b: *Build, paths: Resolver, options: TestOptions) *Step.Run {
     run.enableTestRunnerMode();
     run.step.dependOn(&install_project.step);
     return run;
+}
+
+/// Options for the zig build watch step
+pub const WatchOptions = struct {
+    dependency: ?*Build.Dependency = null,
+    /// The source directory to monitor for changes
+    src_dir: []const u8 = "src",
+    /// The library output directory to clean stale hot-reload artifacts from
+    lib_dir: []const u8 = "lib",
+    /// An optional command to spawn and automatically restart on crashes (e.g. Godot)
+    run_cmd: ?[]const []const u8 = null,
+};
+
+/// Add a watch step that recompiles the extension on changes to .zig files,
+/// cleans stale Godot hot-reload artifacts, and can optionally run the game.
+pub fn addWatchStep(b: *Build, options: WatchOptions) *Step.Run {
+    const dep = options.dependency orelse getSelfDependency(b);
+
+    const watch_exe = b.addExecutable(.{
+        .name = "watch",
+        .root_module = b.createModule(.{
+            .root_source_file = dep.path("build/watch.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+
+    const run_watch = b.addRunArtifact(watch_exe);
+    run_watch.addArgs(&.{
+        "--src-dir", options.src_dir,
+        "--lib-dir", options.lib_dir,
+    });
+
+    if (options.run_cmd) |cmd| {
+        run_watch.addArg("--run");
+        run_watch.addArgs(cmd);
+    }
+
+    return run_watch;
 }
 
 // ============================================================================

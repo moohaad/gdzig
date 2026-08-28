@@ -4,6 +4,8 @@ pub fn register(r: *gdzig.extension.Registry) void {
 
     const probe_class = r.createClass(LeakProbeResource, r.allocator, .auto);
     probe_class.addMethod("ping", .auto);
+
+    r.autoRegister(SynthDestroyNode);
 }
 
 fn ensureRegistered() void {
@@ -261,6 +263,15 @@ test "a class over a refcounted base is freed when the engine drops it" {
     try testing.expectEqual(@as(usize, 1), LeakProbeResource.destroyed);
 }
 
+/// Declares no `destroy`, so gdzig writes one. That is the shape `cleanup` has
+/// to handle by looking at the *type* rather than for a declaration: Zig cannot
+/// add a decl to your struct, so a synthesised destructor is invisible to
+/// `@hasDecl`.
+const SynthDestroyNode = struct {
+    allocator: std.mem.Allocator,
+    base: *Node,
+};
+
 const RefReturnNode = struct {
     base: *Node,
     resource: *Resource,
@@ -369,4 +380,24 @@ test "Gd.upcast finds the engine object, not the Zig struct" {
     try testing.expectEqual(want, @intFromPtr(base.ptr));
 
     base.deinit();
+}
+
+test "cleanup frees a class whose destructor gdzig wrote" {
+    ensureRegistered();
+
+    // Through ClassDB: a class that declares no `create` has no other door.
+    var instance = ClassDb.instantiate(StringName.fromComptimeLatin1("SynthDestroyNode").*);
+    defer instance.deinit();
+
+    const object = instance.as(*Object).?;
+    const node = object.asInstance(SynthDestroyNode).?;
+
+    try testing.expect(general.isInstanceValid(instance));
+
+    // The whole point of `cleanup` is not having to know which of the several
+    // ways to release a thing applies. Passing it one of your own classes used
+    // to fall through every branch and do nothing at all.
+    gdzig.cleanup(node);
+
+    try testing.expect(!general.isInstanceValid(instance));
 }

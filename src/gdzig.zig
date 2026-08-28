@@ -39,8 +39,9 @@ pub const Scene = @import("scene.zig").Scene;
 pub const rpc = @import("rpc.zig");
 pub const coro = @import("coro.zig");
 pub const load = @import("load.zig").load;
+pub const res = @import("load.zig").res;
 pub const input = @import("input.zig");
-
+pub const signal_util = @import("signal_util.zig");
 const DispatchTable = @import("DispatchTable.zig");
 
 /// Godot function pointers, populated at load time.
@@ -292,6 +293,17 @@ pub fn cleanup(obj: anytype) void {
         }
         if (@hasDecl(ChildT, "deinit")) {
             obj.deinit();
+            return;
+        }
+        // One of your classes that let gdzig write its destructor. There is no
+        // declaration to find -- Zig cannot add one to your struct -- so ask
+        // the type instead of asking for a decl. Freeing the engine object runs
+        // the destructor gdzig registered, which frees the struct with it.
+        //
+        // Last, so a class that *does* declare `destroy` keeps taking its own
+        // path above and nothing that already worked changes.
+        if (comptime class.isStructClass(ChildT)) {
+            class.upcast(*class.Object, obj).destroy();
             return;
         }
     } else {
