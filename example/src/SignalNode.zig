@@ -81,6 +81,15 @@ pub fn _enterTree(self: *SignalNode) void {
     self.base.connect(Signal1, self, &onSignal1);
     self.base.connect(Signal2, self, &onSignal2);
     self.base.connect(Signal3, self, &onSignal3);
+
+    self.base.addToGroup(godot.builtin.StringName.fromLatin1("test_group", true), .{});
+    if (self.base.getTree()) |tree| {
+        if (godot.getNodesInGroupAs(tree, SignalNode, "test_group", self.allocator)) |n| {
+            var nodes = n;
+            defer nodes.deinit(self.allocator);
+            godot.print("Found {d} SignalNodes in 'test_group'!", .{nodes.items.len});
+        } else |_| {}
+    }
 }
 
 pub fn _exitTree(self: *SignalNode) void {

@@ -102,3 +102,35 @@ pub fn callable(allocator: std.mem.Allocator, ctx: anytype, comptime func: anyty
     gdzig.raw.callableCustomCreate2.?(@ptrCast(&out_callable), &info);
     return out_callable;
 }
+
+/// Queries the SceneTree for nodes in the given group, filters out any nodes that
+/// are not instances of `T`, and returns them as a strongly-typed ArrayList.
+pub fn getNodesInGroupAs(
+    tree: *gdzig.class.SceneTree,
+    comptime T: type,
+    group: [:0]const u8,
+    allocator: std.mem.Allocator,
+) !std.ArrayList(*T) {
+    var group_name = gdzig.builtin.StringName.fromLatin1(group, false);
+    defer group_name.deinit();
+
+    var array = tree.getNodesInGroup(group_name);
+    defer array.deinit();
+
+    var list: std.ArrayList(*T) = .empty;
+    errdefer list.deinit(allocator);
+
+    var i: i64 = 0;
+    while (i < array.size()) : (i += 1) {
+        var variant = array.get(i);
+        defer variant.deinit();
+
+        if (variant.as(*gdzig.class.Node)) |node| {
+            if (node.asInstance(T)) |instance| {
+                try list.append(allocator, instance);
+            }
+        }
+    }
+
+    return list;
+}
