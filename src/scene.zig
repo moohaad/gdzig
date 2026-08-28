@@ -55,12 +55,48 @@ const gdzig_case = common.gdzig_case;
 
 const gdzig = @import("gdzig");
 const Child = @import("child.zig").Child;
+const oopz = @import("oopz");
 
 /// A struct of `Child` fields, one per node in `tscn`.
 pub fn Scene(comptime tscn: []const u8) type {
     comptime {
         @setEvalBranchQuota(quotaFor(tscn));
         return build(parse(tscn));
+    }
+}
+
+/// Resolves the exact type of a node at `path` in `tscn`.
+/// If the node is missing, it emits a @compileError.
+/// If it's an instanced sub-scene, it resolves to `Node`.
+pub fn resolvePathType(comptime tscn: []const u8, comptime path: [:0]const u8) type {
+    comptime {
+        const entries = parse(tscn);
+        for (entries) |entry| {
+            if (std.mem.eql(u8, entry.path, path)) {
+                return Resolve(entry.type_name);
+            }
+        }
+        @compileError("Node path not found in scene: " ++ path);
+    }
+}
+
+/// Verifies that a node exists at `path` in `tscn`, and that its type is a valid `T`.
+pub fn verifyPathType(comptime tscn: []const u8, comptime path: [:0]const u8, comptime T: type) void {
+    comptime {
+        const entries = parse(tscn);
+        for (entries) |entry| {
+            if (std.mem.eql(u8, entry.path, path)) {
+                if (entry.type_name == null) {
+                    // Instanced sub-scene; we can't strict verify without loading the other file.
+                    // Just verify that T is at least an Object (which Child already does).
+                    return;
+                }
+                const ActualType = Resolve(entry.type_name);
+                oopz.assertIsA(T, ActualType);
+                return;
+            }
+        }
+        @compileError("Node path not found in scene: " ++ path);
     }
 }
 

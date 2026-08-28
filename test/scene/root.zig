@@ -143,5 +143,36 @@ const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Scene = gdzig.Scene;
 const Node = gdzig.class.Node;
+const Node2d = gdzig.class.Node2d;
 const Sprite2d = gdzig.class.Sprite2d;
 const StringName = gdzig.builtin.StringName;
+
+test "SceneNode macro infers type from tscn" {
+    const tscn = @embedFile("fixture.tscn");
+    // "Sprite" is a Sprite2D in fixture.tscn
+    const SpriteField = gdzig.SceneNode(tscn, "Sprite");
+    try testing.expectEqual(Sprite2d, SpriteField.Resolves);
+    
+    // Simpler check: getting a child returns a pointer to the inferred type.
+    const S = struct {
+        sprite: gdzig.SceneNode(tscn, "Sprite") = .pending,
+    };
+    const s: S = .{};
+    try testing.expect(s.sprite.get() == null);
+}
+
+test "SceneNodeAs verifies type from tscn" {
+    const tscn = @embedFile("fixture.tscn");
+    // "Sprite" is a Sprite2D, asking for Sprite2d should work
+    const SpriteField = gdzig.SceneNodeAs(tscn, "Sprite", Sprite2d);
+    
+    // "Sprite" is a Sprite2D, asking for Node2d should work (since Sprite2D inherits Node2D)
+    const SpriteAsNode2D = gdzig.SceneNodeAs(tscn, "Sprite", Node2d);
+
+    // "Instanced" is an instanced sub-scene, asking for Node should work
+    const Instanced = gdzig.SceneNodeAs(tscn, "Instanced", Node);
+
+    _ = SpriteField;
+    _ = SpriteAsNode2D;
+    _ = Instanced;
+}

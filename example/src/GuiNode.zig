@@ -1,8 +1,18 @@
 const GuiNode = @This();
 
 allocator: Allocator,
+
+
 base: *Control,
 sprite: *Sprite2D = undefined,
+state: PlayerState = .idle,
+clicks: i32 = 0,
+
+pub const PlayerState = enum(i32) {
+    idle = 0,
+    running = 10,
+    jumping = 20,
+};
 
 pub fn recreate(allocator: *Allocator, obj: *Object) *GuiNode {
     const self = allocator.create(GuiNode) catch @panic("OOM");
@@ -11,6 +21,7 @@ pub fn recreate(allocator: *Allocator, obj: *Object) *GuiNode {
         .base = @ptrCast(obj),
     };
     self.base.setInstance(GuiNode, self);
+    godot.autoRestore(self);
     return self;
 }
 
@@ -25,6 +36,7 @@ pub fn create(allocator: *Allocator) !*GuiNode {
 }
 
 pub fn destroy(self: *GuiNode, allocator: *Allocator) void {
+    godot.autoPersist(self);
     self.base.destroy();
     allocator.destroy(self);
 }
@@ -35,6 +47,13 @@ pub fn _enterTree(self: *GuiNode) void {
     var normal_btn = Button.init();
     self.base.addChild(normal_btn, .{});
     normal_btn.setPosition(Vector2.initXY(100, 20), .{});
+    
+    // Test collection macros!
+    var test_array = godot.array(.{ 42, 100, "hello" });
+    defer test_array.deinit();
+    var test_dict = godot.dict(.{ .name = "Player", .health = 100 });
+    defer test_dict.deinit();
+    std.debug.print("Array size: {d}, Dict size: {d}\n", .{test_array.size(), test_dict.size()});
     normal_btn.setSize(Vector2.initXY(100, 50), .{});
     normal_btn.setText("Press Me");
 
@@ -61,8 +80,8 @@ pub fn _exitTree(self: *GuiNode) void {
 }
 
 pub fn onPressed(self: *GuiNode) void {
-    _ = self;
-    std.debug.print("onPressed \n", .{});
+    self.clicks += 1;
+    std.debug.print("onPressed, clicks: {d}\n", .{self.clicks});
 }
 
 pub fn onToggled(self: *GuiNode, toggled_on: ?bool) void {

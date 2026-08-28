@@ -667,7 +667,27 @@ pub fn Class(comptime T: type) type {
                 
                 if (!is_ignored) {
                     if (comptime gdzig.builtin.Variant.Tag.forTypeOrNull(field.type) != null) {
-                        self.addProperty(field.name ++ "", .auto);
+                        const type_info = @typeInfo(field.type);
+                        if (type_info == .@"enum") {
+                            const enum_options = comptime blk: {
+                                var hint_str: [:0]const u8 = "";
+                                for (type_info.@"enum".fields, 0..) |efield, i| {
+                                    const entry = std.fmt.comptimePrint("{s}:{d}", .{efield.name, efield.value});
+                                    if (i == 0) {
+                                        hint_str = entry;
+                                    } else {
+                                        hint_str = hint_str ++ "," ++ entry;
+                                    }
+                                }
+                                var opts = Property(T, field.name ++ "").CreateOptions{};
+                                opts.hint = .property_hint_enum;
+                                opts.hint_string = hint_str;
+                                break :blk opts;
+                            };
+                            self.addProperty(field.name ++ "", enum_options);
+                        } else {
+                            self.addProperty(field.name ++ "", .auto);
+                        }
                     }
                 }
             }

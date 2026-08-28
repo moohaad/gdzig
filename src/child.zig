@@ -98,6 +98,20 @@ pub fn Child(comptime T: type, comptime path: [:0]const u8) type {
     };
 }
 
+/// A field holding the child at `path`, resolved before `_ready`.
+/// The type `T` is automatically inferred from the `.tscn` file at compile time.
+pub fn SceneNode(comptime tscn: []const u8, comptime path: [:0]const u8) type {
+    const ExactType = @import("scene.zig").resolvePathType(tscn, path);
+    return Child(ExactType, path);
+}
+
+/// A field holding the child at `path`, resolved before `_ready`.
+/// It verifies at compile time that the node at `path` in `tscn` is of type `T`.
+pub fn SceneNodeAs(comptime tscn: []const u8, comptime path: [:0]const u8, comptime T: type) type {
+    @import("scene.zig").verifyPathType(tscn, path, T);
+    return Child(T, path);
+}
+
 /// The autoload named `name`, resolved before `_ready` like any other field.
 ///
 /// Godot puts an autoload under `/root` before the main scene loads, so it is
