@@ -83,7 +83,16 @@ pub fn main(init: std.process.Init) !void {
         \\    const target = b.standardTargetOptions(.{{}});
         \\    const optimize = b.standardOptimizeOption(.{{}});
         \\
-        \\    const gdzig_dep = b.dependency("gdzig", .{{ .target = target, .optimize = optimize }});
+        \\    const gdzig_dep = b.dependency("gdzig", .{{
+        \\        .target = target,
+        \\        .optimize = optimize,
+        \\        // Needed here as well as on `addExtension`, and not the same option:
+        \\        // this one bakes the project's resource list into the gdzig module,
+        \\        // which is what lets `godot.res` reject a `res://` path the project
+        \\        // does not have. Absolute, because gdzig resolves it against its own
+        \\        // build root rather than yours.
+        \\        .godot_project = b.pathFromRoot("."),
+        \\    }});
         \\
         \\    const mod = b.createModule(.{{
         \\        .root_source_file = b.path("src/{s}.zig"),

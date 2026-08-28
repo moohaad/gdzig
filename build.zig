@@ -171,6 +171,25 @@ pub fn build(b: *Build) !void {
     const init_test_step = b.step("test-init", "Scaffold a project with init-gdzig and build it");
     init_test_step.dependOn(&run_init_test.step);
 
+    // `res` earns its keep by *rejecting* a bad path at comptime, which cannot
+    // be asserted from a normal test: a test that triggers it stops compiling.
+    // This drives a build that is expected to fail and reads the message back.
+    const res_test_exe = b.addExecutable(.{
+        .name = "res-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/res_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_res_test = b.addRunArtifact(res_test_exe);
+    run_res_test.addArtifactArg(init_exe);
+    run_res_test.addArg(".zig-cache/res-test/resprobe");
+    run_res_test.addArg("../../..");
+    run_res_test.has_side_effects = true;
+    const res_test_step = b.step("test-res", "Check that res:// paths are verified at comptime");
+    res_test_step.dependOn(&run_res_test.step);
+
     //
     // Library
     //

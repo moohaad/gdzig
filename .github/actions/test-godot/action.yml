@@ -184,3 +184,10 @@ runs:
     - name: Scaffold a project and build it
       shell: bash
       run: zig build test-init
+
+    # `res` turns a typo in a res:// path into a build error instead of a null
+    # hours later. That behaviour is a @compileError, so proving it works means
+    # driving a build that is expected to fail and reading the message back.
+    - name: Check res:// paths are verified at comptime
+      shell: bash
+      run: zig build test-res
