@@ -9,12 +9,7 @@ const Variant = gdzig.builtin.Variant;
 /// Uses a 16KB static buffer, so it is allocation-free and very fast!
 pub fn print(comptime fmt: []const u8, args: anytype) void {
     var buf: [16384]u8 = undefined;
-    const formatted = std.fmt.bufPrint(&buf, fmt, args) catch |err| switch (err) {
-        error.NoSpaceLeft => blk: {
-            // If it overflows, just print as much as we can fit.
-            break :blk buf[0..buf.len];
-        },
-    };
+    const formatted = render(&buf, fmt, args);
 
     var gd_str = String.fromLatin1(formatted);
     defer gd_str.deinit();
@@ -23,6 +18,41 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     defer variant.deinit();
 
     gdzig.general.printAlloc(variant, .{});
+}
+
+/// Formats into `buf`, or says why it could not.
+///
+/// Split out from `print` so it can be tested without an engine, and because
+/// the overflow case is easy to get wrong: `bufPrint` does not report how much
+/// it wrote before running out, so everything past that point is `undefined`.
+/// Returning the whole buffer -- which is what "print as much as fits" turns
+/// into -- puts uninitialised stack bytes in the console. Measuring first
+/// avoids ever reading them.
+fn render(buf: []u8, comptime fmt: []const u8, args: anytype) []const u8 {
+    const needed = std.fmt.count(fmt, args);
+    if (needed <= buf.len) {
+        return std.fmt.bufPrint(buf, fmt, args) catch unreachable;
+    }
+    return std.fmt.bufPrint(
+        buf,
+        "<gdzig.print: {d}-byte message does not fit in {d} bytes>",
+        .{ needed, buf.len },
+    ) catch buf[0..0];
+}
+
+test "render formats, and refuses to hand back uninitialised bytes" {
+    var buf: [64]u8 = undefined;
+
+    try std.testing.expectEqualStrings("health 42", render(&buf, "health {d}", .{42}));
+
+    // Too long to fit. The result must be the notice, not the buffer: returning
+    // `buf[0..buf.len]` here is what the original did, and it leaks whatever was
+    // on the stack.
+    const long = "x" ** 500;
+    const got = render(&buf, "{s}", .{long});
+    try std.testing.expect(got.len < buf.len);
+    try std.testing.expect(std.mem.startsWith(u8, got, "<gdzig.print:"));
+    try std.testing.expect(std.mem.indexOf(u8, got, "500") != null);
 }
 
 /// Creates a Godot Callable from an arbitrary Zig function.
@@ -67,10 +97,13 @@ pub fn callable(allocator: std.mem.Allocator, ctx: anytype, comptime func: anyty
 
             const result = @call(.auto, func, args);
             
-            if (func_info.return_type != void) {
+            // `return_type` is `?type`: null for a generic function, which
+            // cannot be wrapped because there is nothing to convert.
+            const Ret = comptime func_info.return_type orelse
+                @compileError("godot.callable needs a function with a concrete return type");
+            if (Ret != void) {
                 const ret_variant: *Variant = @ptrCast(@alignCast(ret));
-                // we assume return type can be converted to Variant via init
-                ret_variant.* = Variant.init(func_info.return_type, result);
+                ret_variant.* = Variant.init(Ret, result);
             }
         }
 
@@ -178,7 +211,7 @@ pub fn Pool(comptime T: type) type {
         }
         
         pub fn acquire(self: *Self) !*T {
-            if (self.available.popOrNull()) |item| return item;
+            if (self.available.pop()) |item| return item;
             if (comptime gdzig.class.isStructClass(T)) {
                 return try T.create(&self.allocator);
             } else {
@@ -187,11 +220,11 @@ pub fn Pool(comptime T: type) type {
         }
         
         pub fn release(self: *Self, item: *T) void {
-            self.available.append(item) catch {};
+            self.available.append(self.allocator, item) catch {};
         }
         
         pub fn deinit(self: *Self) void {
-            self.available.deinit();
+            self.available.deinit(self.allocator);
         }
     };
 }

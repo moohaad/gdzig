@@ -1,0 +1,145 @@
+//! The convenience layer: `array`, `dict`, `print`, `callable`, the persistence
+//! helpers, and the generic containers.
+//!
+//! None of it had a test, and in Zig that means none of it had been *compiled*
+//! either: an unreferenced declaration is never analysed, so a helper can sit in
+//! the tree for months and still not build. Half the value here is simply
+//! naming every one of them so the compiler has to look.
+
+pub fn register(r: *gdzig.extension.Registry) void {
+    r.autoRegister(PersistNode);
+}
+
+fn ensureRegistered() void {
+    const S = struct {
+        var done: bool = false;
+    };
+    if (!S.done) {
+        S.done = true;
+        gdzig.testing.loadModule(@This());
+    }
+}
+
+test "array builds a Godot Array from a tuple" {
+    var arr = gdzig.array(.{ @as(i64, 1), @as(i64, 2), @as(i64, 3) });
+    defer arr.deinit();
+
+    try testing.expectEqual(@as(i64, 3), arr.size());
+
+    var first = arr.get(0);
+    defer first.deinit();
+    try testing.expectEqual(@as(i64, 1), first.as(i64).?);
+
+    var last = arr.get(2);
+    defer last.deinit();
+    try testing.expectEqual(@as(i64, 3), last.as(i64).?);
+}
+
+test "dict builds a Godot Dictionary from a struct" {
+    var d = gdzig.dict(.{ .health = @as(i64, 42), .armour = @as(i64, 7) });
+    defer d.deinit();
+
+    try testing.expectEqual(@as(i64, 2), d.size());
+
+    var key: StringName = .fromLatin1("health", false);
+    defer key.deinit();
+    var got = d.get(.init(StringName, key), .{});
+    defer got.deinit();
+    try testing.expectEqual(@as(i64, 42), got.as(i64).?);
+}
+
+test "print formats without crashing, including past its buffer" {
+    // The output goes to Godot's console, which cannot be read back from here.
+    // What is worth pinning is that it survives both the ordinary case and the
+    // one the implementation has a branch for: a message too long to fit.
+    gdzig.print("macros test: {d} and {s}", .{ 42, "text" });
+
+    const long = "x" ** 40_000;
+    gdzig.print("{s}", .{long});
+}
+
+test "callable wraps a Zig function and passes arguments through" {
+    var total: i64 = 0;
+
+    var cb = gdzig.callable(allocator, &total, addTo);
+    defer cb.deinit();
+
+    var args = gdzig.array(.{@as(i64, 5)});
+    defer args.deinit();
+
+    var result = cb.callv(args);
+    defer result.deinit();
+
+    try testing.expectEqual(@as(i64, 5), total);
+    try testing.expectEqual(@as(i64, 5), result.as(i64).?);
+}
+
+fn addTo(ctx: *i64, value: i64) i64 {
+    ctx.* += value;
+    return ctx.*;
+}
+
+test "autoPersist writes fields to metadata and autoRestore reads them back" {
+    ensureRegistered();
+
+    const node = try PersistNode.create();
+    defer node.destroy();
+
+    node.health = 77;
+    node.speed = 3.5;
+    gdzig.autoPersist(node);
+
+    // Cleared, so a restore that does nothing is distinguishable from one that
+    // works.
+    node.health = 0;
+    node.speed = 0;
+
+    gdzig.autoRestore(node);
+
+    try testing.expectEqual(@as(i64, 77), node.health);
+    try testing.expectEqual(@as(f64, 3.5), node.speed);
+}
+
+// Names the helpers a test cannot drive without a live scene tree, so the
+// compiler still has to analyse them. Unreferenced, they are never built.
+test "the scene-tree helpers compile" {
+    _ = &gdzig.getNodesInGroupAs;
+    _ = &gdzig.getNodeAs;
+    _ = &gdzig.tween;
+    _ = gdzig.Pool(Node);
+    _ = &gdzig.Pool(Node).init;
+    _ = &gdzig.Pool(Node).acquire;
+    _ = &gdzig.Pool(Node).release;
+    _ = &gdzig.Pool(Node).deinit;
+    _ = gdzig.EventBus(.{});
+    _ = &gdzig.EventBus(.{}).create;
+    _ = &gdzig.EventBus(.{}).destroy;
+    _ = gdzig.TweenBuilder;
+}
+
+const PersistNode = struct {
+    base: *Node,
+
+    health: i64 = 0,
+    speed: f64 = 0,
+
+    pub fn create() !*PersistNode {
+        const self = try allocator.create(PersistNode);
+        self.* = .{ .base = Node.init() };
+        self.base.setInstance(PersistNode, self);
+        return self;
+    }
+
+    pub fn destroy(self: *PersistNode) void {
+        self.base.destroy();
+        allocator.destroy(self);
+    }
+};
+
+const std = @import("std");
+const testing = std.testing;
+
+const gdzig = @import("gdzig");
+const allocator = gdzig.testing.allocator;
+const Node = gdzig.class.Node;
+const StringName = gdzig.builtin.StringName;
