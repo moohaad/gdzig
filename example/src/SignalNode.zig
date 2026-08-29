@@ -11,6 +11,7 @@ pub const groups = .{
 allocator: Allocator,
 base: *Control, //this makes @Self a valid gdextension class
 color_rect: *ColorRect = undefined,
+button_pool: godot.Pool(Button) = undefined,
 my_enum: TestEnum = .OptionA,
 
 // Colors group
@@ -35,6 +36,7 @@ pub fn recreate(allocator: *Allocator, obj: *Object) *SignalNode {
     self.* = .{
         .allocator = allocator.*,
         .base = @ptrCast(obj),
+        .button_pool = godot.Pool(Button).init(allocator.*, 10) catch @panic("OOM"),
     };
     self.base.setInstance(SignalNode, self);
     return self;
@@ -45,6 +47,7 @@ pub fn create(allocator: *Allocator) !*SignalNode {
     self.* = .{
         .allocator = allocator.*,
         .base = Control.init(),
+        .button_pool = godot.Pool(Button).init(allocator.*, 10) catch @panic("OOM"),
     };
     self.base.setInstance(SignalNode, self);
     return self;

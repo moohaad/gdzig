@@ -6,7 +6,10 @@ const nodes = .{
     GuiNode,
     SignalNode,
     TreeNode,
+    GlobalBus,
 };
+
+pub const GlobalBus = godot.EventBus(.{ struct { player_died: bool } });
 
 pub fn register(r: *Registry) void {
     r.registerAll(nodes);

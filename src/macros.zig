@@ -152,3 +152,71 @@ pub fn getNodeAs(
     }
     return null;
 }
+
+pub fn Pool(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        available: std.ArrayList(*T),
+        allocator: std.mem.Allocator,
+        
+        pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
+            var available = try std.ArrayList(*T).initCapacity(allocator, capacity);
+            var alloc = allocator;
+            for (0..capacity) |_| {
+                if (comptime gdzig.class.isStructClass(T)) {
+                    const item = try T.create(&alloc);
+                    available.appendAssumeCapacity(item);
+                } else {
+                    const item = T.init();
+                    available.appendAssumeCapacity(item);
+                }
+            }
+            return .{
+                .available = available,
+                .allocator = allocator,
+            };
+        }
+        
+        pub fn acquire(self: *Self) !*T {
+            if (self.available.popOrNull()) |item| return item;
+            if (comptime gdzig.class.isStructClass(T)) {
+                return try T.create(&self.allocator);
+            } else {
+                return T.init();
+            }
+        }
+        
+        pub fn release(self: *Self, item: *T) void {
+            self.available.append(item) catch {};
+        }
+        
+        pub fn deinit(self: *Self) void {
+            self.available.deinit();
+        }
+    };
+}
+
+pub fn EventBus(comptime SignalsTuple: anytype) type {
+    return struct {
+        const Self = @This();
+        allocator: std.mem.Allocator,
+        base: *gdzig.class.Node,
+        
+        pub const signals = SignalsTuple;
+        
+        pub fn create(allocator: *std.mem.Allocator) !*Self {
+            const self = try allocator.create(Self);
+            self.* = .{ 
+                .allocator = allocator.*,
+                .base = gdzig.class.Node.init() 
+            };
+            self.base.setInstance(Self, self);
+            return self;
+        }
+        
+        pub fn destroy(self: *Self, allocator: *std.mem.Allocator) void {
+            self.base.destroy();
+            allocator.destroy(self);
+        }
+    };
+}
