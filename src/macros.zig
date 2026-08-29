@@ -220,3 +220,42 @@ pub fn EventBus(comptime SignalsTuple: anytype) type {
         }
     };
 }
+
+pub fn tween(node: anytype) ?TweenBuilder {
+    if (node.createTween()) |tw| {
+        return TweenBuilder{ .tween_inst = tw.get() };
+    }
+    return null;
+}
+
+pub const TweenBuilder = struct {
+    tween_inst: *gdzig.class.Tween,
+
+    pub fn property(self: @This(), target: anytype, property_name: anytype, final_val: anytype, duration: f64) @This() {
+        var v = gdzig.builtin.Variant.init(@TypeOf(final_val), final_val);
+        defer v.deinit();
+        _ = self.tween_inst.tweenProperty(target, property_name, v, duration);
+        return self;
+    }
+
+    pub fn propertyEx(self: @This(), target: anytype, property_name: anytype, final_val: anytype, duration: f64, trans: gdzig.class.Tween.TransitionType, ease: gdzig.class.Tween.EaseType) @This() {
+        var v = gdzig.builtin.Variant.init(@TypeOf(final_val), final_val);
+        defer v.deinit();
+        if (self.tween_inst.tweenProperty(target, property_name, v, duration)) |pt| {
+            _ = pt.get().setTrans(trans);
+            _ = pt.get().setEase(ease);
+        }
+        return self;
+    }
+
+    pub fn interval(self: @This(), time: f64) @This() {
+        _ = self.tween_inst.tweenInterval(time);
+        return self;
+    }
+
+    pub fn callback(self: @This(), receiver: anytype, comptime method: anytype) @This() {
+        const cb = gdzig.builtin.Callable.fromClosure(receiver, method);
+        _ = self.tween_inst.tweenCallback(cb);
+        return self;
+    }
+};

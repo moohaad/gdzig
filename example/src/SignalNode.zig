@@ -129,9 +129,20 @@ pub fn onSignal3(self: *SignalNode) void {
 
 pub fn emitSignal1(self: *SignalNode) void {
     self.base.emit(Signal1, .{
-        .name = .fromLatin1("test_signal_name"),
+        .name = String.fromLatin1("test_signal_name"),
         .position = .initXYZ(123, 321, 333),
     }) catch {};
+
+    if (godot.tween(self.base)) |tw| {
+        _ = tw.property(self.color_rect, "position", godot.builtin.Vector2.initXY(100, 100), 1.0)
+              .interval(0.5)
+              .callback(self, &onTweenFinished);
+    }
+}
+
+pub fn onTweenFinished(self: *SignalNode) void {
+    godot.print("Tween finished!", .{});
+    _ = self;
 }
 pub fn emitSignal2(self: *SignalNode) void {
     self.base.emit(Signal2, .{}) catch {};
