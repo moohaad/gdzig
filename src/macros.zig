@@ -292,3 +292,35 @@ pub const TweenBuilder = struct {
         return self;
     }
 };
+
+pub fn bindNodes(self: anytype) void {
+    const Self = @TypeOf(self.*);
+    if (!@hasDecl(Self, "bind_nodes")) return;
+    
+    inline for (Self.bind_nodes) |node_def| {
+        const field_name = node_def[0];
+        const path = node_def[1];
+        
+        const FieldType = @TypeOf(@field(self.*, field_name));
+        const TargetType = if (@typeInfo(FieldType) == .optional) @typeInfo(FieldType).optional.child else FieldType;
+        const StructType = if (@typeInfo(TargetType) == .pointer) @typeInfo(TargetType).pointer.child else TargetType;
+        
+        if (getNodeAs(self.base, StructType, path)) |child_opt| {
+            if (child_opt) |child| {
+                @field(self.*, field_name) = child;
+            } else {
+                gdzig.print("Warning: Auto-bind node not found at path '{s}'", .{path});
+            }
+        } else |err| {
+            gdzig.print("Error auto-binding node at path '{s}': {}", .{path, err});
+        }
+    }
+}
+
+pub fn inEditor() bool {
+    return gdzig.class.Engine.isEditorHint();
+}
+
+pub fn inGame() bool {
+    return !inEditor();
+}

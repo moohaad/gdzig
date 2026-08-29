@@ -8,10 +8,15 @@ pub const groups = .{
 
 
 
+pub const bind_nodes = .{
+    .{ "bound_button", "signal1_btn" },
+};
+
 allocator: Allocator,
 base: *Control, //this makes @Self a valid gdextension class
 color_rect: *ColorRect = undefined,
 button_pool: godot.Pool(Button) = undefined,
+bound_button: ?*Button = null,
 my_enum: TestEnum = .OptionA,
 
 // Colors group
@@ -59,7 +64,7 @@ pub fn destroy(self: *SignalNode, allocator: *Allocator) void {
 }
 
 pub fn _enterTree(self: *SignalNode) void {
-    if (Engine.isEditorHint()) return;
+    if (godot.inEditor()) return;
 
     var signal1_btn = Button.init();
     signal1_btn.setName("signal1_btn");
@@ -85,6 +90,12 @@ pub fn _enterTree(self: *SignalNode) void {
     self.color_rect.setSize(.initXY(100, 100), .{});
     self.color_rect.setColor(.initRGBA(1, 0, 0, 1));
     self.base.addChild(self.color_rect, .{});
+
+    godot.bindNodes(self);
+
+    if (self.bound_button) |_| {
+        godot.print("Bound button is working!", .{});
+    }
 
     signal1_btn.connect(Button.Pressed, self, &emitSignal1);
     signal2_btn.connect(Button.Pressed, self, &emitSignal2);
