@@ -85,6 +85,15 @@ pub fn main(init: std.process.Init) !void {
     , .{ name, fingerprint, dep_path });
     try dir.writeFile(io, .{ .sub_path = "build.zig.zon", .data = rewritten });
 
+    // Godot writes this during its import pass, and `addExtension` warns when
+    // it is missing -- correctly, since a project without it loads no extension
+    // at all. Nothing here ever opens Godot, so that warning is noise on every
+    // run of a passing gate, and a warning nobody reads is worse than none.
+    // Writing it also walks the branch where the file exists and names the
+    // extension, which no other test reaches.
+    try dir.createDirPath(io, ".godot");
+    try dir.writeFile(io, .{ .sub_path = ".godot/extension_list.cfg", .data = "res://initprobe.gdextension\n" });
+
     try run(io, out_path, &.{ "zig", "build" });
 
     // The point of the whole exercise: a library where the `.gdextension` says

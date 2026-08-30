@@ -225,7 +225,7 @@ fn clearReloadLeftovers(b: *Build, project: []const u8, name: []const u8) void {
         if (entry.kind != .file) continue;
         if (!std.mem.startsWith(u8, entry.name, prefix)) continue;
         dir.deleteFile(io, entry.name) catch continue;
-        std.log.warn("gdzig: removed stale reload artifact {s}/{s}", .{ lib_path, entry.name });
+        std.log.warn("gdzig: removed stale reload artifact {s}/{s}", .{ b.pathFromRoot(lib_path), entry.name });
     }
 }
 
@@ -239,12 +239,19 @@ fn warnIfNotImported(b: *Build, project: []const u8, name: []const u8) void {
     const io = b.graph.io;
     const list_path = b.pathJoin(&.{ project, ".godot", "extension_list.cfg" });
 
+    // `godot_project` is relative to the build root, so a project built from
+    // its own directory reports itself as `.`. That is true and useless: the
+    // reader of the warning is not necessarily standing there -- a nested
+    // build, a CI log, a `zig build` run from a parent directory all put them
+    // somewhere else. Absolute is longer and can be pasted as it stands.
+    const shown = b.pathFromRoot(project);
+
     var file = b.build_root.handle.openFile(io, list_path, .{}) catch {
         std.log.warn(
             "gdzig: '{s}' has no .godot/extension_list.cfg, so Godot will load no extension " ++
                 "at all and your classes will be missing with no error. Open the project in the " ++
                 "editor once, or run: godot --path {s} --headless --import",
-            .{ project, project },
+            .{ shown, shown },
         );
         return;
     };
@@ -259,7 +266,7 @@ fn warnIfNotImported(b: *Build, project: []const u8, name: []const u8) void {
         std.log.warn(
             "gdzig: .godot/extension_list.cfg does not list '{s}', so Godot will not load it. " ++
                 "Re-import the project: godot --path {s} --headless --import",
-            .{ needle, project },
+            .{ needle, shown },
         );
     }
 }
@@ -270,7 +277,7 @@ fn addSceneImports(b: *Build, mod: *Build.Module, project: []const u8) void {
     var dir = b.build_root.handle.openDir(io, project, .{ .iterate = true }) catch |err| {
         std.debug.panic(
             "gdzig: godot_project '{s}' cannot be opened: {s}",
-            .{ project, @errorName(err) },
+            .{ b.pathFromRoot(project), @errorName(err) },
         );
     };
     defer dir.close(io);
