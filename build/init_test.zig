@@ -33,7 +33,12 @@ pub fn main(init: std.process.Init) !void {
     // would let a broken scaffolder pass on last time's files.
     std.Io.Dir.cwd().deleteTree(io, out_path) catch {};
 
-    const name = "initprobe";
+    // Deliberately not the basename of the output directory. `zig init` takes
+    // the package name from the directory it runs in and binds the fingerprint
+    // it generates to that name, so a scaffolder that renames the package
+    // afterwards produces a manifest Zig rejects. Naming the probe after its
+    // directory hid that for as long as this gate has existed.
+    const name = "gadget";
 
     try run(io, ".", &.{ scaffolder, "--name", name, "--out", out_path });
 
@@ -92,7 +97,7 @@ pub fn main(init: std.process.Init) !void {
     // Writing it also walks the branch where the file exists and names the
     // extension, which no other test reaches.
     try dir.createDirPath(io, ".godot");
-    try dir.writeFile(io, .{ .sub_path = ".godot/extension_list.cfg", .data = "res://initprobe.gdextension\n" });
+    try dir.writeFile(io, .{ .sub_path = ".godot/extension_list.cfg", .data = "res://" ++ name ++ ".gdextension\n" });
 
     try run(io, out_path, &.{ "zig", "build" });
 

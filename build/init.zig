@@ -38,7 +38,26 @@ pub fn main(init: std.process.Init) !void {
         return err;
     };
     
-    _ = runCmd(init.io, actual_out_path, &.{ "zig", "init" }) catch |err| {
+    // `zig init` has no `--name`: it takes the package name from the directory
+    // it runs in, and the fingerprint it writes is bound to that name. Running
+    // it directly in the output directory and then rewriting `.name` to
+    // `--name` produced a manifest Zig rejects whenever the two differed --
+    // `zig fetch --save` refused it, the project was written without its gdzig
+    // dependency, and the run still reported success.
+    //
+    // So it runs one level down, in a throwaway directory that *is* the project
+    // name. The fingerprint then comes back bound to the name about to be
+    // written, and nothing else here needs the rest of what `zig init` makes.
+    const seed_root = try std.fs.path.join(allocator, &.{ actual_out_path, ".gdzig-init" });
+    defer allocator.free(seed_root);
+    const seed_path = try std.fs.path.join(allocator, &.{ seed_root, project_name });
+    defer allocator.free(seed_path);
+
+    std.Io.Dir.cwd().deleteTree(init.io, seed_root) catch {};
+    try std.Io.Dir.createDirPath(.cwd(), init.io, seed_path);
+    defer std.Io.Dir.cwd().deleteTree(init.io, seed_root) catch {};
+
+    _ = runCmd(init.io, seed_path, &.{ "zig", "init" }) catch |err| {
         std.debug.print("Failed to run zig init: {}\n", .{err});
         return err;
     };
@@ -46,9 +65,15 @@ pub fn main(init: std.process.Init) !void {
     var dir = try std.Io.Dir.openDir(.cwd(), init.io, actual_out_path, .{});
     defer dir.close(init.io);
 
-    // 2. Extract fingerprint from generated build.zig.zon
+    // `zig init` used to make this on the way past.
+    try dir.createDirPath(init.io, "src");
+
+    // 2. Extract fingerprint from the seed's build.zig.zon
+    var seed_dir = try std.Io.Dir.openDir(.cwd(), init.io, seed_path, .{});
+    defer seed_dir.close(init.io);
+
     var fingerprint: []const u8 = "0x0";
-    if (dir.readFileAlloc(init.io, "build.zig.zon", allocator, @as(std.Io.Limit, @enumFromInt(1024 * 1024)))) |zon_content| {
+    if (seed_dir.readFileAlloc(init.io, "build.zig.zon", allocator, @as(std.Io.Limit, @enumFromInt(1024 * 1024)))) |zon_content| {
         defer allocator.free(zon_content);
         if (std.mem.indexOf(u8, zon_content, ".fingerprint = ")) |idx| {
             const start = idx + 15;
@@ -126,8 +151,6 @@ pub fn main(init: std.process.Init) !void {
     try dir.writeFile(init.io, .{ .sub_path = "build.zig", .data = build_zig });
 
     // 4. Delete src/main.zig and src/root.zig from `zig init`, and write our extension entry
-    dir.deleteFile(init.io, "src/main.zig") catch {};
-    dir.deleteFile(init.io, "src/root.zig") catch {};
 
 
     const extension = try std.fmt.allocPrint(allocator,

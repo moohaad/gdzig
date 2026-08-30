@@ -60,7 +60,7 @@ pub fn main(init: std.process.Init) !void {
     // As in init_test: the file Godot's import pass would write, so a gate that
     // never opens Godot does not warn about its absence on every clean run.
     try dir.createDirPath(io, ".godot");
-    try dir.writeFile(io, .{ .sub_path = ".godot/extension_list.cfg", .data = "res://resprobe.gdextension\n" });
+    try dir.writeFile(io, .{ .sub_path = ".godot/extension_list.cfg", .data = "res://" ++ name ++ ".gdextension\n" });
 
     const entry = try std.fmt.allocPrint(arena, "src/{s}.zig", .{name});
 
