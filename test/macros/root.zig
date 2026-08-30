@@ -8,6 +8,7 @@
 
 pub fn register(r: *gdzig.extension.Registry) void {
     r.autoRegister(PersistNode);
+    r.autoRegister(BindNode);
 }
 
 fn ensureRegistered() void {
@@ -129,6 +130,26 @@ test "inEditor and inGame agree with the engine, and with each other" {
     try testing.expectEqual(Engine.isEditorHint(), gdzig.inEditor());
     try testing.expectEqual(!Engine.isEditorHint(), gdzig.inGame());
     try testing.expect(gdzig.inEditor() != gdzig.inGame());
+}
+
+test "bind_nodes fields are filled before _ready, without calling bindNodes" {
+    ensureRegistered();
+
+    const owner = try BindNode.create();
+    defer owner.destroy();
+
+    const marker = Node.init();
+    marker.setName(StringName.fromComptimeLatin1("Marker").*);
+    owner.base.addChild(marker, .{});
+
+    // The notification Godot sends to invoke `_ready`. Nothing here calls
+    // `bindNodes`: the point is that the class machinery does, in the same
+    // place it resolves `Child` fields, so the two ways of naming a child
+    // behave alike.
+    owner.base.notification(Node.NOTIFICATION_READY, .{});
+
+    try testing.expectEqual(marker, owner.marker.?);
+    try testing.expectEqual(@as(?*Node, null), owner.missing);
 }
 
 test "bindNodes fills the fields its declaration names" {

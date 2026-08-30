@@ -46,6 +46,26 @@ of complaining -- a missing node, or a child of some other type, is the ordinary
 
 None of them ends in a cast, which is the point. `getNode` can only promise `?*Node`.
 
+A fifth spelling, `bind_nodes`, lists the same thing as a declaration rather than as a
+field type:
+
+```zig
+pub const bind_nodes = .{
+    .{ "sprite", "AnimatedSprite2D" },
+    .{ "hitbox", "Area2D/Shape" },
+};
+```
+
+Filled before `_ready`, in the same place `Child` fields are resolved, so it needs no call
+of its own. A path the scene does not have leaves the field alone and says so in the log,
+rather than binding something wrong.
+
+`Child` still type-checks better -- the field says what it is, and `bind_nodes` infers it
+from the field -- so prefer `Child` unless you want the whole set named in one block.
+Either way, if you need the field *before* `_ready` -- inside `_enterTree`, say -- call
+`godot.bindNodes(self)` yourself at that point; both mechanisms resolve at `_ready` and
+neither can help code that runs earlier.
+
 ## "I need the autoload"
 
 ```zig

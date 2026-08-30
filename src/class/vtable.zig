@@ -35,12 +35,17 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
 
             // `_ready` is always wrapped, because two things have to happen
             // there whether or not the class wrote one: `Child` fields get
-            // filled in, and RPC configs get applied. The first is a comptime
-            // property of `T` and could have been tested for; the second is
-            // recorded on a runtime `Registry` that this comptime lookup cannot
-            // see, so there is nothing to test. The wrapper is a no-op for a
-            // class with neither -- an atomic increment and two empty loops --
-            // and the user's own `_ready`, if present, still runs last.
+            // filled in, `bind_nodes` entries get bound, and RPC configs get
+            // applied. The first two are comptime properties of `T` and could
+            // have been tested for; the third is recorded on a runtime
+            // `Registry` that this comptime lookup cannot see, so there is
+            // nothing to test. The wrapper is a no-op for a class with none of
+            // them -- an atomic increment and three empty loops -- and the
+            // user's own `_ready`, if present, still runs last.
+            //
+            // `bindNodes` runs here rather than being called by hand so that the
+            // two ways of naming a child behave the same: a `Child` field and a
+            // `bind_nodes` entry are both filled before `_ready` sees them.
             //
             // Gated on `T` being a Node because that is what both jobs need --
             // `getNode` for children, `rpcConfig` for RPCs -- and because the
@@ -52,6 +57,7 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                         const guard = DispatchGuard.enter(instance);
                         defer guard.leave();
                         child.resolveAll(T, instance);
+                        macros.bindNodes(instance);
                         rpc.configureAll(T, instance);
                         if (comptime @hasDecl(T, "_ready")) T._ready(instance);
                     }
@@ -445,5 +451,6 @@ const godot_case = common.godot_case;
 const class = gdzig.class;
 const ptrcall = @import("ptrcall.zig");
 const child = @import("../child.zig");
+const macros = @import("../macros.zig");
 const rpc = @import("../rpc.zig");
 const DispatchGuard = gdzig.extension.DispatchGuard;
