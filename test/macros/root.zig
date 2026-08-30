@@ -122,6 +122,42 @@ test "Pool destroys what it holds when it is deinitialised" {
     }
 }
 
+test "inEditor and inGame agree with the engine, and with each other" {
+    // Asserted against `isEditorHint` rather than against a hard-coded true or
+    // false, so this says the same thing whether it runs under the editor or
+    // not -- and still catches either one being inverted.
+    try testing.expectEqual(Engine.isEditorHint(), gdzig.inEditor());
+    try testing.expectEqual(!Engine.isEditorHint(), gdzig.inGame());
+    try testing.expect(gdzig.inEditor() != gdzig.inGame());
+}
+
+test "bindNodes fills the fields its declaration names" {
+    const owner = try BindNode.create();
+    defer owner.destroy();
+
+    const marker = Node.init();
+    marker.setName(StringName.fromComptimeLatin1("Marker").*);
+    owner.base.addChild(marker, .{});
+
+    gdzig.bindNodes(owner);
+
+    try testing.expectEqual(marker, owner.marker.?);
+
+    // A path the scene does not have leaves the field alone rather than
+    // binding something wrong.
+    try testing.expectEqual(@as(?*Node, null), owner.missing);
+}
+
+test "bindNodes on a class that declares nothing is a no-op" {
+    // `bindNodes` returns early when there is no `bind_nodes`, which is also
+    // what happens when the declaration is misspelled. Worth pinning that it at
+    // least does not fault.
+    const plain = try PersistNode.create();
+    defer plain.destroy();
+
+    gdzig.bindNodes(plain);
+}
+
 // Names the helpers a test cannot drive without a live scene tree, so the
 // compiler still has to analyse them. Unreferenced, they are never built.
 test "the scene-tree helpers compile" {
@@ -138,6 +174,31 @@ test "the scene-tree helpers compile" {
     _ = &gdzig.EventBus(.{}).destroy;
     _ = gdzig.TweenBuilder;
 }
+
+const BindNode = struct {
+    base: *Node,
+
+    marker: ?*Node = null,
+    missing: ?*Node = null,
+
+    /// What `bindNodes` reads: a field name and the path to fill it from.
+    pub const bind_nodes = .{
+        .{ "marker", "Marker" },
+        .{ "missing", "NoSuchChild" },
+    };
+
+    pub fn create() !*BindNode {
+        const self = try allocator.create(BindNode);
+        self.* = .{ .base = Node.init() };
+        self.base.setInstance(BindNode, self);
+        return self;
+    }
+
+    pub fn destroy(self: *BindNode) void {
+        self.base.destroy();
+        allocator.destroy(self);
+    }
+};
 
 const PersistNode = struct {
     base: *Node,
@@ -165,4 +226,5 @@ const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;
+const Engine = gdzig.class.Engine;
 const StringName = gdzig.builtin.StringName;
