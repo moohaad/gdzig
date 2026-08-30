@@ -18,20 +18,38 @@ pub fn main(init: std.process.Init) !void {
             if (args_iter.next()) |val| {
                 project_name = val;
             } else {
-                std.debug.print("Error: expected value for {s}\n", .{arg});
-                return error.InvalidArgs;
+                std.debug.print("Error: expected value for {s}\n\n", .{arg});
+                usage();
+                std.process.exit(2);
             }
         } else if (std.mem.eql(u8, arg, "--out") or std.mem.eql(u8, arg, "-o")) {
             if (args_iter.next()) |val| {
                 out_path = val;
             } else {
-                std.debug.print("Error: expected value for {s}\n", .{arg});
-                return error.InvalidArgs;
+                std.debug.print("Error: expected value for {s}\n\n", .{arg});
+                usage();
+                std.process.exit(2);
             }
+        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            usage();
+            return;
+        } else {
+            std.debug.print("Error: unrecognised argument '{s}'\n\n", .{arg});
+            usage();
+            std.process.exit(2);
         }
     }
 
-    const actual_out_path = out_path orelse project_name;
+    // Required, with no fallback. It used to default to the project name, so
+    // `zig build init-gdzig` with nothing after it wrote a `mygame/` into
+    // whatever directory the caller happened to be standing in -- for anyone
+    // running the step to see what it does, that is this repository. A
+    // scaffolder should write where it is told and nowhere else.
+    const actual_out_path = out_path orelse {
+        std.debug.print("Error: --out is required\n\n", .{});
+        usage();
+        std.process.exit(2);
+    };
 
     std.Io.Dir.createDirPath(.cwd(), init.io, actual_out_path) catch |err| {
         std.debug.print("Failed to create output directory {s}: {}\n", .{ actual_out_path, err });
@@ -239,6 +257,21 @@ pub fn main(init: std.process.Init) !void {
     , .{actual_out_path});
 }
 
+/// What to pass, and why `--out` has no default.
+fn usage() void {
+    std.debug.print(
+        \\Usage: init-gdzig --out <dir> [--name <project>]
+        \\
+        \\  -o, --out  <dir>      where to write the project; created if missing
+        \\  -n, --name <project>  package name (default: mygame)
+        \\  -h, --help            print this and exit
+        \\
+        \\The project is scaffolded but not yet runnable: build it, then import it
+        \\once so Godot will load the extension. It prints both commands when it is
+        \\done.
+        \\
+    , .{});
+}
 fn runCmd(io: std.Io, cwd_path: []const u8, argv: []const []const u8) !void {
     var cwd_dir = try std.Io.Dir.openDir(.cwd(), io, cwd_path, .{});
     defer cwd_dir.close(io);
