@@ -13,33 +13,43 @@ Instead of manually creating boilerplate configuration files, you can clone `gdz
 ```sh
 git clone https://github.com/moohaad/gdzig.git
 cd gdzig
-zig build init-gdzig -- --name my_awesome_game
+zig build init-gdzig -- --name my_awesome_game --out ../my_awesome_game
 ```
 
-This creates `my_awesome_game/` **inside** the `gdzig` checkout, populated with:
-(pass `--out ../my_awesome_game` if you would rather it went elsewhere.)
+`--out` says where to write it, and has no default: the scaffolder writes where it is
+told and nowhere else. `../my_awesome_game` puts the project alongside the `gdzig`
+checkout rather than inside it. You get:
 * `build.zig` and `build.zig.zon` correctly referencing the `gdzig` dependency.
 * `my_awesome_game.gdextension` configured to load the compiled Zig DLL.
 * `project.godot` configured for the editor.
 * `src/my_awesome_game.zig` with a valid entry point and `registerAll` call.
   The file is named after the project, not `main.zig`.
 
-## Open in Godot
-
-Open the Godot Editor and import the generated `my_awesome_game/project.godot` file. The project will open, but you will see a warning in the console that the `my_awesome_game.dll` cannot be found. This is expected—we just need to compile it!
-
 ## Build the Extension
 
-Open a terminal, navigate into your newly generated project, and compile your Zig extension:
+Build before opening the editor. The `.gdextension` names a library that does not exist
+until you do, and importing first just means Godot complains about its absence.
 
 ```sh
-cd my_awesome_game
+cd ../my_awesome_game
 zig build
 ```
 
-The compiled library will appear in `my_awesome_game/lib/`. 
+The compiled library will appear in `my_awesome_game/lib/`.
 
-Return to Godot, and your extension will automatically load! You can now start adding logic in `src/my_awesome_game.zig` and run `zig build` (or `zig build watch`) whenever you want to update the engine.
+## Open in Godot
+
+Open the Godot Editor and import `my_awesome_game/project.godot`. That import pass is
+what writes `.godot/extension_list.cfg`, the file Godot reads to decide what to load --
+until it exists your classes are simply absent, with nothing logged to say why.
+Headless equivalent, if you would rather not open the editor:
+
+```sh
+godot --path . --headless --import
+```
+
+Your extension now loads. Add logic in `src/my_awesome_game.zig` and run `zig build` (or
+`zig build watch`) whenever you want to update the engine.
 
 ---
 
