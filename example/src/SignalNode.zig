@@ -91,12 +91,6 @@ pub fn _enterTree(self: *SignalNode) void {
     self.color_rect.setColor(.initRGBA(1, 0, 0, 1));
     self.base.addChild(self.color_rect, .{});
 
-    godot.bindNodes(self);
-
-    if (self.bound_button) |_| {
-        godot.print("Bound button is working!", .{});
-    }
-
     signal1_btn.connect(Button.Pressed, self, &emitSignal1);
     signal2_btn.connect(Button.Pressed, self, &emitSignal2);
     signal3_btn.connect(Button.Pressed, self, &emitSignal3);
@@ -117,6 +111,23 @@ pub fn _enterTree(self: *SignalNode) void {
         godot.print("Found signal1_btn via getNodeAs!", .{});
         _ = btn;
     } else |_| {}
+}
+
+pub fn _ready(self: *SignalNode) void {
+    if (godot.inEditor()) return;
+
+    // Nothing assigns `bound_button`. The `bind_nodes` declaration at the top
+    // of the file names the field and the path, and the class machinery fills
+    // it before `_ready` runs -- the same moment a `Child` field resolves.
+    //
+    // Why here and not in `_enterTree`, where the button is built: at that
+    // point nothing has bound it yet. A class that needs the field earlier has
+    // to call `godot.bindNodes(self)` for itself.
+    if (self.bound_button) |_| {
+        godot.print("Bound button is working!", .{});
+    } else {
+        godot.print("bind_nodes did not fill bound_button", .{});
+    }
 }
 
 pub fn _exitTree(self: *SignalNode) void {

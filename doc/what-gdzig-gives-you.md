@@ -62,9 +62,11 @@ rather than binding something wrong.
 
 `Child` still type-checks better -- the field says what it is, and `bind_nodes` infers it
 from the field -- so prefer `Child` unless you want the whole set named in one block.
-Either way, if you need the field *before* `_ready` -- inside `_enterTree`, say -- call
-`godot.bindNodes(self)` yourself at that point; both mechanisms resolve at `_ready` and
-neither can help code that runs earlier.
+Both resolve at `_ready`, so neither reaches code that runs earlier -- `_enterTree`
+included, which is where a node built in code is usually built. `bind_nodes` has a way out:
+`godot.bindNodes(self)` is callable by hand at that point, and filling the fields twice is
+harmless. A `Child` field has none, so read it with `node.getNodeAs(T, path)` instead until
+`_ready` has run.
 
 ## "I need the autoload"
 
