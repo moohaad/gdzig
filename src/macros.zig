@@ -167,25 +167,6 @@ pub fn getNodesInGroupAs(
     return list;
 }
 
-pub fn getNodeAs(
-    node: anytype,
-    comptime T: type,
-    path: []const u8,
-) !?*T {
-    var string = gdzig.builtin.String.fromLatin1(path);
-    defer string.deinit();
-
-    var p = gdzig.builtin.NodePath.fromString(string);
-    defer p.deinit();
-
-    if (node.getNodeOrNull(p)) |child| {
-        if (gdzig.class.castTo(T, child)) |instance| {
-            return instance;
-        }
-    }
-    return null;
-}
-
 pub fn Pool(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -311,14 +292,15 @@ pub fn bindNodes(self: anytype) void {
         const TargetType = if (@typeInfo(FieldType) == .optional) @typeInfo(FieldType).optional.child else FieldType;
         const StructType = if (@typeInfo(TargetType) == .pointer) @typeInfo(TargetType).pointer.child else TargetType;
         
-        if (getNodeAs(self.base, StructType, path)) |child_opt| {
-            if (child_opt) |child| {
-                @field(self.*, field_name) = child;
-            } else {
-                gdzig.print("Warning: Auto-bind node not found at path '{s}'", .{path});
-            }
-        } else |err| {
-            gdzig.print("Error auto-binding node at path '{s}': {}", .{path, err});
+        // Null covers both "nothing at that path" and "there, but not a
+        // `StructType`", so the warning names the type it wanted rather than
+        // reporting the second case as the first.
+        if (self.base.getNodeAs(StructType, path)) |child| {
+            @field(self.*, field_name) = child;
+        } else {
+            gdzig.print("bind_nodes: {s}.{s}: no child '{s}' of type {s}", .{
+                @typeName(Self), field_name, path, @typeName(StructType),
+            });
         }
     }
 }

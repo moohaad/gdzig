@@ -107,10 +107,10 @@ pub fn _enterTree(self: *SignalNode) void {
         } else |_| {}
     }
 
-    if (godot.getNodeAs(self.base, Button, "signal1_btn")) |btn| {
+    if (self.base.getNodeAs(Button, "signal1_btn")) |btn| {
         godot.print("Found signal1_btn via getNodeAs!", .{});
         _ = btn;
-    } else |_| {}
+    }
 }
 
 pub fn _ready(self: *SignalNode) void {

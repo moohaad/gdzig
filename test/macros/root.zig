@@ -183,7 +183,6 @@ test "bindNodes on a class that declares nothing is a no-op" {
 // compiler still has to analyse them. Unreferenced, they are never built.
 test "the scene-tree helpers compile" {
     _ = &gdzig.getNodesInGroupAs;
-    _ = &gdzig.getNodeAs;
     _ = &gdzig.tween;
     _ = gdzig.Pool(Node);
     _ = &gdzig.Pool(Node).init;

@@ -1,0 +1,43 @@
+# Line endings, pinned in the repo rather than left to each clone.
+#
+# The index here is entirely LF today, but only because everyone who has
+# committed happened to have `core.autocrlf=true`. A contributor with it off
+# would commit CRLF and every later diff would be noise. `text=auto` makes
+# that a property of the repository instead of of the machine.
+#
+# This does NOT silence "LF will be replaced by CRLF": that fires when a file
+# in the working copy is LF while the checkout rule says CRLF, and it is
+# telling the truth. Set `core.safecrlf=false` locally if the warning is not
+# wanted, or `eol=lf` below to keep working copies LF too -- which would
+# rewrite the ~146 files currently checked out CRLF.
+* text=auto
+
+# Named so their handling does not depend on the content heuristic.
+*.zig text
+*.zon text
+*.md text
+*.json text
+*.yml text
+*.yaml text
+*.gd text
+*.tscn text
+*.godot text
+*.cfg text
+*.gdextension text
+*.uid text
+*.h text
+
+# LF regardless of platform: CRLF breaks the shebang line.
+*.sh text eol=lf
+
+# Never converted, never diffed as text.
+*.png binary
+*.jpg binary
+*.svg binary
+*.ttf binary
+*.wav binary
+*.ogg binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.exe binary

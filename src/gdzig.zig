@@ -47,7 +47,6 @@ pub const macros = @import("macros.zig");
 pub const callable = macros.callable;
 pub const print = macros.print;
 pub const getNodesInGroupAs = macros.getNodesInGroupAs;
-pub const getNodeAs = macros.getNodeAs;
 pub const Pool = macros.Pool;
 pub const EventBus = macros.EventBus;
 pub const tween = macros.tween;
