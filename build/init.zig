@@ -193,6 +193,27 @@ pub fn main(init: std.process.Init) !void {
     };
 
     std.debug.print("Successfully scaffolded gdzig project '{s}' in {s}/\n", .{ project_name, actual_out_path });
+
+    // What is scaffolded does not run yet, and neither missing piece announces
+    // itself. Without a build there is no library for the `.gdextension` to
+    // point at; without an import pass Godot has no `.godot/extension_list.cfg`
+    // to read and so loads no extension at all -- silently, every class simply
+    // absent. Both are one command, and a reader who is told them here never
+    // meets either failure.
+    std.debug.print(
+        \\
+        \\Next:
+        \\  cd {s}
+        \\  zig build                             # compile the extension into lib/
+        \\  godot --path . --headless --import    # once; without this Godot loads nothing
+        \\  godot --path .                        # run it
+        \\
+        \\The import step is not optional and skipping it fails quietly: Godot reads
+        \\.godot/extension_list.cfg to decide what to load, an unimported project has no
+        \\such file, and your classes are then missing with nothing logged anywhere.
+        \\Opening project.godot in the editor once does the same job.
+        \\
+    , .{actual_out_path});
 }
 
 fn runCmd(io: std.Io, cwd_path: []const u8, argv: []const []const u8) !void {
