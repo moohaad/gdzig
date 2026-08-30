@@ -229,11 +229,28 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(src_filename);
     try dir.writeFile(init.io, .{ .sub_path = src_filename, .data = entry_src });
 
-    _ = runCmd(init.io, actual_out_path, &.{ "zig", "fetch", "--save=gdzig", "git+https://github.com/moohaad/gdzig.git" }) catch |err| {
-        std.debug.print("Failed to run zig fetch (gdzig won't be added to dependencies): {}\n", .{err});
+    // Reaching GitHub is the one step here that depends on something outside
+    // this machine, and a blip in it leaves a manifest with no gdzig
+    // dependency -- so the first `zig build` fails on the import, which looks
+    // nothing like a network problem. Reporting success anyway is how someone
+    // spends an evening on their own source. The run still exits 0: everything
+    // that could be written was, and the remaining step is one command.
+    const fetch_url = "git+https://github.com/moohaad/gdzig.git";
+    var fetched = true;
+    runCmd(init.io, actual_out_path, &.{ "zig", "fetch", "--save=gdzig", fetch_url }) catch {
+        fetched = false;
     };
 
-    std.debug.print("Successfully scaffolded gdzig project '{s}' in {s}/\n", .{ project_name, actual_out_path });
+    if (fetched) {
+        std.debug.print("Successfully scaffolded gdzig project '{s}' in {s}/\n", .{ project_name, actual_out_path });
+    } else {
+        std.debug.print(
+            \\Scaffolded '{s}' in {s}/, but `zig fetch` did not succeed, so
+            \\build.zig.zon has no gdzig dependency yet and `zig build` will fail on
+            \\the import. Every file is written; run the fetch below first.
+            \\
+        , .{ project_name, actual_out_path });
+    }
 
     // What is scaffolded does not run yet, and neither missing piece announces
     // itself. Without a build there is no library for the `.gdextension` to
@@ -245,6 +262,12 @@ pub fn main(init: std.process.Init) !void {
         \\
         \\Next:
         \\  cd {s}
+        \\
+    , .{actual_out_path});
+
+    if (!fetched) std.debug.print("  zig fetch --save=gdzig {s}\n", .{fetch_url});
+
+    std.debug.print(
         \\  zig build                             # compile the extension into lib/
         \\  godot --path . --headless --import    # once; without this Godot loads nothing
         \\  godot --path .                        # run it
@@ -254,7 +277,7 @@ pub fn main(init: std.process.Init) !void {
         \\such file, and your classes are then missing with nothing logged anywhere.
         \\Opening project.godot in the editor once does the same job.
         \\
-    , .{actual_out_path});
+    , .{});
 }
 
 /// What to pass, and why `--out` has no default.
