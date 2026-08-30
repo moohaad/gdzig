@@ -100,6 +100,28 @@ test "autoPersist writes fields to metadata and autoRestore reads them back" {
     try testing.expectEqual(@as(f64, 3.5), node.speed);
 }
 
+test "Pool destroys what it holds when it is deinitialised" {
+    var pool = try gdzig.Pool(Node).init(allocator, 3);
+
+    // The pool builds its objects up front, so these are the three it owns.
+    // Ids rather than pointers: after a correct `deinit` the pointers dangle,
+    // and an id can be asked about safely.
+    try testing.expectEqual(@as(usize, 3), pool.available.items.len);
+    var ids: [3]i64 = undefined;
+    for (pool.available.items, 0..) |node, i| {
+        ids[i] = @intCast(Object.upcast(node).getInstanceId());
+        try testing.expect(gdzig.general.isInstanceIdValid(ids[i]));
+    }
+
+    pool.deinit();
+
+    // Freeing the list is not freeing what was in it. Without this, a pool of
+    // a hundred nodes leaks a hundred nodes at teardown.
+    for (ids) |id| {
+        try testing.expect(!gdzig.general.isInstanceIdValid(id));
+    }
+}
+
 // Names the helpers a test cannot drive without a live scene tree, so the
 // compiler still has to analyse them. Unreferenced, they are never built.
 test "the scene-tree helpers compile" {
@@ -142,4 +164,5 @@ const testing = std.testing;
 const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
 const Node = gdzig.class.Node;
+const Object = gdzig.class.Object;
 const StringName = gdzig.builtin.StringName;

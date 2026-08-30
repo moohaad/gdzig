@@ -224,6 +224,12 @@ pub fn Pool(comptime T: type) type {
         }
         
         pub fn deinit(self: *Self) void {
+            // The pool owns what it holds: `init` built these and nothing else
+            // has a reference, so releasing only the list would leak every one
+            // of them. `cleanup` rather than `destroy` because `T` may be an
+            // engine class, a refcounted one, or one of yours, and each is
+            // released differently.
+            for (self.available.items) |item| gdzig.cleanup(item);
             self.available.deinit(self.allocator);
         }
     };
