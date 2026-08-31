@@ -203,6 +203,50 @@ pub fn unregister(r: *Registry) void {
 
 If a class needs a custom registration (e.g., an EditorPlugin), simply define `pub fn register(r: *Registry) void` and `pub fn unregister(r: *Registry) void` on the class itself. `registerAll` will detect and call them instead of using `autoRegister`.
 
+## "I want my Zig code on a node"
+
+There is nothing to attach. A `.zig` file is not a script you drop onto a node the way a
+`.gd` file is -- the class you registered *is* a node type, and it sits in Godot's class
+list beside `Node2D` and `Button`. So you do not attach it, you pick it:
+
+- **A new node**: **Add Child Node**, and search for the class by name.
+- **A node that already exists**: right-click it, **Change Type**, choose the class. Its
+  children and transform survive.
+- **In a `.tscn` by hand**: `[node name="Player" type="PlayerNode"]`.
+
+`base` is what you are extending, and it is what the editor sees:
+
+```zig
+allocator: Allocator,
+base: *CharacterBody3d,   // Godot reports the parent class as CharacterBody3D
+```
+
+Plain fields become Inspector properties without being listed anywhere, so
+
+```zig
+speed: f64 = 5.0,
+```
+
+gives the node a `speed` in the Inspector, which GDScript reads and writes as
+`$Player.speed`.
+
+### When the class does not show up
+
+Three causes, in the order they bite:
+
+1. **It is not in your entry module's `registerAll` tuple.** Nothing is logged. The class
+   is simply absent.
+2. **The project has never been imported.** Godot decides what to load by reading
+   `.godot/extension_list.cfg`, which the import pass writes. Without that file *no*
+   extension loads at all, so every class is missing and nothing says why. `zig build`
+   warns about this; the fix is one pass of `godot --path . --headless --import`, or
+   opening the project in the editor once.
+3. **The editor was already running when the class was added.** Extension classes
+   register as the library loads. Editing an existing class reloads; a brand new name may
+   need the editor restarted.
+
+`ClassDB.class_exists("PlayerNode")` answers the question straight, if you would rather
+check than hunt through the node list.
 ## "I need to extend the editor"
 
 ```zig
