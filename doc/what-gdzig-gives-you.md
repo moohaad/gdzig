@@ -201,7 +201,53 @@ pub fn unregister(r: *Registry) void {
 }
 ```
 
-If a class needs a custom registration (e.g., an EditorPlugin), simply define `pub fn register(r: *Registry) void` and `pub fn unregister(r: *Registry) void` on the class itself. `registerAll` will detect and call them instead of using `autoRegister`.
+### `autoRegister`, or a `register` of your own
+
+`registerAll` picks between two paths per entry, and the test is one decl:
+
+```zig
+if (@hasDecl(T, "register")) self.addModule(T) else self.autoRegister(T);
+```
+
+`autoRegister` creates the class and calls `autoBind`, which walks the type: a `signals`
+tuple becomes signals, plain fields become properties, `groups` become groups. It handles
+userdata of `Allocator` or `void`; anything else is a compile error pointing you at
+`createClass` plus `autoBind`.
+
+`addModule` is a single line -- `Module.register(self)`. It registers nothing itself and
+hands the decision to you.
+
+So **declaring `register` opts the type out of automatic registration**, and whatever that
+function does is the whole of what happens. That is the point when one file owns several
+classes:
+
+```zig
+pub fn register(r: *Registry) void {
+    r.autoRegister(PersistNode);
+    r.autoRegister(BindNode);
+}
+```
+
+or when a class needs something `autoRegister` cannot express, such as
+`r.addEditorPlugin(ToolPlugin, r.allocator, .auto)`.
+
+It is also the sharp edge. A class that grows a `register` for some other reason stops
+being auto-registered, and if that function does not register it, the class is absent from
+Godot with nothing logged -- indistinguishable from never having written it.
+
+**Declare `register` and `unregister` as a pair.** `unregisterAll` makes its own
+independent check:
+
+```zig
+if (@hasDecl(T, "unregister")) self.removeModule(T) else self.removeClass(T);
+```
+
+It tests `unregister`, not `register`, so declaring one without the other leaves the two
+halves disagreeing: setup calls your function, teardown calls `removeClass(T)` on a type
+that never registered as a class.
+
+`unregisterAll` also walks the tuple in reverse, which is deliberate -- an inheritor has to
+be unregistered before its parent.
 
 ## "I want my Zig code on a node"
 
