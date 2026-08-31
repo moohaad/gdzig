@@ -108,24 +108,45 @@ fn make(step: *Step, _: Step.MakeOptions) !void {
         return step.fail("global cache root path is not available", .{});
     };
 
-    // stderr is inherited rather than ignored: when the fetch fails, the reason
+    // Retried, because this is one 179 MB download that several builds ask for
+    // at once. `test-all` runs five gates, each scaffolding a project whose
+    // nested build fetches the same URL, and one of them lost:
+    //
+    //     error: failed reading resource: ReadFailed
+    //     error: 'zig fetch https://.../Godot_v4.7.1-stable_win64.exe.zip' failed
+    //
+    // taking the whole suite down with it. The same thing happens to anyone on a
+    // connection that drops a large transfer, where the build has no business
+    // failing outright on the first stumble.
+    //
+    // stderr is inherited rather than ignored: when it does give up, the reason
     // is the only useful thing there is, and discarding it left nothing but
     // "'zig fetch' failed" to work from.
-    var zig_fetch = try std.process.spawn(io, .{
-        .argv = &.{ "zig", "fetch", "--global-cache-dir", global_cache_path, fetch.url },
-        .stderr = .inherit,
-        .stdout = .pipe,
-    });
+    const max_attempts = 3;
+    var stdout: []const u8 = "";
+    for (0..max_attempts) |attempt| {
+        var zig_fetch = try std.process.spawn(io, .{
+            .argv = &.{ "zig", "fetch", "--global-cache-dir", global_cache_path, fetch.url },
+            .stderr = .inherit,
+            .stdout = .pipe,
+        });
 
-    var read_buf: [4096]u8 = undefined;
-    var stdout_reader = zig_fetch.stdout.?.readerStreaming(io, &read_buf);
-    const stdout = try stdout_reader.interface.allocRemaining(arena, .limited(1024 * 1024));
+        var read_buf: [4096]u8 = undefined;
+        var stdout_reader = zig_fetch.stdout.?.readerStreaming(io, &read_buf);
+        stdout = try stdout_reader.interface.allocRemaining(arena, .limited(1024 * 1024));
 
-    const result = try zig_fetch.wait(io);
+        const result = try zig_fetch.wait(io);
+        if (result == .exited and result.exited == 0) break;
 
-    if (result != .exited or result.exited != 0) {
-        return step.fail("'zig fetch {s}' failed (see stderr above)", .{fetch.url});
+        if (attempt + 1 == max_attempts) {
+            return step.fail("'zig fetch {s}' failed {d} times (see stderr above)", .{ fetch.url, max_attempts });
+        }
+
+        // A moment before trying again: when the cause is another build holding
+        // the same download, what fixes it is that build finishing.
+        std.Io.sleep(io, std.Io.Duration.fromNanoseconds(2 * std.time.ns_per_s), .awake) catch {};
     }
+
 
     // zig fetch outputs the hash (with trailing newline)
     const pkg_hash = std.mem.trim(u8, stdout, "\n\r ");

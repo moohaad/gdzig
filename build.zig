@@ -253,12 +253,51 @@ pub fn build(b: *Build) !void {
     // to put on the command everyone runs constantly. But being reachable only
     // from CI is how the features they cover went untested to begin with, so
     // there is one command that runs everything.
+    // Builds a project against gdzig as a package rather than as this
+    // checkout. Everything else here reaches gdzig by path, and a path to this
+    // tree has a .zig-cache with Godot in it -- which is what hid a build that
+    // no fetched consumer could complete.
+    const package_test_exe = b.addExecutable(.{
+        .name = "package-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/package_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_package_test = b.addRunArtifact(package_test_exe);
+    run_package_test.addArtifactArg(init_exe);
+    run_package_test.addArg(".zig-cache/package-test");
+    run_package_test.addArg(b.pathFromRoot("."));
+    run_package_test.has_side_effects = true;
+    const package_test_step = b.step("test-package", "Build a project against gdzig as a fetched package");
+    package_test_step.dependOn(&run_package_test.step);
+    // Every gate scaffolds a project whose nested build fetches Godot, and they
+    // run in parallel: five processes asking for the same 179 MB archive at once,
+    // where one loses and takes the suite with it --
+    //
+    //     error: failed reading resource: ReadFailed
+    //     error: 'zig fetch .../Godot_v4.7.1-stable_win64.exe.zip' failed 3 times
+    //
+    // Retrying does not help when all five keep colliding. Waiting on the
+    // download this build already does means the archive is in the global cache
+    // before any gate starts, so every nested fetch is a hit and none of them
+    // touch the network. Free where a Godot was already resolved from a path or
+    // from PATH: there is no fetch step to wait for.
+    if (godot_exe_host) |exe| {
+        exe.addStepDependencies(&run_init_test.step);
+        exe.addStepDependencies(&run_res_test.step);
+        exe.addStepDependencies(&run_signal_test.step);
+        exe.addStepDependencies(&run_watch_test.step);
+        exe.addStepDependencies(&run_package_test.step);
+    }
     const test_all_step = b.step("test-all", "Run the unit tests and every integration gate");
     test_all_step.dependOn(test_step);
     test_all_step.dependOn(init_test_step);
     test_all_step.dependOn(res_test_step);
     test_all_step.dependOn(signal_test_step);
     test_all_step.dependOn(watch_test_step);
+    test_all_step.dependOn(package_test_step);
 
     //
     // Library
