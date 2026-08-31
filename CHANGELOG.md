@@ -1,5 +1,12 @@
 # HEAD
 
+- **`{f}` works on `String` and `StringName`**: Godot's own `format` -- string
+  interpolation -- is now generated as `formatValues`, freeing the name for a formatter
+  that means what Zig means by it
+  - Previously `{f}` on either type was a compile error raised *inside* `std.Io.Writer`
+    ("member function expected 2 argument(s), found 1"), pointing at std rather than at
+    the format string that caused it
+  - **Breaking**: calls to `String.format(values, ...)` become `String.formatValues(values, ...)`
 - **Updated dependencies**: Zig 0.16.0 and Godot 4.7 support
 - **Fully commented bindgens**: All generated bindings include complete documentation from Godot's API for convenient ZLS hover docs
   - Comprehensive reference docs are also now available at https://gdzig.github.io/gdzig/

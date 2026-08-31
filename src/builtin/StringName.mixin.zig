@@ -235,6 +235,17 @@ const casez = @import("casez");
 const common = @import("common");
 const godot_case = common.godot_case;
 
+/// Zig's `{f}`: writes the name's contents as UTF-8.
+///
+/// Godot's own `format` is generated as `formatValues`; see `String.format`
+/// for why. This goes through `String` because that is where the conversion
+/// lives.
+pub fn format(self: *const StringName, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    var text = gdzig.builtin.String.fromStringName(self.*);
+    defer text.deinit();
+    try text.format(w);
+}
+
 // @mixin stop
 
 const std = @import("std");

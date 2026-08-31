@@ -330,6 +330,30 @@ pub fn print(self: *String, comptime fmt: []const u8, args: anytype) !void {
 
 
 
+/// Zig's `{f}`: writes the string's contents as UTF-8.
+///
+/// Godot's own `format` -- string interpolation -- is generated as
+/// `formatValues`, because a method of that name with a different signature
+/// makes every `{f}` on this type a compile error inside `std.Io.Writer`.
+///
+/// Taken in chunks so a long string is not silently cut to the size of a stack
+/// buffer. `toUtf8Buf` truncates to whatever it is given, which is fine for a
+/// log line and wrong for a formatter.
+pub fn format(self: *const String, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    const total = self.length();
+    var offset: i64 = 0;
+    while (offset < total) {
+        const chars = @min(total - offset, 256);
+        var chunk = self.substr(offset, .{ .len = chars });
+        defer chunk.deinit();
+
+        // Four bytes per character is the most UTF-8 needs.
+        var buf: [256 * 4]u8 = undefined;
+        try w.writeAll(chunk.toUtf8Buf(&buf));
+        offset += chars;
+    }
+}
+
 // @mixin stop
 
 const Self = gdzig.builtin.String;

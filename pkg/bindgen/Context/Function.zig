@@ -186,6 +186,27 @@ pub fn fromBuiltinConstructor(allocator: Allocator, builtin_name: []const u8, co
     return self;
 }
 
+/// The Zig name for a Godot method whose obvious name would claim a Zig
+/// protocol that means something else.
+///
+/// `format` is the whole list. Zig's `{f}` compiles to `value.format(writer)`,
+/// and Godot's `String.format(values, placeholder)` is string interpolation
+/// with an incompatible signature -- so `{f}` on a `String` failed inside
+/// `std.Io.Writer` with "member function expected 2 argument(s), found 1",
+/// pointing at std rather than at the line that wrote it. Under a name that
+/// does not claim the protocol, the engine method still works and `{f}` is free
+/// for the real formatter in the mixin.
+fn protocolCollision(builtin_name: []const u8, api_name: []const u8) ?[]const u8 {
+    const collisions = .{
+        .{ "String", "format", "formatValues" },
+        .{ "StringName", "format", "formatValues" },
+    };
+    inline for (collisions) |c| {
+        if (std.mem.eql(u8, builtin_name, c[0]) and std.mem.eql(u8, api_name, c[1])) return c[2];
+    }
+    return null;
+}
+
 pub fn fromBuiltinMethod(allocator: Allocator, builtin_name: []const u8, api: GodotApi.Builtin.Method, ctx: *const Context) !Function {
     var self = Function{};
     errdefer self.deinit(allocator);
@@ -194,7 +215,10 @@ pub fn fromBuiltinMethod(allocator: Allocator, builtin_name: []const u8, api: Go
         .current_class = builtin_name,
         .verbosity = ctx.config.verbosity,
     }) else null;
-    self.name = try casez.allocConvert(allocator, gdzig_case.method, api.name);
+    self.name = if (protocolCollision(builtin_name, api.name)) |renamed|
+        try allocator.dupe(u8, renamed)
+    else
+        try casez.allocConvert(allocator, gdzig_case.method, api.name);
     self.name_api = api.name;
     self.hash = api.hash;
     self.self = if (api.is_static)
