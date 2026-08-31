@@ -13,6 +13,25 @@ expected_hash: []const u8,
 generated_directory: std.Build.GeneratedFile,
 generated_executable: std.Build.GeneratedFile,
 
+
+/// Where the extracted Godot lives, under the *global* cache rather than the
+/// project one.
+///
+/// `b.cache_root.path` is the relative string `.zig-cache`, and a generated
+/// path is resolved against the process cwd. That holds for a root build, whose
+/// cwd is its own directory -- but gdzig is normally a dependency, and a
+/// consumer that anchors the relative path to *its* build root lands in the
+/// package directory, which has no `.zig-cache` at all:
+///
+///     failed to run '...\zig-pkg\godot-<hash>\.zig-cache\o\<digest>\Godot.exe':
+///     FileNotFound
+///
+/// `global_cache_root.path` is absolute, so the path handed out resolves the
+/// same from anywhere. A private subdirectory rather than the `o/` Zig uses for
+/// its own outputs, and one copy of a 179 MB engine per machine instead of one
+/// per project.
+const store_name = "gdzig-godot";
+
 pub const base_id: Step.Id = .custom;
 
 pub fn create(owner: *std.Build, name: []const u8, url: []const u8, expected_hash: []const u8) *FetchStep {
@@ -54,30 +73,34 @@ fn make(step: *Step, _: Step.MakeOptions) !void {
     man.hash.addBytes(fetch.expected_hash);
 
     // Check cache
-    if (try step.cacheHitAndWatch(&man)) {
+    if (try step.cacheHitAndWatch(&man)) hit: {
         const digest = man.final();
-        fetch.generated_directory.path = try b.cache_root.join(arena, &.{ "o", &digest });
-        // Read the executable name from the marker file
-        const exe_name = readExeName(arena, io, b.cache_root.handle, "o" ++ std.fs.path.sep_str ++ digest) catch |err| {
-            return step.fail("failed to read cached executable name: {s}", .{@errorName(err)});
-        };
-        fetch.generated_executable.path = try b.cache_root.join(arena, &.{ "o", &digest, exe_name });
+        const sub = try std.fs.path.join(arena, &.{ store_name, &digest });
+
+        // A manifest hit says this step ran before, not that its output is
+        // still on disk: the store lives in the global cache and can be
+        // cleared without touching the manifest. Falling through re-fetches
+        // rather than handing out a path to a file that is not there.
+        const exe_name = readExeName(arena, io, b.graph.global_cache_root.handle, sub) catch break :hit;
+        b.graph.global_cache_root.handle.access(io, try std.fs.path.join(arena, &.{ sub, exe_name }), .{}) catch break :hit;
+
+        fetch.generated_directory.path = try b.graph.global_cache_root.join(arena, &.{sub});
+        fetch.generated_executable.path = try b.graph.global_cache_root.join(arena, &.{ sub, exe_name });
         step.result_cached = true;
         return;
     }
 
     const digest = man.final();
-    const cache_path = "o" ++ std.fs.path.sep_str ++ digest;
+    const cache_path = try std.fs.path.join(arena, &.{ store_name, &digest });
 
-    // Create output directory
-    var cache_dir = b.cache_root.handle.createDirPathOpen(io, cache_path, .{ .open_options = .{ .iterate = true } }) catch |err| {
+    var cache_dir = b.graph.global_cache_root.handle.createDirPathOpen(io, cache_path, .{ .open_options = .{ .iterate = true } }) catch |err| {
         return step.fail("unable to make cache path '{s}': {s}", .{
             cache_path, @errorName(err),
         });
     };
     defer cache_dir.close(io);
 
-    fetch.generated_directory.path = try b.cache_root.join(arena, &.{ "o", &digest });
+    fetch.generated_directory.path = try b.graph.global_cache_root.join(arena, &.{cache_path});
 
     // Use `zig fetch` to download the archive - it has TLS support
     // zig fetch outputs the hash of the fetched package
@@ -150,7 +173,7 @@ fn make(step: *Step, _: Step.MakeOptions) !void {
 
     // Find the Godot executable and store its path
     const exe_name = try findGodotExecutable(step, io, cache_dir);
-    fetch.generated_executable.path = try b.cache_root.join(arena, &.{ "o", &digest, exe_name });
+    fetch.generated_executable.path = try b.graph.global_cache_root.join(arena, &.{ cache_path, exe_name });
 
     // Write the executable name to a marker file for cache hits
     cache_dir.writeFile(io, .{ .sub_path = ".godot_exe", .data = exe_name }) catch |err| {
