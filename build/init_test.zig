@@ -136,6 +136,14 @@ pub fn main(init: std.process.Init) !void {
     }
     if (!found) return fail("built, but produced no library named for '{s}' in lib/", .{name});
 
+    // The scaffolder produces the flat layout, so `zig-pkg/` lands inside the
+    // Godot project and the editor would walk every fetched dependency --
+    // including gdzig's own checkout, whose example/project has a project.godot
+    // of its own. `.gdignore` is what stops that, and nothing but this checks
+    // that the build writes it.
+    _ = dir.statFile(io, "zig-pkg/.gdignore", .{}) catch |err| {
+        return fail("no zig-pkg/.gdignore after building a flat-layout project: {s}", .{@errorName(err)});
+    };
     std.debug.print("init-gdzig: scaffolded '{s}' and built it\n", .{name});
 }
 

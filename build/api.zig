@@ -85,6 +85,7 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
         addSceneImports(b, options.root_module, project);
         clearReloadLeftovers(b, project, options.name);
         warnIfNotImported(b, project, options.name);
+        hidePackageCache(b, project);
     }
 
     const build_options = b.addOptions();
@@ -122,6 +123,63 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
         };
         return ext;
     }
+}
+
+
+
+
+/// Whether `path` is `parent` or sits under it.
+///
+/// A plain prefix test is wrong here: `<root>/zig-pkg` starts with `<root>/z`,
+/// so a project directory named `z` would look like it contained the cache. The
+/// character after the prefix has to be a separator for the prefix to be a whole
+/// path component.
+fn isWithin(path: []const u8, parent: []const u8) bool {
+    if (!std.mem.startsWith(u8, path, parent)) return false;
+    if (path.len == parent.len) return true;
+    const next = path[parent.len];
+    return next == std.fs.path.sep or next == '/';
+}
+
+
+/// Puts a `.gdignore` in the package cache when it sits inside the Godot project.
+///
+/// Godot's editor walks the whole project directory, and `zig-pkg/` holds every
+/// fetched dependency -- gdzig's own checkout among them, `example/project` and
+/// all. The visible symptom is a warning:
+///
+///     Detected another project.godot at res://zig-pkg/godot-.../example/project.
+///     The folder will be ignored.
+///
+/// and behind it the editor importing a source tree that has nothing to do with
+/// the game. `.gdignore` makes it skip the directory outright.
+///
+/// Only for the flat layout, where `project.godot` and `zig-pkg/` are siblings.
+/// A project kept in a subdirectory puts the cache outside it, which is why this
+/// went unnoticed here: the example uses that shape, and `getting-started` says
+/// the flat one is what someone adding Zig to an existing game will have.
+///
+/// Written on every build rather than once, since the cache is regenerated and
+/// a checkout of the project will not carry the file.
+fn hidePackageCache(b: *Build, project: []const u8) void {
+    const io = b.graph.io;
+
+    const project_abs = b.pathFromRoot(project);
+    const cache_abs = b.pathFromRoot("zig-pkg");
+    if (!isWithin(cache_abs, project_abs)) return;
+
+    var dir = b.build_root.handle.openDir(io, "zig-pkg", .{}) catch return;
+    defer dir.close(io);
+
+    if (dir.statFile(io, ".gdignore", .{})) |_| return else |_| {}
+
+    dir.writeFile(io, .{ .sub_path = ".gdignore", .data = "" }) catch |err| {
+        std.log.warn(
+            "gdzig: could not write '{s}/.gdignore' ({s}); Godot will scan the package " ++
+                "cache and warn about the project.godot files inside it",
+            .{ cache_abs, @errorName(err) },
+        );
+    };
 }
 
 
