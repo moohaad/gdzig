@@ -133,7 +133,9 @@ pub fn build(b: *Build) !void {
     //
 
     const init_exe = b.addExecutable(.{
-        .name = "init",
+        // Named for what it is on a PATH, not for what the step is called:
+        // `init.exe` sitting in a bin directory says nothing about whose it is.
+        .name = "init-gdzig",
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/init.zig"),
             .target = b.graph.host,
@@ -146,6 +148,12 @@ pub fn build(b: *Build) !void {
     }
     const init_step = b.step("init-gdzig", "Scaffold a new gdzig project");
     init_step.dependOn(&run_init.step);
+
+    // Installed alongside the bindgen, so scaffolding a *second* project does
+    // not mean going back to this checkout. Without it the only way to reach the
+    // scaffolder is a build step here, and every new project starts with a `cd`
+    // into a clone that has nothing else to do with it.
+    b.installArtifact(init_exe);
 
     // Scaffolds a throwaway project and builds it. The scaffolder writes four
     // interlocking files and is the first thing a newcomer runs, so "does its

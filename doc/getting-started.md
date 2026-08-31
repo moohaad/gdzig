@@ -48,11 +48,17 @@ For the fastest possible setup, use the gdzig CLI scaffold. This handles downloa
 ```sh
 git clone https://github.com/moohaad/gdzig
 cd gdzig
-zig build init-gdzig -- --name mygame --out ../mygame
+zig build
 ```
 
-`--out` has no default, so this is where the project goes -- here, alongside the `gdzig`
-checkout rather than inside it.
+`zig build` installs `init-gdzig` into `zig-out/bin`. With that directory on your `PATH`,
+scaffold from wherever the project should live:
+
+```sh
+init-gdzig --name mygame --out mygame
+```
+
+`--out` has no default: the scaffolder writes where it is told and nowhere else.
 
 > [!NOTE]
 > If you prefer to understand exactly what this script generates (and how to construct `build.zig` and the `.gdextension` file manually), read the [Quickstart Setup Reference](quickstart.md).

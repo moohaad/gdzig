@@ -8,17 +8,32 @@ If you just want to write some Zig code in Godot immediately, `gdzig` provides a
 
 ## The 30-Second Scaffold
 
-Instead of manually creating boilerplate configuration files, you can clone `gdzig` and run its initializer script to generate a fully functioning project instantly.
+gdzig ships a scaffolder. Build it once:
 
 ```sh
 git clone https://github.com/moohaad/gdzig.git
 cd gdzig
-zig build init-gdzig -- --name my_awesome_game --out ../my_awesome_game
+zig build
 ```
 
-`--out` says where to write it, and has no default: the scaffolder writes where it is
-told and nowhere else. `../my_awesome_game` puts the project alongside the `gdzig`
-checkout rather than inside it. You get:
+That installs `init-gdzig` into `zig-out/bin`. Put that directory on your `PATH`, and
+every project after this one is one command, run wherever the project should live:
+
+```sh
+init-gdzig --name my_awesome_game --out my_awesome_game
+```
+
+`--out` says where to write it and has no default: the scaffolder writes where it is
+told and nowhere else.
+
+If you would rather not put anything on your `PATH`, this does the same from any
+directory, with no `cd`:
+
+```sh
+zig build --build-file /path/to/gdzig/build.zig init-gdzig -- --name my_awesome_game --out my_awesome_game
+```
+
+Either way you get:
 * `build.zig` and `build.zig.zon` correctly referencing the `gdzig` dependency.
 * `my_awesome_game.gdextension` configured to load the compiled Zig DLL.
 * `project.godot` configured for the editor.

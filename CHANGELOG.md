@@ -1,5 +1,11 @@
 # HEAD
 
+- **`init-gdzig` is installed**: `zig build` puts it in `zig-out/bin`, so scaffolding a
+  project no longer means `cd`-ing into a gdzig checkout to run a build step
+  - The executable was named `init`; installing that would have put a bare `init.exe` on
+    your `PATH`
+  - Without a `PATH` entry, `zig build --build-file /path/to/gdzig/build.zig init-gdzig --`
+    works from any directory and resolves `--out` against it
 - **`{f}` works on `String` and `StringName`**: Godot's own `format` -- string
   interpolation -- is now generated as `formatValues`, freeing the name for a formatter
   that means what Zig means by it

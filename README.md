@@ -40,8 +40,8 @@ integration gates that cover the build tooling itself, which is what CI runs.
 
 ## Starting a project
 
-Fastest route: `zig build init-gdzig -- --name mygame --out ../mygame` scaffolds a
-working project.
+Fastest route: `zig build` in a gdzig checkout installs `init-gdzig`; then
+`init-gdzig --name mygame --out mygame` scaffolds a working project anywhere.
 [doc/quickstart.md](doc/quickstart.md) is that path end to end.
 
 To build one by hand instead, [doc/getting-started.md](doc/getting-started.md) walks
