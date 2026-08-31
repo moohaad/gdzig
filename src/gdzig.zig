@@ -46,6 +46,7 @@ pub const dict = collections.dict;
 pub const macros = @import("macros.zig");
 pub const callable = macros.callable;
 pub const print = macros.print;
+pub const pushWarning = macros.pushWarning;
 pub const getNodesInGroupAs = macros.getNodesInGroupAs;
 pub const Pool = macros.Pool;
 pub const EventBus = macros.EventBus;

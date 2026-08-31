@@ -20,6 +20,26 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     gdzig.general.printAlloc(variant, .{});
 }
 
+/// A diagnostic, as distinct from debug output.
+///
+/// `print` adds a line to the Output log and nothing more. This files the
+/// message as a warning, which Godot shows in the Debugger panel with a stack
+/// trace saying which instance produced it -- and the engine's own docs
+/// recommend it over `print` for exactly this reason. Worth the extra String
+/// and Variant on a path that only runs when something is already wrong.
+pub fn pushWarning(comptime fmt: []const u8, args: anytype) void {
+    var buf: [16384]u8 = undefined;
+    const formatted = render(&buf, fmt, args);
+
+    var gd_str = String.fromLatin1(formatted);
+    defer gd_str.deinit();
+
+    const variant = Variant.init(String, gd_str);
+    defer variant.deinit();
+
+    gdzig.general.pushWarningAlloc(variant, .{});
+}
+
 /// Formats into `buf`, or says why it could not.
 ///
 /// Split out from `print` so it can be tested without an engine, and because
@@ -298,7 +318,7 @@ pub fn bindNodes(self: anytype) void {
         if (self.base.getNodeAs(StructType, path)) |child| {
             @field(self.*, field_name) = child;
         } else {
-            gdzig.print("bind_nodes: {s}.{s}: no child '{s}' of type {s}", .{
+            pushWarning("bind_nodes: {s}.{s}: no child '{s}' of type {s}", .{
                 @typeName(Self), field_name, path, @typeName(StructType),
             });
         }

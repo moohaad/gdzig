@@ -221,7 +221,12 @@ fn resolveInto(comptime S: type, comptime label: []const u8, target: *S, owner: 
             if (found) |node| {
                 @field(target, field.name) = .{ .handle = .init(node) };
             } else {
-                std.log.err(
+                // Godot's Debugger panel rather than the process's stderr,
+                // which the engine does not capture: an editor session is
+                // where a scene and a declaration disagree, and stderr is
+                // not where anyone is looking. `bind_nodes` reports the
+                // same way, so the two spellings fail alike.
+                gdzig.pushWarning(
                     "{s}.{s}: no child '{s}' of type {s}",
                     .{ label, field.name, field.type.node_path, @typeName(Target) },
                 );
@@ -269,7 +274,11 @@ fn lookup(comptime T: type, owner: *Node, comptime path: [:0]const u8) ?*T {
     var node_path: NodePath = .fromString(text);
     defer node_path.deinit();
 
-    const node = owner.getNode(node_path) orelse return null;
+    // `getNode` prints an engine error of its own when the path is empty, so a
+    // missing child reported two ways: Godot's ERROR and then ours. The
+    // or-null form asks the same question without complaining, which leaves the
+    // one warning below -- the same one `bind_nodes` produces.
+    const node = owner.getNodeOrNull(node_path) orelse return null;
     return class.castTo(T, node);
 }
 
