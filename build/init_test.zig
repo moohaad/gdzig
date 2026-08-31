@@ -99,6 +99,27 @@ pub fn main(init: std.process.Init) !void {
     try dir.createDirPath(io, ".godot");
     try dir.writeFile(io, .{ .sub_path = ".godot/extension_list.cfg", .data = "res://" ++ name ++ ".gdextension\n" });
 
+    // A second extension from the same build.zig. `addExtension` declares the
+    // `log-registration` option, and `b.option` panics when a name is declared
+    // twice, so a second call used to bring the configure phase down. That was
+    // invisible for as long as every build.zig in the tree built exactly one
+    // library. Nothing is installed from it -- surviving configure is the whole
+    // assertion.
+    {
+        const build_zig = try dir.readFileAlloc(io, "build.zig", arena, @enumFromInt(1 << 20));
+        const close = std.mem.lastIndexOfScalar(u8, build_zig, '}') orelse
+            return fail("generated build.zig has no closing brace", .{});
+        try dir.writeFile(io, .{ .sub_path = "build.zig", .data = try std.fmt.allocPrint(arena,
+            \\{s}    _ = gdzig.addExtension(b, .{{
+            \\        .name = "{s}2",
+            \\        .root_module = mod,
+            \\        .entry_symbol = "{s}_init2",
+            \\        .target = target,
+            \\        .optimize = optimize,
+            \\    }});
+            \\{s}
+        , .{ build_zig[0..close], name, name, build_zig[close..] }) });
+    }
     try run(io, out_path, &.{ "zig", "build" });
 
     // The point of the whole exercise: a library where the `.gdextension` says

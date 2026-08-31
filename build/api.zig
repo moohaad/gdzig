@@ -90,8 +90,7 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "entry_symbol", options.entry_symbol);
     build_options.addOption(InitializationLevel, "minimum_initialization_level", options.minimum_initialization_level);
-    build_options.addOption(bool, "log_registration", options.log_registration orelse
-        b.option(bool, "log-registration", "Log the classes the extension registers at startup") orelse false);
+    build_options.addOption(bool, "log_registration", options.log_registration orelse logRegistrationOption(b));
 
     const mod = b.createModule(.{
         .root_source_file = dep.path("src/extension/entrypoint.zig"),
@@ -123,6 +122,26 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
         };
         return ext;
     }
+}
+
+
+/// Whether the user passed `-Dlog-registration`.
+///
+/// `b.option` panics outright when a name is declared twice, and one `build.zig`
+/// may reasonably call `addExtension` more than once -- two libraries out of one
+/// project is an ordinary thing to want, and the second call used to bring the
+/// whole configure phase down with `Option 'log-registration' declared twice`.
+///
+/// So it is declared once per `*Build` and the answer kept. Keyed by the build
+/// rather than held in one slot because a dependency that also builds an
+/// extension has its own `*Build`, and each of them needs its own declaration.
+var log_registration_by_build: std.AutoHashMapUnmanaged(*Build, bool) = .empty;
+
+fn logRegistrationOption(b: *Build) bool {
+    if (log_registration_by_build.get(b)) |already| return already;
+    const value = b.option(bool, "log-registration", "Log the classes the extension registers at startup") orelse false;
+    log_registration_by_build.put(b.allocator, b, value) catch @panic("OOM");
+    return value;
 }
 
 /// Names every `.tscn` under `project` as an import on `mod`, so `@embedFile`
