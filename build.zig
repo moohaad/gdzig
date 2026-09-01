@@ -235,6 +235,48 @@ pub fn build(b: *Build) !void {
     const virtual_test_step = b.step("test-virtuals", "Check that unknown virtual callback names are rejected at comptime");
     virtual_test_step.dependOn(&run_virtual_test.step);
 
+    // Headers are cached by the Godot executable that produced them. Exercise
+    // replacement at one stable path and a flag-only change with tiny fake
+    // executables, so this gate needs neither a download nor a real engine.
+    const header_fake_v1_options = b.addOptions();
+    header_fake_v1_options.addOption([]const u8, "marker", "v1");
+    const header_fake_v1 = b.addExecutable(.{
+        .name = "header-cache-fake-v1",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/godot/headers_cache_fake.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+            .imports = &.{.{ .name = "fixture_options", .module = header_fake_v1_options.createModule() }},
+        }),
+    });
+    const header_fake_v2_options = b.addOptions();
+    header_fake_v2_options.addOption([]const u8, "marker", "v2");
+    const header_fake_v2 = b.addExecutable(.{
+        .name = "header-cache-fake-v2",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/godot/headers_cache_fake.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+            .imports = &.{.{ .name = "fixture_options", .module = header_fake_v2_options.createModule() }},
+        }),
+    });
+    const header_cache_test_exe = b.addExecutable(.{
+        .name = "header-cache-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/godot/headers_cache_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_header_cache_test = b.addRunArtifact(header_cache_test_exe);
+    run_header_cache_test.addArtifactArg(header_fake_v1);
+    run_header_cache_test.addArtifactArg(header_fake_v2);
+    run_header_cache_test.addFileArg(b.path("build/godot/HeadersStep.zig"));
+    run_header_cache_test.addArg(".zig-cache/header-cache-test/probe");
+    run_header_cache_test.has_side_effects = true;
+    const header_cache_test_step = b.step("test-headers-cache", "Check that Godot executable and flag changes invalidate cached headers");
+    header_cache_test_step.dependOn(&run_header_cache_test.step);
+
     // The watcher is a loop that never returns, so this observes it from
     // outside -- through files it deletes, never through its output, which
     // would turn a failure into a hung job -- and kills it when done.
@@ -267,7 +309,7 @@ pub fn build(b: *Build) !void {
     const watch_test_step = b.step("test-watch", "Check that the watcher cleans artifacts and reacts to changes");
     watch_test_step.dependOn(&run_watch_test.step);
 
-    // The five gates above are separate steps because each scaffolds a project
+    // The six gates above are separate steps because each scaffolds a project
     // and runs nested builds, which is minutes rather than seconds -- too slow
     // to put on the command everyone runs constantly. But being reachable only
     // from CI is how the features they cover went untested to begin with, so
@@ -317,6 +359,7 @@ pub fn build(b: *Build) !void {
     test_all_step.dependOn(res_test_step);
     test_all_step.dependOn(signal_test_step);
     test_all_step.dependOn(virtual_test_step);
+    test_all_step.dependOn(header_cache_test_step);
     test_all_step.dependOn(watch_test_step);
     test_all_step.dependOn(package_test_step);
 

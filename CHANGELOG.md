@@ -1,5 +1,8 @@
 # HEAD
 
+- **Godot header caches follow the executable contents**: replacing a Godot binary at
+  the same path or changing its dump flags regenerates `extension_api.json` and the
+  GDExtension interface instead of silently reusing headers from the previous engine.
 - **Virtual callbacks match Godot's spelling**: write `_physics_process`, `_enter_tree`,
   and `_to_string` exactly as they appear in Godot. Public underscore-prefixed methods
   must name a virtual or class callback exposed by the base class; misspellings are now

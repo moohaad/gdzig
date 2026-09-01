@@ -4,8 +4,6 @@
 const std = @import("std");
 const Step = std.Build.Step;
 const Io = std.Io;
-const build_zig = @import("build.zig");
-
 const HeadersStep = @This();
 
 step: Step,
@@ -14,7 +12,7 @@ generated_directory: std.Build.GeneratedFile,
 /// If set, use these flags directly. If null, detect version at build time.
 known_flags: ?Flags,
 
-const Flags = struct {
+pub const Flags = struct {
     use_docs: bool,
     has_json: bool,
 };
@@ -67,19 +65,52 @@ fn make(step: *Step, prog_node: Step.MakeOptions) !void {
     else
         b.pathFromRoot(godot_path_rel);
 
-    // Set up caching based on godot executable path
+    // Determine the exact command shape before building the cache key. For a
+    // downloaded, known version this is free; an explicitly supplied binary
+    // needs one cheap `--version` call so changes to the version thresholds
+    // below invalidate the dump even when the executable itself did not move.
+    const use_docs, const has_json = if (headers.known_flags) |flags|
+        .{ flags.use_docs, flags.has_json }
+    else blk: {
+        const version_str = runGodotVersion(step, io, godot_path, prog_node) catch |err| {
+            return step.fail("failed to get Godot version: {s}", .{@errorName(err)});
+        };
+        const version = parseVersionString(version_str);
+        break :blk .{ shouldUseDocs(version), hasJsonInterface(version) };
+    };
+
+    // The path alone is not an input: users commonly replace `godot` in place
+    // when upgrading. Track the executable as a file so the manifest observes
+    // its contents, plus every flag that changes which files Godot writes.
+    // The schema tag covers changes to the fixed arguments or output contract.
     var man = b.graph.cache.obtain();
     defer man.deinit();
+    // A hit whose output files disappeared must be turned back into a writer.
+    // Keep the exclusive lock so that recovery is safe and only one concurrent
+    // build regenerates this digest.
+    man.want_shared_lock = false;
 
+    man.hash.addBytes("gdzig-gdextension-headers-v2");
     man.hash.addBytes(godot_path);
+    man.hash.add(use_docs);
+    man.hash.add(has_json);
+    _ = man.addFilePath(headers.godot_exe.getPath3(b, step), null) catch |err| {
+        return step.fail("failed to hash Godot executable '{s}': {s}", .{ godot_path, @errorName(err) });
+    };
 
-    // Check cache
-    if (try step.cacheHitAndWatch(&man)) {
+    // A manifest hit records a successful older run, but its output directory
+    // can be removed independently or an interrupted cleanup can leave only
+    // some files. Regenerate instead of returning a dead LazyPath.
+    if (try step.cacheHitAndWatch(&man)) hit: {
         const digest = man.final();
-        headers.generated_directory.path = try b.cache_root.join(arena, &.{ "o", &digest });
+        const cache_path = try std.fs.path.join(arena, &.{ "o", &digest });
+        if (!headersExist(io, b.cache_root.handle, cache_path, has_json)) break :hit;
+
+        headers.generated_directory.path = try b.cache_root.join(arena, &.{cache_path});
         step.result_cached = true;
         return;
     }
+    step.result_cached = false;
 
     const digest = man.final();
     const cache_path = "o" ++ std.fs.path.sep_str ++ digest;
@@ -93,17 +124,6 @@ fn make(step: *Step, prog_node: Step.MakeOptions) !void {
     defer cache_dir.close(io);
 
     headers.generated_directory.path = try b.cache_root.join(arena, &.{ "o", &digest });
-
-    // Determine flags - use known flags or detect from version
-    const use_docs, const has_json = if (headers.known_flags) |flags|
-        .{ flags.use_docs, flags.has_json }
-    else blk: {
-        const version_str = runGodotVersion(step, io, godot_path, prog_node) catch |err| {
-            return step.fail("failed to get Godot version: {s}", .{@errorName(err)});
-        };
-        const version = parseVersionString(version_str);
-        break :blk .{ shouldUseDocs(version), hasJsonInterface(version) };
-    };
 
     // Build arguments array (max 6 args)
     var args: [6][]const u8 = undefined;
@@ -149,9 +169,29 @@ fn make(step: *Step, prog_node: Step.MakeOptions) !void {
     if (result != .exited or result.exited != 0) {
         return step.fail("Godot exited with non-zero status", .{});
     }
+    if (!headersExist(io, b.cache_root.handle, cache_path, has_json)) {
+        return step.fail("Godot exited successfully but did not produce every requested GDExtension header", .{});
+    }
 
-    // Write the manifest to finalize the cache entry
-    try man.writeManifest();
+    // Write the manifest to finalize the cache entry and watch the executable
+    // for in-place replacement during a long-lived `zig build --watch` run.
+    try step.writeManifestAndWatch(&man);
+}
+
+fn headersExist(io: Io, cache_root: Io.Dir, cache_path: []const u8, has_json: bool) bool {
+    const required = [_][]const u8{
+        "extension_api.json",
+        "gdextension_interface.h",
+        "gdextension_interface.json",
+    };
+    const count: usize = if (has_json) required.len else required.len - 1;
+
+    for (required[0..count]) |name| {
+        const path = std.fs.path.join(std.heap.page_allocator, &.{ cache_path, name }) catch return false;
+        defer std.heap.page_allocator.free(path);
+        cache_root.access(io, path, .{}) catch return false;
+    }
+    return true;
 }
 
 fn runGodotVersion(step: *Step, io: Io, godot_path: []const u8, prog_node: Step.MakeOptions) ![]const u8 {
