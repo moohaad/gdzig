@@ -173,7 +173,7 @@ const ClassC = struct {
 const VParent = struct {
     base: *Object,
 
-    pub fn _toString(self: *VParent) ?String {
+    pub fn _to_string(self: *VParent) ?String {
         var buf: [32]u8 = undefined;
         const text = std.fmt.bufPrintZ(&buf, "{d}", .{@intFromPtr(self)}) catch return null;
         return String.fromLatin1(text);
@@ -191,7 +191,7 @@ const VParent = struct {
     }
 };
 
-/// Inherits `_toString` and pushes the base off byte 0: Zig orders fields by
+/// Inherits `_to_string` and pushes the base off byte 0: Zig orders fields by
 /// descending alignment, so a `u128` sorts ahead of the embedded parent.
 const VDisplaced = struct {
     base: VParent,
@@ -326,7 +326,7 @@ test "castTo refuses a class the object is not" {
 }
 
 test "a displaced base is not the instance address" {
-    // `VDisplaced` inherits `_toString` from `VParent`, so gdzig builds a vtable
+    // `VDisplaced` inherits `_to_string` from `VParent`, so gdzig builds a vtable
     // wrapper with `Owner = VParent` while Godot hands it a `*VDisplaced`. The
     // wrapper has to narrow, and this is why it cannot just reinterpret:
     // Zig orders fields by descending alignment, so the `u128` sorts ahead of

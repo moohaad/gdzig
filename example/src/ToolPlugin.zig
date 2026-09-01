@@ -23,7 +23,7 @@ allocator: Allocator,
 base: *EditorPlugin,
 
 /// Runs when the editor loads the plugin, which is the point of the exercise.
-pub fn _enterTree(self: *ToolPlugin) void {
+pub fn _enter_tree(self: *ToolPlugin) void {
     _ = self;
     std.log.info("example: editor plugin loaded", .{});
 }

@@ -6,8 +6,6 @@ pub const groups = .{
     .{ "Colors", .{}, .{ "colors_signal2", "colors_signal3" } },
 };
 
-
-
 pub const bind_nodes = .{
     .{ "bound_button", "signal1_btn" },
 };
@@ -63,7 +61,7 @@ pub fn destroy(self: *SignalNode, allocator: *Allocator) void {
     allocator.destroy(self);
 }
 
-pub fn _enterTree(self: *SignalNode) void {
+pub fn _enter_tree(self: *SignalNode) void {
     if (godot.inEditor()) return;
 
     var signal1_btn = Button.init();
@@ -120,7 +118,7 @@ pub fn _ready(self: *SignalNode) void {
     // of the file names the field and the path, and the class machinery fills
     // it before `_ready` runs -- the same moment a `Child` field resolves.
     //
-    // Why here and not in `_enterTree`, where the button is built: at that
+    // Why here and not in `_enter_tree`, where the button is built: at that
     // point nothing has bound it yet. A class that needs the field earlier has
     // to call `godot.bindNodes(self)` for itself.
     if (self.bound_button) |_| {
@@ -130,7 +128,7 @@ pub fn _ready(self: *SignalNode) void {
     }
 }
 
-pub fn _exitTree(self: *SignalNode) void {
+pub fn _exit_tree(self: *SignalNode) void {
     _ = self;
 }
 
@@ -157,8 +155,8 @@ pub fn emitSignal1(self: *SignalNode) void {
 
     if (godot.tween(self.base)) |tw| {
         _ = tw.property(self.color_rect, "position", godot.builtin.Vector2.initXY(100, 100), 1.0)
-              .interval(0.5)
-              .callback(self, &onTweenFinished);
+            .interval(0.5)
+            .callback(self, &onTweenFinished);
     }
 }
 

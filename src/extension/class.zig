@@ -549,81 +549,86 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
 
         .set = if (@hasDecl(T, "_set")) T._set else null,
         .get = if (@hasDecl(T, "_get")) T._get else null,
-        .get_property_list = if (@hasDecl(T, "_getPropertyList")) T._getPropertyList else null,
-        .destroy_property_list = if (@hasDecl(T, "_destroyPropertyList")) T._destroyPropertyList else null,
-        .property_can_revert = if (@hasDecl(T, "_propertyCanRevert")) T._propertyCanRevert else null,
-        .property_get_revert = if (@hasDecl(T, "_propertyGetRevert")) T._propertyGetRevert else null,
-        .validate_property = if (@hasDecl(T, "_validateProperty")) T._validateProperty else null,
+        .get_property_list = if (@hasDecl(T, "_get_property_list")) T._get_property_list else null,
+        .destroy_property_list = if (@hasDecl(T, "_destroy_property_list")) T._destroy_property_list else null,
+        .property_can_revert = if (@hasDecl(T, "_property_can_revert")) T._property_can_revert else null,
+        .property_get_revert = if (@hasDecl(T, "_property_get_revert")) T._property_get_revert else null,
+        .validate_property = if (@hasDecl(T, "_validate_property")) T._validate_property else null,
         .notification = if (@hasDecl(T, "_notification")) T._notification else null,
-        .to_string = if (@hasDecl(T, "_toString")) T._toString else null,
+        .to_string = if (@hasDecl(T, "_to_string")) T._to_string else null,
         .reference = if (@hasDecl(T, "_reference")) T._reference else null,
         .unreference = if (@hasDecl(T, "_unreference")) T._unreference else null,
     };
 }
 
-fn virtualMethodNames(comptime T: type) []const []const u8 {
-    const callbacks = [_][]const u8{
-        "_destroyPropertyList",
-        "_get",
-        "_getPropertyList",
-        "_getRid",
-        "_notification",
-        "_propertyCanRevert",
-        "_propertyGetRevert",
-        "_reference",
-        "_set",
-        "_toString",
-        "_unreference",
-        "_validateProperty",
-    };
+const class_callback_names = [_][]const u8{
+    "_destroy_property_list",
+    "_get",
+    "_get_property_list",
+    "_get_rid",
+    "_notification",
+    "_property_can_revert",
+    "_property_get_revert",
+    "_reference",
+    "_set",
+    "_to_string",
+    "_unreference",
+    "_validate_property",
+};
 
-    const decls = @typeInfo(T).@"struct".decls;
-
-    // The quota is a budget for a whole comptime evaluation, not for one loop,
-    // and registering a real class spends it from three directions at once:
-    // width (a few dozen properties, methods and signals), depth (a base seven
-    // levels down chains that many vtable extensions), and the scan below,
-    // where every `_`-prefixed decl is compared against every callback name.
-    // Together they pass the default 1000, and it surfaces here because this is
-    // simply where the counter runs out.
-    @setEvalBranchQuota(@max(1000, decls.len * callbacks.len * 4));
-
-    var names: [decls.len][]const u8 = undefined;
-    var count: usize = 0;
-
-    for (decls) |decl| {
-        // Must start with _
-        if (decl.name.len == 0 or decl.name[0] != '_') continue;
-
-        // Must be a function
-        const field = @field(T, decl.name);
-        const field_type_info = @typeInfo(@TypeOf(field));
-        if (field_type_info != .@"fn") continue;
-
-        // Must have at least one parameter (self) to be a virtual method
-        if (field_type_info.@"fn".params.len == 0) continue;
-
-        // Must not be a callback
-        const is_callback = for (callbacks) |cb| {
-            if (std.mem.eql(u8, decl.name, cb)) break true;
-        } else false;
-        if (is_callback) continue;
-
-        names[count] = decl.name;
-        count += 1;
+fn isClassCallback(comptime name: []const u8) bool {
+    for (class_callback_names) |callback_name| {
+        if (std.mem.eql(u8, name, callback_name)) return true;
     }
-
-    return names[0..count];
+    return false;
 }
 
-/// Build a VTable for a user-defined class by chaining `.extend()` calls
-/// from the nearest Godot (opaque) ancestor through each intermediate user
-/// struct class. For example, given ClassC -> ClassB -> ClassA -> Object:
+fn suggestClassCallbackGodotName(comptime name: []const u8) ?[]const u8 {
+    const candidate = comptime casez.comptimeConvert(common.godot_case.virtual_method, name);
+    if (isClassCallback(candidate)) return candidate;
+    return null;
+}
+
+/// Rejects public underscore-prefixed functions that Godot will never call.
+///
+/// `autoBind` deliberately leaves these functions alone because valid ones are
+/// virtual overrides. Before this check, an invalid one was also left alone,
+/// added to the user vtable, and then ignored forever because Godot never asks
+/// for an unknown virtual name. The clean build made a spelling mistake look
+/// like a game-logic bug.
+fn validateVirtualMethodNames(comptime T: type, comptime EngineVTable: type) void {
+    const type_info = @typeInfo(T);
+    if (type_info != .@"struct") return;
+
+    const decls = type_info.@"struct".decls;
+    @setEvalBranchQuota(@max(1000, decls.len * 256));
+
+    for (decls) |decl| {
+        if (decl.name.len == 0 or decl.name[0] != '_') continue;
+        if (@typeInfo(@TypeOf(@field(T, decl.name))) != .@"fn") continue;
+        if (isClassCallback(decl.name)) continue;
+        if (EngineVTable.internalNameForGodotName(decl.name) != null) continue;
+
+        const prefix = "Unknown virtual method '" ++ decl.name ++ "' on '" ++ @typeName(T) ++ "'. ";
+        if (suggestClassCallbackGodotName(decl.name)) |suggestion| {
+            @compileError(prefix ++ "gdzig matches Godot's snake_case callback names; did you mean '" ++ suggestion ++ "'?");
+        }
+        if (EngineVTable.suggestGodotName(decl.name)) |suggestion| {
+            @compileError(prefix ++ "gdzig matches Godot's snake_case virtual names; did you mean '" ++ suggestion ++ "'?");
+        }
+        @compileError(prefix ++ "Godot will never call this function. Use a virtual exposed by the base class, or make a helper non-pub and give it a non-virtual name.");
+    }
+}
+
+/// Build a VTable for a user-defined class by chaining `.extend()` calls from
+/// the nearest Godot (opaque) ancestor through each intermediate user struct
+/// class. For example, given ClassC -> ClassB -> ClassA -> Object:
 ///
 ///   Object.VTable.extend(ClassA, ...).extend(ClassB, ...).extend(ClassC, ...)
 ///
-/// This ensures that each level's virtual methods are accumulated and any
-/// class can override methods defined by any ancestor.
+/// The engine VTable already contains every valid virtual name. Empty extends
+/// rebind its wrapper owner at each user-class level so an override declared on
+/// any ancestor is found and receives a correctly narrowed `self` pointer.
 fn UserClassVTable(comptime T: type) type {
     comptime {
         const ancestors = class.selfAndAncestorsOf(T);
@@ -642,11 +647,13 @@ fn UserClassVTable(comptime T: type) type {
         // Chain .extend() calls from the Godot class back down to T.
         // ancestors is [T, ..., GodotClass, ...] so we iterate from
         // godot_idx-1 down to 0 (inclusive).
-        var Result = ancestors[godot_idx].VTable;
+        const EngineVTable = ancestors[godot_idx].VTable;
+        var Result = EngineVTable;
         var i: usize = godot_idx;
         while (i > 0) {
             i -= 1;
-            Result = Result.extend(ancestors[i], virtualMethodNames(ancestors[i]));
+            validateVirtualMethodNames(ancestors[i], EngineVTable);
+            Result = Result.extend(ancestors[i], .{});
         }
         return Result;
     }
@@ -659,6 +666,7 @@ const MemoryPool = std.heap.MemoryPool;
 const builtin = @import("builtin");
 
 const c = @import("gdextension");
+const casez = @import("casez");
 const common = @import("common");
 const gd = @import("../gd.zig");
 const gdzig = @import("gdzig");

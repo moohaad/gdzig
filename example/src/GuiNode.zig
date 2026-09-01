@@ -40,7 +40,7 @@ pub fn destroy(self: *GuiNode, allocator: *Allocator) void {
     allocator.destroy(self);
 }
 
-pub fn _enterTree(self: *GuiNode) void {
+pub fn _enter_tree(self: *GuiNode) void {
     if (Engine.isEditorHint()) return;
 
     var normal_btn = Button.init();
@@ -88,7 +88,7 @@ pub fn _enterTree(self: *GuiNode) void {
     self.base.addChild(self.sprite, .{});
 }
 
-pub fn _exitTree(self: *GuiNode) void {
+pub fn _exit_tree(self: *GuiNode) void {
     _ = self;
 }
 

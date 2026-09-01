@@ -31,7 +31,8 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
         }
 
         fn findMethod(comptime method_name: []const u8) c.GDExtensionClassCallVirtual {
-            @setEvalBranchQuota(100_000);
+            @setEvalBranchQuota(1_000_000);
+            const godot_method_name = comptime casez.comptimeConvert(godot_case.virtual_method, method_name);
 
             // `_ready` is always wrapped, because two things have to happen
             // there whether or not the class wrote one: `Child` fields get
@@ -66,8 +67,8 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
             }
 
             inline for (class.selfAndAncestorsOf(T)) |Owner| {
-                if (@hasDecl(Owner, method_name)) {
-                    const method = @field(Owner, method_name);
+                if (@hasDecl(Owner, godot_method_name)) {
+                    const method = @field(Owner, godot_method_name);
                     const FnType = @TypeOf(method);
                     const fn_info = @typeInfo(FnType).@"fn";
                     const ReturnType = fn_info.return_type orelse void;
@@ -123,6 +124,49 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
 
         pub fn get(name: []const u8) c.GDExtensionClassCallVirtual {
             return map.get(name) orelse null;
+        }
+
+        /// Whether `name` is gdzig's internal spelling of an exposed virtual.
+        ///
+        /// This asks the declaration list, not `map`: `map` contains only the
+        /// virtuals `T` actually implements, while registration needs to know
+        /// whether a user declaration *could* override one before building the
+        /// user vtable.
+        pub fn acceptsInternalName(comptime name: []const u8) bool {
+            inline for (method_names) |method_name| {
+                if (std.mem.eql(u8, name, method_name)) return true;
+            }
+            return false;
+        }
+
+        /// gdzig's internal spelling when `name` is Godot's snake_case form.
+        ///
+        pub fn internalNameForGodotName(comptime name: []const u8) ?[]const u8 {
+            const candidate = comptime casez.comptimeConvert(gdzig_case.virtual_method, name);
+            const maybe_internal_name: ?[]const u8 = comptime if (acceptsInternalName(candidate))
+                candidate
+            else blk: {
+                // Snake case loses acronym capitalization: `_get_id` becomes
+                // `_getId`, while the generated declaration is `_getID`.
+                for (method_names) |method_name| {
+                    if (std.ascii.eqlIgnoreCase(candidate, method_name)) break :blk method_name;
+                }
+                break :blk null;
+            };
+            const internal_name = maybe_internal_name orelse return null;
+
+            // casez can also parse camelCase input. Require an exact round trip
+            // so `_physicsProcess` identifies the virtual for a diagnostic but
+            // is not accepted as Godot's canonical `_physics_process` spelling.
+            const godot_name = comptime casez.comptimeConvert(godot_case.virtual_method, internal_name);
+            if (!std.mem.eql(u8, name, godot_name)) return null;
+            return internal_name;
+        }
+
+        /// Godot's spelling for an accidentally used internal camelCase name.
+        pub fn suggestGodotName(comptime name: []const u8) ?[]const u8 {
+            if (!acceptsInternalName(name)) return null;
+            return casez.comptimeConvert(godot_case.virtual_method, name);
         }
 
         /// Extend this vtable with additional methods from a derived type.
@@ -204,14 +248,14 @@ test "narrowInstance walks to the owner when the base is displaced" {
 
 test "VTable snake_case conversion" {
     const TestVTable = VTable(struct {
-        pub fn _enterTree(_: *@This()) void {}
-        pub fn _getHTTPResponse(_: *@This()) void {}
-        pub fn _parseURLString(_: *@This()) void {}
-        pub fn _getID(_: *@This()) void {}
+        pub fn _enter_tree(_: *@This()) void {}
+        pub fn _get_http_response(_: *@This()) void {}
+        pub fn _parse_url_string(_: *@This()) void {}
+        pub fn _get_id(_: *@This()) void {}
         pub fn _ready(_: *@This()) void {}
-        pub fn _physics2DProcess(_: *@This()) void {}
-        pub fn _physics3DProcess(_: *@This()) void {}
-        pub fn _get2DPosition(_: *@This()) void {}
+        pub fn _physics2d_process(_: *@This()) void {}
+        pub fn _physics3d_process(_: *@This()) void {}
+        pub fn _get2d_position(_: *@This()) void {}
     }, .{ "_enterTree", "_getHTTPResponse", "_parseURLString", "_getID", "_ready", "_physics2DProcess", "_physics3DProcess", "_get2DPosition" });
 
     try std.testing.expect(TestVTable.has("_enter_tree"));
@@ -232,11 +276,11 @@ test "VTable extend combines method names" {
     };
     const Base = VTable(BaseType, .{ "_ready", "_process" });
 
-    // Derived implements _ready (override) and _enterTree (new), but also _process (inherited)
+    // Derived implements _ready (override) and _enter_tree (new), but also _process (inherited)
     const DerivedType = struct {
         pub fn _ready(_: *@This()) void {}
         pub fn _process(_: *@This()) void {}
-        pub fn _enterTree(_: *@This()) void {}
+        pub fn _enter_tree(_: *@This()) void {}
     };
     const Derived = Base.extend(DerivedType, .{ "_ready", "_enterTree" });
 
@@ -244,6 +288,24 @@ test "VTable extend combines method names" {
     try std.testing.expect(Derived.has("_ready"));
     try std.testing.expect(Derived.has("_process")); // from base method_names
     try std.testing.expect(Derived.has("_enter_tree")); // new in derived
+}
+
+test "VTable maps Godot names to internal names" {
+    const Empty = VTable(struct {}, .{ "_ready", "_physicsProcess", "_getID" });
+
+    // No method is implemented, so none appears in the runtime lookup map.
+    try std.testing.expect(!Empty.has("_ready"));
+
+    // Registration can still ask which names are valid overrides and diagnose
+    // the spelling users most often copy from Godot's snake_case API.
+    try std.testing.expect(Empty.acceptsInternalName("_ready"));
+    try std.testing.expect(Empty.acceptsInternalName("_physicsProcess"));
+    try std.testing.expect(!Empty.acceptsInternalName("_physics_process"));
+    try std.testing.expectEqualStrings("_physicsProcess", Empty.internalNameForGodotName("_physics_process").?);
+    try std.testing.expectEqualStrings("_getID", Empty.internalNameForGodotName("_get_id").?);
+    try std.testing.expect(Empty.internalNameForGodotName("_physicsProcess") == null);
+    try std.testing.expect(Empty.internalNameForGodotName("_not_a_virtual") == null);
+    try std.testing.expectEqualStrings("_physics_process", Empty.suggestGodotName("_physicsProcess").?);
 }
 
 // The integer/enum/flag assertions below are over-read/portability defense: on a
@@ -273,7 +335,7 @@ test "VTable ptrcall marshals virtual params at engine width" {
         got_enum: ProbeEnum = .zero,
         got_flags: Flags = .{},
 
-        pub fn _probeParams(self: *@This(), a: i32, b: u32, c_: f32, d: bool, e: ProbeEnum, f: Flags) void {
+        pub fn _probe_params(self: *@This(), a: i32, b: u32, c_: f32, d: bool, e: ProbeEnum, f: Flags) void {
             self.got_i32 = a;
             self.got_u32 = b;
             self.got_f32 = c_;
@@ -343,28 +405,28 @@ test "VTable ptrcall marshals virtual returns at engine width" {
     };
 
     const Returns = struct {
-        pub fn _retI32(_: *@This()) i32 {
+        pub fn _ret_i32(_: *@This()) i32 {
             return -123456;
         }
-        pub fn _retU32(_: *@This()) u32 {
+        pub fn _ret_u32(_: *@This()) u32 {
             return 4_111_222_333;
         }
-        pub fn _retF32(_: *@This()) f32 {
+        pub fn _ret_f32(_: *@This()) f32 {
             return -2.5;
         }
-        pub fn _retBool(_: *@This()) bool {
+        pub fn _ret_bool(_: *@This()) bool {
             return true;
         }
-        pub fn _retEnum(_: *@This()) ProbeEnum {
+        pub fn _ret_enum(_: *@This()) ProbeEnum {
             return .neg;
         }
-        pub fn _retFlags(_: *@This()) Flags {
+        pub fn _ret_flags(_: *@This()) Flags {
             return .{ .b = true };
         }
-        pub fn _retU64(_: *@This()) u64 {
+        pub fn _ret_u64(_: *@This()) u64 {
             return 0xFFFF_FFFF_FFFF_FFFF;
         }
-        pub fn _addAndReturn(_: *@This(), x: i32) i32 {
+        pub fn _add_and_return(_: *@This(), x: i32) i32 {
             return x + 1;
         }
     };
@@ -448,6 +510,7 @@ inline fn narrowInstance(comptime T: type, comptime Owner: type, p_instance: c.G
 const gdzig = @import("gdzig");
 const common = @import("common");
 const godot_case = common.godot_case;
+const gdzig_case = common.gdzig_case;
 const class = gdzig.class;
 const ptrcall = @import("ptrcall.zig");
 const child = @import("../child.zig");

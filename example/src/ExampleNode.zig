@@ -14,8 +14,6 @@ pub const properties = .{
     .{ "speed", .{ .setter = .none } },
 };
 
-
-
 allocator: Allocator,
 base: *Node,
 panel: *PanelContainer = undefined,
@@ -86,7 +84,7 @@ pub fn _process(self: *ExampleNode, _: f64) void {
 fn clearScene(self: *ExampleNode) void {
     if (self.example_node) |handle| {
         // `onItemFocused` hands this node to the panel, so the panel owns it
-        // and anything that frees the panel frees it too. Today `_exitTree`
+        // and anything that frees the panel frees it too. Today `_exit_tree`
         // reliably gets here first, so a stored `*Node` would also work -- but
         // only because of that ordering, and nothing in the types said so.
         // The handle makes the assumption unnecessary instead of load-bearing.
@@ -125,7 +123,7 @@ pub fn onItemFocused(self: *ExampleNode, idx: ?i64) void {
     }
 }
 
-pub fn _enterTree(self: *ExampleNode) void {
+pub fn _enter_tree(self: *ExampleNode) void {
     // test T -> variant -> T
     const obj = ExampleNode.create(&self.allocator) catch unreachable;
     defer obj.destroy(&self.allocator);
@@ -236,7 +234,7 @@ pub fn _enterTree(self: *ExampleNode) void {
     _ = data;
 }
 
-pub fn _exitTree(self: *ExampleNode) void {
+pub fn _exit_tree(self: *ExampleNode) void {
     self.clearScene();
 }
 
@@ -248,7 +246,7 @@ pub fn _notification(self: *ExampleNode, what: i32, _: bool) void {
     }
 }
 
-pub fn _toString(_: *ExampleNode) ?String {
+pub fn _to_string(_: *ExampleNode) ?String {
     return String.fromLatin1("ExampleNode");
 }
 

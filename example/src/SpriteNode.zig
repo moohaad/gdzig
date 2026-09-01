@@ -82,11 +82,11 @@ pub fn _ready(self: *SpriteNode) void {
     }
 }
 
-pub fn _exitTree(self: *SpriteNode) void {
+pub fn _exit_tree(self: *SpriteNode) void {
     self.sprites.deinit(godot.engine_allocator);
 }
 
-pub fn _physicsProcess(self: *SpriteNode, delta: f64) void {
+pub fn _physics_process(self: *SpriteNode, delta: f64) void {
     const sz = self.base.getParentAreaSize(); //get_size();
 
     for (self.sprites.items) |*spr| {

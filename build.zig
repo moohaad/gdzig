@@ -216,6 +216,25 @@ pub fn build(b: *Build) !void {
     const signal_test_step = b.step("test-signals", "Check that signal handler signatures are verified at comptime");
     signal_test_step.dependOn(&run_signal_test.step);
 
+    // A misspelled virtual used to compile cleanly and then never run. Like
+    // test-signals, proving the guard means building code that must fail and
+    // checking the compile error names the correction.
+    const virtual_test_exe = b.addExecutable(.{
+        .name = "virtual-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/virtual_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_virtual_test = b.addRunArtifact(virtual_test_exe);
+    run_virtual_test.addArtifactArg(init_exe);
+    run_virtual_test.addArg(".zig-cache/virtual-test/virtualprobe");
+    run_virtual_test.addArg("../../..");
+    run_virtual_test.has_side_effects = true;
+    const virtual_test_step = b.step("test-virtuals", "Check that unknown virtual callback names are rejected at comptime");
+    virtual_test_step.dependOn(&run_virtual_test.step);
+
     // The watcher is a loop that never returns, so this observes it from
     // outside -- through files it deletes, never through its output, which
     // would turn a failure into a hung job -- and kills it when done.
@@ -248,7 +267,7 @@ pub fn build(b: *Build) !void {
     const watch_test_step = b.step("test-watch", "Check that the watcher cleans artifacts and reacts to changes");
     watch_test_step.dependOn(&run_watch_test.step);
 
-    // The four gates above are separate steps because each scaffolds a project
+    // The five gates above are separate steps because each scaffolds a project
     // and runs nested builds, which is minutes rather than seconds -- too slow
     // to put on the command everyone runs constantly. But being reachable only
     // from CI is how the features they cover went untested to begin with, so
@@ -288,6 +307,7 @@ pub fn build(b: *Build) !void {
         exe.addStepDependencies(&run_init_test.step);
         exe.addStepDependencies(&run_res_test.step);
         exe.addStepDependencies(&run_signal_test.step);
+        exe.addStepDependencies(&run_virtual_test.step);
         exe.addStepDependencies(&run_watch_test.step);
         exe.addStepDependencies(&run_package_test.step);
     }
@@ -296,6 +316,7 @@ pub fn build(b: *Build) !void {
     test_all_step.dependOn(init_test_step);
     test_all_step.dependOn(res_test_step);
     test_all_step.dependOn(signal_test_step);
+    test_all_step.dependOn(virtual_test_step);
     test_all_step.dependOn(watch_test_step);
     test_all_step.dependOn(package_test_step);
 
@@ -328,7 +349,7 @@ pub fn build(b: *Build) !void {
                 if (entry.kind != .file) continue;
                 if (std.mem.startsWith(u8, entry.path, ".godot")) continue;
                 if (std.mem.startsWith(u8, entry.path, ".git")) continue;
-                
+
                 const path = b.dupe(entry.path);
                 std.mem.replaceScalar(u8, path, '\\', '/');
                 const res_path = b.fmt("res://{s}", .{path});

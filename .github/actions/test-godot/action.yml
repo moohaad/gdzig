@@ -204,6 +204,12 @@ runs:
       shell: bash
       run: zig build test-signals
 
+    # Public underscore-prefixed methods are virtual candidates. A typo used
+    # to compile and then sit in a vtable under a name Godot never requests.
+    - name: Check unknown virtual callback names are rejected
+      shell: bash
+      run: zig build test-virtuals
+
     # The watcher never returns, so this observes it through files it deletes
     # rather than its output, and every wait has a deadline: a failure must not
     # become a hung job.

@@ -17,13 +17,11 @@
 //! with nothing rather than complaining -- a missing node or a child of another
 //! type is the normal case there, not a mistake.
 //!
-//! The children below are built in `_enterTree` rather than authored in a
+//! The children below are built in `_enter_tree` rather than authored in a
 //! `.tscn`, only so this file is self-contained. In a real project they would
 //! come from the scene and nothing else here would change.
 
 const TreeNode = @This();
-
-
 
 allocator: Allocator,
 base: *Control,
@@ -49,7 +47,7 @@ pub fn create(allocator: *Allocator) !*TreeNode {
     return self;
 }
 
-pub fn _enterTree(self: *TreeNode) void {
+pub fn _enter_tree(self: *TreeNode) void {
     if (Engine.isEditorHint()) return;
 
     const title = Label.init();

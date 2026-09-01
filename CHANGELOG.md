@@ -1,5 +1,11 @@
 # HEAD
 
+- **Virtual callbacks match Godot's spelling**: write `_physics_process`, `_enter_tree`,
+  and `_to_string` exactly as they appear in Godot. Public underscore-prefixed methods
+  must name a virtual or class callback exposed by the base class; misspellings are now
+  compile errors instead of functions the engine silently never calls.
+  - **Breaking**: camelCase callback declarations such as `_physicsProcess` become
+    `_physics_process`; the compiler suggests the Godot spelling.
 - **`init-gdzig` is installed**: `zig build` puts it in `zig-out/bin`, so scaffolding a
   project no longer means `cd`-ing into a gdzig checkout to run a build step
   - The executable was named `init`; installing that would have put a bare `init.exe` on
@@ -29,7 +35,7 @@
   - `MouseButton.mouse_button_left` instead of `MOUSE_BUTTON_LEFT`
   - `KeyModifierMask{ .key_mask_shift = true }` instead of bitmask integers
 - **Consistent camelCase naming**: Methods now follow Zig conventions (`setPosition` instead of `set_position`)
-  - Virtual methods now follow the `_prefixedSnakeCase` convention.
+  - Virtual callbacks are the exception and retain Godot's `_prefixed_snake_case` spelling.
 - **Direct field access on builtin types**: Access fields directly instead of through methods
   - `color.r`, `color.g`, `color.b`, `color.a` instead of getter methods
   - `vector.x`, `vector.y`, `vector.z` for direct component access

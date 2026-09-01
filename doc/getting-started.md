@@ -82,7 +82,7 @@ Every gdzig node is a struct with two required fields:
 - `allocator: Allocator` — gdzig hands you one per instance
 - `base: *SomeEngineClass` — the engine object, and what your class extends
 
-Methods named after Godot virtuals (`_ready`, `_process`, `_physicsProcess`,
+Methods named after Godot virtuals (`_ready`, `_process`, `_physics_process`,
 `_input`, …) are wired up automatically.
 
 `src/PlayerNode.zig`:
@@ -112,7 +112,7 @@ gravity: f64 = 9.8,
 
 /// Physics, not `_process`: `moveAndSlide` resolves against the physics state, and
 /// running it off the render tick makes movement depend on frame rate.
-pub fn _physicsProcess(self: *PlayerNode, delta: f64) void {
+pub fn _physics_process(self: *PlayerNode, delta: f64) void {
     // The editor instantiates nodes too, and a character that walks around the
     // editor viewport is not what anyone wants.
     if (Engine.isEditorHint()) return;
@@ -189,7 +189,7 @@ The raw `godot.class.Input` bindings are still there and take a `StringName` —
 Zig string, since the parameter is `anytype`. Prefer the enum module: a plain `"jump"`
 builds a `StringName` and destroys it again on every call, measured at 77 ns against
 ~0 ns for an interned one in ReleaseFast, which is not what you want inside
-`_physicsProcess`. Note also that a decl literal — `.interned("jump")` — does *not*
+`_physics_process`. Note also that a decl literal — `.interned("jump")` — does *not*
 work in argument position, because an `anytype` parameter gives it no type to resolve
 against.
 
@@ -278,7 +278,7 @@ pub fn _ready(self: *FollowCameraNode) void {
     }
 }
 
-pub fn _physicsProcess(self: *FollowCameraNode, delta: f64) void {
+pub fn _physics_process(self: *FollowCameraNode, delta: f64) void {
     if (Engine.isEditorHint()) return;
 
     const target = (self.target.get() orelse return).getGlobalPosition();
@@ -311,7 +311,7 @@ const Vector3 = godot.builtin.Vector3;
 
 Making the camera a child of the player means its target is just `getParent()`, with
 no wiring. But a plain child inherits the parent's transform, and that quietly cancels
-the easing: the parent carries the camera rigidly before `_physicsProcess` runs, so
+the easing: the parent carries the camera rigidly before `_physics_process` runs, so
 there is never a gap left to close.
 
 The failure is invisible in the final transform. `setGlobalPosition` and `lookAt` are

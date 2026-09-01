@@ -57,7 +57,7 @@ const LendingTexture = struct {
         allocator.destroy(self);
     }
 
-    pub fn _getImage(self: *LendingTexture) ?*Image {
+    pub fn _get_image(self: *LendingTexture) ?*Image {
         return self.image;
     }
 };
@@ -79,7 +79,7 @@ const CreatingTexture = struct {
         allocator.destroy(self);
     }
 
-    pub fn _getImage(_: *CreatingTexture) ?Gd(Image) {
+    pub fn _get_image(_: *CreatingTexture) ?Gd(Image) {
         return Image.create(4, 4, false, .format_rgba8);
     }
 };
@@ -101,7 +101,7 @@ const RecordingMesh = struct {
         allocator.destroy(self);
     }
 
-    pub fn _surfaceSetMaterial(self: *RecordingMesh, _: i32, material: *Material) void {
+    pub fn _surface_set_material(self: *RecordingMesh, _: i32, material: *Material) void {
         self.seen = material;
     }
 };

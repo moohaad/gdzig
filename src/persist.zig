@@ -4,7 +4,7 @@ const Variant = gdzig.builtin.Variant;
 const StringName = gdzig.builtin.StringName;
 
 /// Automatically persist all supported Zig struct fields to Godot object metadata.
-/// Call this during `destroy()` or `_exitTree()`.
+/// Call this during `destroy()` or `_exit_tree()`.
 pub fn autoPersist(self: anytype) void {
     const T = @TypeOf(self.*);
     const info = @typeInfo(T);
@@ -31,7 +31,7 @@ pub fn autoPersist(self: anytype) void {
 }
 
 /// Automatically restore all supported Zig struct fields from Godot object metadata.
-/// Call this during `create()` or `_enterTree()`.
+/// Call this during `create()` or `_enter_tree()`.
 pub fn autoRestore(self: anytype) void {
     const T = @TypeOf(self.*);
     const info = @typeInfo(T);
@@ -51,15 +51,15 @@ pub fn autoRestore(self: anytype) void {
         if (comptime Variant.Tag.forTypeOrNull(field.type) != null) {
             const key_str = "gdzig_persist_" ++ field.name;
             const key = StringName.fromComptimeLatin1(key_str);
-            
+
             if (self.base.hasMeta(key.*)) {
                 const val = self.base.getMeta(key.*, .{});
                 defer val.deinit();
-                
+
                 if (val.as(field.type)) |decoded| {
                     @field(self, field.name) = decoded;
                 }
-                
+
                 // Optional: remove meta to clean up engine state
                 self.base.removeMeta(key.*);
             }

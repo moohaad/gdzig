@@ -88,9 +88,9 @@ const AutoBindNode = struct {
         return self.plain_value * 2;
     }
 
-    /// Underscored: a virtual, wired by the class machinery rather than bound
-    /// as a ClassDB method.
-    pub fn _ready(_: *AutoBindNode) void {}
+    /// Underscored: a class callback, wired by the class machinery rather than
+    /// bound as a ClassDB method.
+    pub fn _notification(_: *AutoBindNode, _: i32, _: bool) void {}
 };
 
 test "a plain field binds with both accessors" {
@@ -138,10 +138,10 @@ test "a method binds under its snake_case name" {
     try testing.expect(hasMethod("double_it"));
 }
 
-test "virtuals are not bound as methods" {
+test "class callbacks are not bound as methods" {
     ensureRegistered();
 
-    try testing.expect(!hasMethod("_ready"));
+    try testing.expect(!hasMethod("_notification"));
 }
 
 /// `no_inheritance` throughout: `Object` brings plenty of its own, and this is
