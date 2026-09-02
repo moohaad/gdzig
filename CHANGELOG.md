@@ -1,5 +1,12 @@
 # HEAD
 
+- **Documentation examples are compiled in CI**: marked Zig fences are extracted
+  directly from the guides, blocks describing the same file are combined, and
+  their declarations are fully analyzed against the generated Godot API.
+- **`addExtension` generates its `.gdextension` descriptor**: the entry symbol,
+  platform, architecture, and actual output filename now come from the same build
+  object as the library. Projects install `extension.manifest` beside
+  `project.godot` instead of maintaining a second copy of those values by hand.
 - **Persistence replacement preserves ownership and recovery data**:
   `autoRestore` now releases an owning field before replacing it and removes
   persisted metadata only after a successful decode, preventing both leaked

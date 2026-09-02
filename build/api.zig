@@ -6,6 +6,14 @@ pub const InitializationLevel = enum {
     editor,
 };
 
+pub const ManifestOptions = struct {
+    /// Directory containing the installed library, relative to the Godot
+    /// project and written with Godot resource-path separators.
+    library_dir: []const u8 = "lib",
+    /// Whether Godot may reload the extension while the editor is running.
+    reloadable: bool = true,
+};
+
 /// Options for creating a GDExtension.
 pub const ExtensionOptions = struct {
     /// The name of the extension (used for output filename).
@@ -37,6 +45,8 @@ pub const ExtensionOptions = struct {
     emsdk_path: ?Build.LazyPath = null,
     /// For web builds, the Emscripten version to use.
     emsdk_version: []const u8 = "4.0.20",
+    /// Options for the generated `.gdextension` descriptor.
+    manifest: ManifestOptions = .{},
     /// Path to the Godot project, relative to the build root.
     ///
     /// When set, every `.tscn` under it is added to `root_module` as an import
@@ -67,6 +77,10 @@ pub const Extension = struct {
     output: Build.LazyPath,
     /// The output filename.
     filename: []const u8,
+    /// Generated `.gdextension` descriptor for this target.
+    manifest: Build.LazyPath,
+    /// Filename of `manifest`.
+    manifest_filename: []const u8,
 };
 
 /// Creates a GDExtension from a user module.
@@ -115,18 +129,25 @@ pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
         });
 
         const ext = b.allocator.create(Extension) catch @panic("OOM");
+        const generated_manifest = manifest.add(b, .{
+            .extension_name = options.name,
+            .entry_symbol = options.entry_symbol,
+            .library_filename = lib.out_filename,
+            .library_dir = options.manifest.library_dir,
+            .target = options.target.result,
+            .reloadable = options.manifest.reloadable,
+        });
         ext.* = .{
             .step = &lib.step,
             .compile = lib,
             .output = lib.getEmittedBin(),
             .filename = lib.out_filename,
+            .manifest = generated_manifest.path,
+            .manifest_filename = generated_manifest.filename,
         };
         return ext;
     }
 }
-
-
-
 
 /// Whether `path` is `parent` or sits under it.
 ///
@@ -140,7 +161,6 @@ fn isWithin(path: []const u8, parent: []const u8) bool {
     const next = path[parent.len];
     return next == std.fs.path.sep or next == '/';
 }
-
 
 /// Puts a `.gdignore` in the package cache when it sits inside the Godot project.
 ///
@@ -181,7 +201,6 @@ fn hidePackageCache(b: *Build, project: []const u8) void {
         );
     };
 }
-
 
 /// Whether the user passed `-Dlog-registration`.
 ///
@@ -454,11 +473,21 @@ fn addExtensionWeb(
     const wasm_output = run_emcc.addOutputFileArg(wasm_filename);
 
     const ext = b.allocator.create(Extension) catch @panic("OOM");
+    const generated_manifest = manifest.add(b, .{
+        .extension_name = options.name,
+        .entry_symbol = options.entry_symbol,
+        .library_filename = wasm_filename,
+        .library_dir = options.manifest.library_dir,
+        .target = options.target.result,
+        .reloadable = options.manifest.reloadable,
+    });
     ext.* = .{
         .step = &run_emcc.step,
         .compile = lib,
         .output = wasm_output,
         .filename = wasm_filename,
+        .manifest = generated_manifest.path,
+        .manifest_filename = generated_manifest.filename,
     };
     return ext;
 }
@@ -662,7 +691,7 @@ fn getSelfDependency(b: *Build) *Build.Dependency {
 }
 
 fn generateMainScene() []const u8 {
-    return 
+    return
     \\[gd_scene format=3]
     \\
     \\[node name="Main" type="Node"]
@@ -706,3 +735,4 @@ fn generateGdextension(b: *Build, lib_name: []const u8) []const u8 {
 const std = @import("std");
 const Build = std.Build;
 const Step = std.Build.Step;
+const manifest = @import("manifest.zig");

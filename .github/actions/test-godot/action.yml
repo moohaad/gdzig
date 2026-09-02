@@ -96,6 +96,10 @@ runs:
       shell: bash
       run: zig build test -Dgodot-path="$GODOT_BIN" --test-timeout 10m
 
+    - name: Compile documentation examples
+      shell: bash
+      run: zig build test-docs -Dgodot-path="$GODOT_BIN"
+
     # Separate step so a surface regression is distinguishable from a test
     # failure. Kept off the default build: it analyses every generated
     # declaration, and that cost should not land on every local `zig build

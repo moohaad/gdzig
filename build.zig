@@ -25,6 +25,15 @@ pub fn build(b: *Build) !void {
     const test_step = b.step("test", "Run unit tests");
     const audit_step = b.step("audit", "Build the extension_api.json auditing tool");
 
+    const manifest_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/manifest.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(manifest_tests).step);
+
     //
     // Dependencies
     //
@@ -484,6 +493,22 @@ pub fn build(b: *Build) !void {
     //
     // Tests
     //
+    const run_doc_examples = try doc_examples.add(b, .{
+        .files = &.{
+            "README.md",
+            "doc/getting-started.md",
+            "doc/what-gdzig-gives-you.md",
+            "doc/threading.md",
+            "doc/memory.md",
+        },
+        .godot_module = gdzig_mod,
+        .target = target,
+        .optimize = optimize,
+    });
+    const doc_examples_step = b.step("test-docs", "Compile marked Zig examples from the documentation");
+    doc_examples_step.dependOn(&run_doc_examples.step);
+    test_all_step.dependOn(doc_examples_step);
+
     var tests_gdzig_run: ?*Build.Step.Run = null;
     var tests_common_run: ?*Build.Step.Run = null;
 
@@ -605,10 +630,12 @@ pub const addTest = api.addTest;
 pub const addWatchStep = api.addWatchStep;
 pub const Extension = api.Extension;
 pub const ExtensionOptions = api.ExtensionOptions;
+pub const ManifestOptions = api.ManifestOptions;
 pub const WatchOptions = api.WatchOptions;
 pub const TestOptions = api.TestOptions;
 pub const InitializationLevel = api.InitializationLevel;
 const apiaudit = @import("build/apiaudit.zig");
 const bindgen = @import("build/bindgen.zig");
 const common = @import("build/common.zig");
+const doc_examples = @import("build/doc_examples.zig");
 const gdextension = @import("build/gdextension.zig");

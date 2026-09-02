@@ -45,8 +45,10 @@ pub fn build(b: *Build) !void {
     }) orelse return;
 
     // Install
-    const install = b.addInstallFileWithDir(extension.output, .{ .custom = "../project/lib" }, extension.filename);
-    b.default_step.dependOn(&install.step);
+    const install_library = b.addInstallFileWithDir(extension.output, .{ .custom = "../project/lib" }, extension.filename);
+    const install_manifest = b.addInstallFileWithDir(extension.manifest, .{ .custom = "../project" }, extension.manifest_filename);
+    b.default_step.dependOn(&install_library.step);
+    b.default_step.dependOn(&install_manifest.step);
 
     // Run
     const run = Build.Step.Run.create(b, "run godot");
@@ -56,7 +58,8 @@ pub fn build(b: *Build) !void {
     // Forwarded so the example can be driven the way the demos are:
     // `zig build run -- --headless --quit-after 300`.
     if (b.args) |args| run.addArgs(args);
-    run.step.dependOn(&install.step);
+    run.step.dependOn(&install_library.step);
+    run.step.dependOn(&install_manifest.step);
 
     const run_step = b.step("run", "Run with Godot");
     run_step.dependOn(&run.step);
@@ -69,7 +72,8 @@ pub fn build(b: *Build) !void {
     reload.addArg("--path");
     reload.addDirectoryArg(b.path("./project"));
     reload.addArgs(&.{ "--headless", "--editor", "--script", "res://demo/reload_driver.gd" });
-    reload.step.dependOn(&install.step);
+    reload.step.dependOn(&install_library.step);
+    reload.step.dependOn(&install_manifest.step);
 
     b.step("reload-test", "Reload the extension and check what survived")
         .dependOn(&reload.step);

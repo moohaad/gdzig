@@ -177,8 +177,10 @@ pub fn main(init: std.process.Init) !void {
         \\        .godot_project = ".",
         \\    }}) orelse return;
         \\
-        \\    const install = b.addInstallFileWithDir(extension.output, .{{ .custom = "../lib" }}, extension.filename);
-        \\    b.default_step.dependOn(&install.step);
+        \\    const install_library = b.addInstallFileWithDir(extension.output, .{{ .custom = "../lib" }}, extension.filename);
+        \\    const install_manifest = b.addInstallFileWithDir(extension.manifest, .{{ .custom = ".." }}, extension.manifest_filename);
+        \\    b.default_step.dependOn(&install_library.step);
+        \\    b.default_step.dependOn(&install_manifest.step);
         \\
         \\    const watch_step = b.step("watch", "Watch for changes, clean stale artifacts, and rebuild");
         \\    const watch = gdzig.addWatchStep(b, .{{}});
@@ -192,30 +194,7 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(build_zig);
     try dir.writeFile(init.io, .{ .sub_path = "build.zig", .data = build_zig });
 
-    const extension = try std.fmt.allocPrint(allocator,
-        \\[configuration]
-        \\
-        \\entry_symbol = "{s}_init"
-        \\compatibility_minimum = "4.7"
-        \\reloadable = true
-        \\
-        \\[libraries]
-        \\
-        \\windows.debug.x86_64 = "lib/{s}.dll"
-        \\windows.release.x86_64 = "lib/{s}.dll"
-        \\linux.debug.x86_64 = "lib/lib{s}.so"
-        \\linux.release.x86_64 = "lib/lib{s}.so"
-        \\macos.debug = "lib/lib{s}.dylib"
-        \\macos.release = "lib/lib{s}.dylib"
-        \\
-    , .{ project_name, project_name, project_name, project_name, project_name, project_name, project_name });
-    defer allocator.free(extension);
-    const ext_filename = try std.fmt.allocPrint(allocator, "{s}.gdextension", .{project_name});
-    defer allocator.free(ext_filename);
-    try dir.writeFile(init.io, .{ .sub_path = ext_filename, .data = extension });
-
-    // Without this there is no Godot project to open, and the `.gdextension`
-    // beside it has nothing to be found by: Godot reads
+    // Without this there is no Godot project to open. Godot reads
     // `.godot/extension_list.cfg`, which only an import pass writes, and only a
     // real project can be imported. The scaffold is not usable without it.
     const project_godot = try std.fmt.allocPrint(allocator,
@@ -283,6 +262,7 @@ pub fn main(init: std.process.Init) !void {
     const gitignore =
         \\/.godot/
         \\/.zig-cache/
+        \\/*.gdextension
         \\/lib/
         \\/zig-out/
         \\/zig-pkg/

@@ -37,17 +37,19 @@ zig build --build-file /path/to/gdzig/build.zig init-gdzig -- --name my_awesome_
 
 Either way you get:
 * `build.zig` and `build.zig.zon` correctly referencing the `gdzig` dependency.
-* `my_awesome_game.gdextension` configured to load the compiled Zig DLL.
+* A build that generates `my_awesome_game.gdextension` from the compiled target and
+  installs it beside `project.godot`.
 * `project.godot` and `main.tscn`, configured as a runnable starter scene.
 * `src/my_awesome_game.zig` with a valid entry point and `registerAll` call.
   The file is named after the project, not `main.zig`.
 * `src/Game.zig`, a registered `Node` with a Godot-style `_ready` callback.
-* `.gitignore` entries for Zig, gdzig, and Godot build artifacts.
+* `.gitignore` entries for Zig, gdzig, and Godot build artifacts, including the
+  target-specific generated descriptor.
 
 ## Build the Extension
 
-Build before opening the editor. The `.gdextension` names a library that does not exist
-until you do, and importing first just means Godot complains about its absence.
+Build before opening the editor. This creates both the library and its `.gdextension`
+descriptor; importing first means neither exists yet.
 
 ```sh
 cd ../my_awesome_game

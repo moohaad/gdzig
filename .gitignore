@@ -7,6 +7,7 @@
 zig-out
 gen
 project/lib/
+example/project/*.gdextension
 **/.godot/**
 **/.direnv
 .envrc

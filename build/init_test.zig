@@ -1,10 +1,10 @@
 //! Scaffolds a project with `init-gdzig` and builds it.
 //!
 //! `init-gdzig` is the first thing a newcomer runs, and until now nothing
-//! checked that what it produces compiles. It writes interlocking files --
-//! the entry symbol has to match between `build.zig` and the `.gdextension`,
-//! the module has to point at the source it also writes -- and a mistake in any
-//! of them surfaces as a build failure in someone else's project.
+//! checked that what it produces compiles. It writes interlocking files -- the
+//! module has to point at the source it also writes, and the build has to
+//! install both the library and its generated descriptor -- and a mistake in
+//! any of them surfaces as a build failure in someone else's project.
 //!
 //! The scaffolder ends by fetching gdzig from GitHub. This replaces that with a
 //! path dependency on the working tree, for two reasons: the test then needs no
@@ -89,7 +89,6 @@ pub fn main(init: std.process.Init) !void {
         "project.godot",
         "main.tscn",
         ".gitignore",
-        name ++ ".gdextension",
         "src/" ++ name ++ ".zig",
         "src/Game.zig",
     }) |wanted| {
@@ -111,6 +110,10 @@ pub fn main(init: std.process.Init) !void {
     const project_source = try dir.readFileAlloc(io, "project.godot", arena, @enumFromInt(1 << 20));
     if (std.mem.indexOf(u8, project_source, "run/main_scene=\"res://main.tscn\"") == null) {
         return fail("generated Godot project does not select the starter scene", .{});
+    }
+    const build_source = try dir.readFileAlloc(io, "build.zig", arena, @enumFromInt(1 << 20));
+    if (std.mem.indexOf(u8, build_source, "extension.manifest") == null) {
+        return fail("generated build does not install addExtension's manifest", .{});
     }
 
     const manifest = dir.readFileAlloc(io, "build.zig.zon", arena, @enumFromInt(1 << 20)) catch |err| {
@@ -171,8 +174,24 @@ pub fn main(init: std.process.Init) !void {
     }
     try run(io, out_path, &.{ "zig", "build" });
 
-    // The point of the whole exercise: a library where the `.gdextension` says
-    // one will be.
+    const descriptor_name = name ++ ".gdextension";
+    const descriptor = dir.readFileAlloc(io, descriptor_name, arena, @enumFromInt(1 << 20)) catch |err| {
+        return fail("build did not install generated '{s}': {s}", .{ descriptor_name, @errorName(err) });
+    };
+    if (std.mem.indexOf(u8, descriptor, "entry_symbol = \"" ++ name ++ "_init\"") == null) {
+        return fail("generated descriptor does not use addExtension's entry symbol", .{});
+    }
+    if (std.mem.indexOf(u8, descriptor, ".debug.") == null or
+        std.mem.indexOf(u8, descriptor, ".release.") == null)
+    {
+        return fail("generated descriptor does not cover both Godot build modes", .{});
+    }
+    if (std.mem.indexOf(u8, descriptor, "= \"lib/") == null) {
+        return fail("generated descriptor does not point at the installed lib/ directory", .{});
+    }
+
+    // The point of the whole exercise: a library where the generated
+    // `.gdextension` says one will be.
     var lib = dir.openDir(io, "lib", .{ .iterate = true }) catch |err| {
         return fail("no lib/ directory after building the scaffolded project: {s}", .{@errorName(err)});
     };
