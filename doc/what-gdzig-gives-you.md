@@ -203,10 +203,15 @@ pub fn unregister(r: *Registry) void {
 
 ### `autoRegister`, or a `register` of your own
 
-`registerAll` picks between two paths per entry, and the test is one decl:
+`registerAll` picks between two paths per entry. A module is a type with the
+paired lifecycle hooks; a type with neither is treated as a class:
 
 ```zig
-if (@hasDecl(T, "register")) self.addModule(T) else self.autoRegister(T);
+if (@hasDecl(T, "register") and @hasDecl(T, "unregister")) {
+    self.addModule(T);
+} else {
+    self.autoRegister(T);
+}
 ```
 
 `autoRegister` creates the class and calls `autoBind`, which walks the type: a `signals`
@@ -235,16 +240,17 @@ It is also the sharp edge. A class that grows a `register` for some other reason
 being auto-registered, and if that function does not register it, the class is absent from
 Godot with nothing logged -- indistinguishable from never having written it.
 
-**Declare `register` and `unregister` as a pair.** `unregisterAll` makes its own
-independent check:
+**Declare `register` and `unregister` as a pair.** The registry enforces this at
+compile time. Both `registerAll` and `unregisterAll` use the same classification:
 
 ```zig
-if (@hasDecl(T, "unregister")) self.removeModule(T) else self.removeClass(T);
+const has_register = @hasDecl(T, "register");
+const has_unregister = @hasDecl(T, "unregister");
+if (has_register != has_unregister) @compileError("registry modules must declare both hooks");
 ```
 
-It tests `unregister`, not `register`, so declaring one without the other leaves the two
-halves disagreeing: setup calls your function, teardown calls `removeClass(T)` on a type
-that never registered as a class.
+Declaring one without the other is therefore an immediate build error rather than setup
+calling a module hook while teardown mistakes the same type for a class.
 
 `unregisterAll` also walks the tuple in reverse, which is deliberate -- an inheritor has to
 be unregistered before its parent.

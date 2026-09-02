@@ -106,8 +106,29 @@ pub fn removeModule(self: *Registry, comptime Module: type) void {
     Module.unregister(self);
 }
 
+const RegistrationKind = enum { class, module };
+
+/// Classify an item once for both halves of registration. Previously
+/// `registerAll` tested for `register` while `unregisterAll` independently
+/// tested for `unregister`; a one-sided declaration therefore took the module
+/// path during one half and the class path during the other.
+fn registrationKind(comptime T: type) RegistrationKind {
+    const has_register = @hasDecl(T, "register");
+    const has_unregister = @hasDecl(T, "unregister");
+
+    if (has_register != has_unregister) {
+        const present = if (has_register) "register" else "unregister";
+        const missing = if (has_register) "unregister" else "register";
+        @compileError(@typeName(T) ++ " declares '" ++ present ++ "' but not '" ++ missing ++
+            "'; registry modules must declare both hooks");
+    }
+
+    return if (has_register) .module else .class;
+}
+
 /// Automatically registers a tuple of modules or classes.
-/// If the type has a `register(r: *Registry)` function, it calls it (module behavior).
+/// If the type has paired `register` and `unregister` functions, it calls
+/// `register` (module behavior).
 /// Otherwise, it assumes it's a class and calls `autoRegister` on it.
 pub fn registerAll(self: *Registry, comptime items: anytype) void {
     const info = @typeInfo(@TypeOf(items));
@@ -116,17 +137,17 @@ pub fn registerAll(self: *Registry, comptime items: anytype) void {
     }
     inline for (info.@"struct".fields) |field| {
         const T = @field(items, field.name);
-        if (@hasDecl(T, "register")) {
-            self.addModule(T);
-        } else {
-            self.autoRegister(T);
+        switch (comptime registrationKind(T)) {
+            .module => self.addModule(T),
+            .class => self.autoRegister(T),
         }
     }
 }
 
 /// Automatically unregisters a tuple of modules or classes.
 /// Must be called with the exact same tuple used in `registerAll`, and it unregisters them in reverse order.
-/// If the type has a `unregister(r: *Registry)` function, it calls it.
+/// Uses the same module-or-class decision as `registerAll` and calls the paired
+/// `unregister` hook for modules.
 /// Otherwise, it assumes it's a class and calls `removeClass`.
 pub fn unregisterAll(self: *Registry, comptime items: anytype) void {
     const info = @typeInfo(@TypeOf(items));
@@ -138,10 +159,9 @@ pub fn unregisterAll(self: *Registry, comptime items: anytype) void {
     inline while (i > 0) {
         i -= 1;
         const T = @field(items, fields[i].name);
-        if (@hasDecl(T, "unregister")) {
-            self.removeModule(T);
-        } else {
-            self.removeClass(T);
+        switch (comptime registrationKind(T)) {
+            .module => self.removeModule(T),
+            .class => self.removeClass(T),
         }
     }
 }

@@ -210,6 +210,12 @@ runs:
       shell: bash
       run: zig build test-virtuals
 
+    # registerAll and unregisterAll must agree whether each tuple entry is a
+    # class or a module, so module hooks are required as a pair.
+    - name: Check registry module hooks are symmetric
+      shell: bash
+      run: zig build test-registration
+
     - name: Check Godot header caching and diagnostics
       shell: bash
       run: zig build test-headers-cache

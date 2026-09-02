@@ -252,6 +252,25 @@ pub fn build(b: *Build) !void {
     const virtual_test_step = b.step("test-virtuals", "Check that unknown virtual callback names are rejected at comptime");
     virtual_test_step.dependOn(&run_virtual_test.step);
 
+    // A registry item with only one module lifecycle hook used to be treated
+    // as a module during one half and a class during the other. Exercise the
+    // paired case plus both compile-time rejection paths in a real consumer.
+    const registration_test_exe = b.addExecutable(.{
+        .name = "registration-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/registration_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_registration_test = b.addRunArtifact(registration_test_exe);
+    run_registration_test.addArtifactArg(init_exe);
+    run_registration_test.addArg(".zig-cache/registration-test/registrationprobe");
+    run_registration_test.addArg("../../..");
+    run_registration_test.has_side_effects = true;
+    const registration_test_step = b.step("test-registration", "Check that registry module hooks are paired");
+    registration_test_step.dependOn(&run_registration_test.step);
+
     // Headers are cached by the Godot executable that produced them. Exercise
     // replacement at one stable path, a flag-only change, and a failed dump
     // with tiny fake executables, so this gate needs neither a download nor a
@@ -342,7 +361,7 @@ pub fn build(b: *Build) !void {
     const watch_test_step = b.step("test-watch", "Check that the watcher cleans artifacts and reacts to changes");
     watch_test_step.dependOn(&run_watch_test.step);
 
-    // The six gates above are separate steps because each scaffolds a project
+    // The integration gates above are separate steps because each scaffolds a project
     // and runs nested builds, which is minutes rather than seconds -- too slow
     // to put on the command everyone runs constantly. But being reachable only
     // from CI is how the features they cover went untested to begin with, so
@@ -383,6 +402,7 @@ pub fn build(b: *Build) !void {
         exe.addStepDependencies(&run_res_test.step);
         exe.addStepDependencies(&run_signal_test.step);
         exe.addStepDependencies(&run_virtual_test.step);
+        exe.addStepDependencies(&run_registration_test.step);
         exe.addStepDependencies(&run_watch_test.step);
         exe.addStepDependencies(&run_package_test.step);
     }
@@ -392,6 +412,7 @@ pub fn build(b: *Build) !void {
     test_all_step.dependOn(res_test_step);
     test_all_step.dependOn(signal_test_step);
     test_all_step.dependOn(virtual_test_step);
+    test_all_step.dependOn(registration_test_step);
     test_all_step.dependOn(header_cache_test_step);
     test_all_step.dependOn(doc_links_test_step);
     test_all_step.dependOn(watch_test_step);

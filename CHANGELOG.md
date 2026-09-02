@@ -1,5 +1,9 @@
 # HEAD
 
+- **Registry module setup and teardown are symmetric by construction**:
+  `registerAll` and `unregisterAll` now share one classifier and reject types
+  that declare only one of `register` or `unregister`, instead of treating the
+  same type as a module in one direction and a class in the other.
 - **Generated documentation links resolve again**: links now use gdzig's actual
   converted declaration names and utility modules, omit non-declaration virtuals,
   and follow renamed or hand-written APIs such as `String.formatValues` and
