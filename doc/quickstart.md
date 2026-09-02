@@ -24,7 +24,9 @@ init-gdzig --name my_awesome_game --out my_awesome_game
 ```
 
 `--out` says where to write it and has no default: the scaffolder writes where it is
-told and nowhere else.
+told and nowhere else. The directory must be empty, so it cannot overwrite an existing
+project. The project name must be a valid Zig identifier (for example, `my_game`, not
+`my-game`).
 
 If you would rather not put anything on your `PATH`, this does the same from any
 directory, with no `cd`:
@@ -36,9 +38,11 @@ zig build --build-file /path/to/gdzig/build.zig init-gdzig -- --name my_awesome_
 Either way you get:
 * `build.zig` and `build.zig.zon` correctly referencing the `gdzig` dependency.
 * `my_awesome_game.gdextension` configured to load the compiled Zig DLL.
-* `project.godot` configured for the editor.
+* `project.godot` and `main.tscn`, configured as a runnable starter scene.
 * `src/my_awesome_game.zig` with a valid entry point and `registerAll` call.
   The file is named after the project, not `main.zig`.
+* `src/Game.zig`, a registered `Node` with a Godot-style `_ready` callback.
+* `.gitignore` entries for Zig, gdzig, and Godot build artifacts.
 
 ## Build the Extension
 
@@ -63,8 +67,9 @@ Headless equivalent, if you would rather not open the editor:
 godot --path . --headless --import
 ```
 
-Your extension now loads. Add logic in `src/my_awesome_game.zig` and run `zig build` (or
-`zig build watch`) whenever you want to update the engine.
+Your extension now loads and the starter scene prints `Hello from gdzig!`. Add game logic
+in `src/Game.zig` and run `zig build` (or `zig build watch`) whenever you want to update
+the engine.
 
 ---
 

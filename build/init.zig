@@ -51,11 +51,35 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(2);
     };
 
+    // The name is emitted as a Zig enum literal, source filename, library
+    // name, and exported entry symbol. Accept exactly the names that are valid
+    // unquoted Zig identifiers so every one of those spellings agrees.
+    if (!std.zig.isValidId(project_name)) {
+        std.debug.print(
+            "Error: project name '{s}' is not a valid Zig identifier; use letters, digits, and underscores, and do not start with a digit\n",
+            .{project_name},
+        );
+        std.process.exit(2);
+    }
+
     std.Io.Dir.createDirPath(.cwd(), init.io, actual_out_path) catch |err| {
         std.debug.print("Failed to create output directory {s}: {}\n", .{ actual_out_path, err });
         return err;
     };
-    
+
+    // Refuse to merge a scaffold into an existing tree. Several generated
+    // filenames are conventional (`build.zig`, `project.godot`, `.gitignore`),
+    // so overwriting just those files can silently damage an unrelated project.
+    {
+        var output_dir = try std.Io.Dir.openDir(.cwd(), init.io, actual_out_path, .{ .iterate = true });
+        defer output_dir.close(init.io);
+        var entries = output_dir.iterate();
+        if (try entries.next(init.io) != null) {
+            std.debug.print("Error: output directory '{s}' is not empty\n", .{actual_out_path});
+            std.process.exit(2);
+        }
+    }
+
     // `zig init` has no `--name`: it takes the package name from the directory
     // it runs in, and the fingerprint it writes is bound to that name. Running
     // it directly in the output directory and then rewriting `.name` to
@@ -168,9 +192,6 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(build_zig);
     try dir.writeFile(init.io, .{ .sub_path = "build.zig", .data = build_zig });
 
-    // 4. Delete src/main.zig and src/root.zig from `zig init`, and write our extension entry
-
-
     const extension = try std.fmt.allocPrint(allocator,
         \\[configuration]
         \\
@@ -207,27 +228,67 @@ pub fn main(init: std.process.Init) !void {
         \\
         \\config/name="{s}"
         \\config/features=PackedStringArray("4.7")
+        \\run/main_scene="res://main.tscn"
         \\
     , .{project_name});
     defer allocator.free(project_godot);
     try dir.writeFile(init.io, .{ .sub_path = "project.godot", .data = project_godot });
 
-    const entry_src = try std.fmt.allocPrint(allocator,
+    const entry_src =
         \\const godot = @import("godot");
+        \\const Game = @import("Game.zig");
         \\
-        \\pub fn register(r: *godot.extension.Registry) void {{
-        \\    _ = r; // Register classes here
-        \\}}
+        \\const classes = .{Game};
         \\
-        \\pub fn unregister(r: *godot.extension.Registry) void {{
-        \\    _ = r;
-        \\}}
+        \\pub fn register(r: *godot.extension.Registry) void {
+        \\    r.registerAll(classes);
+        \\}
         \\
-    , .{});
-    defer allocator.free(entry_src);
+        \\pub fn unregister(r: *godot.extension.Registry) void {
+        \\    r.unregisterAll(classes);
+        \\}
+        \\
+    ;
     const src_filename = try std.fmt.allocPrint(allocator, "src/{s}.zig", .{project_name});
     defer allocator.free(src_filename);
     try dir.writeFile(init.io, .{ .sub_path = src_filename, .data = entry_src });
+
+    // A scaffold should demonstrate the complete path from Zig type to a node
+    // Godot can instantiate. Keep this deliberately small: it is useful on its
+    // own and gives a newcomer an obvious place to add the first callback.
+    const game_src =
+        \\const std = @import("std");
+        \\const godot = @import("godot");
+        \\
+        \\const Game = @This();
+        \\
+        \\allocator: std.mem.Allocator,
+        \\base: *godot.class.Node,
+        \\
+        \\pub fn _ready(_: *Game) void {
+        \\    godot.print("Hello from gdzig!", .{});
+        \\}
+        \\
+    ;
+    try dir.writeFile(init.io, .{ .sub_path = "src/Game.zig", .data = game_src });
+
+    const main_scene =
+        \\[gd_scene format=3]
+        \\
+        \\[node name="Game" type="Game"]
+        \\
+    ;
+    try dir.writeFile(init.io, .{ .sub_path = "main.tscn", .data = main_scene });
+
+    const gitignore =
+        \\/.godot/
+        \\/.zig-cache/
+        \\/lib/
+        \\/zig-out/
+        \\/zig-pkg/
+        \\
+    ;
+    try dir.writeFile(init.io, .{ .sub_path = ".gitignore", .data = gitignore });
 
     // Reaching GitHub is the one step here that depends on something outside
     // this machine, and a blip in it leaves a manifest with no gdzig
@@ -252,8 +313,7 @@ pub fn main(init: std.process.Init) !void {
         , .{ project_name, actual_out_path });
     }
 
-    // What is scaffolded does not run yet, and neither missing piece announces
-    // itself. Without a build there is no library for the `.gdextension` to
+    // Without a build there is no library for the `.gdextension` to
     // point at; without an import pass Godot has no `.godot/extension_list.cfg`
     // to read and so loads no extension at all -- silently, every class simply
     // absent. Both are one command, and a reader who is told them here never
@@ -270,7 +330,7 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print(
         \\  zig build                             # compile the extension into lib/
         \\  godot --path . --headless --import    # once; without this Godot loads nothing
-        \\  godot --path .                        # run it
+        \\  godot --path .                        # run the starter scene
         \\
         \\The import step is not optional and skipping it fails quietly: Godot reads
         \\.godot/extension_list.cfg to decide what to load, an unimported project has no
@@ -285,13 +345,12 @@ fn usage() void {
     std.debug.print(
         \\Usage: init-gdzig --out <dir> [--name <project>]
         \\
-        \\  -o, --out  <dir>      where to write the project; created if missing
-        \\  -n, --name <project>  package name (default: mygame)
+        \\  -o, --out  <dir>      empty directory to create or populate
+        \\  -n, --name <project>  Zig identifier used as the package name (default: mygame)
         \\  -h, --help            print this and exit
         \\
-        \\The project is scaffolded but not yet runnable: build it, then import it
-        \\once so Godot will load the extension. It prints both commands when it is
-        \\done.
+        \\The generated project includes a registered Game node and starter scene.
+        \\Build it, then import it once so Godot will load the extension.
         \\
     , .{});
 }

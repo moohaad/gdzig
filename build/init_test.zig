@@ -1,7 +1,7 @@
 //! Scaffolds a project with `init-gdzig` and builds it.
 //!
 //! `init-gdzig` is the first thing a newcomer runs, and until now nothing
-//! checked that what it produces compiles. It writes four interlocking files --
+//! checked that what it produces compiles. It writes interlocking files --
 //! the entry symbol has to match between `build.zig` and the `.gdextension`,
 //! the module has to point at the source it also writes -- and a mistake in any
 //! of them surfaces as a build failure in someone else's project.
@@ -33,6 +33,37 @@ pub fn main(init: std.process.Init) !void {
     // would let a broken scaffolder pass on last time's files.
     std.Io.Dir.cwd().deleteTree(io, out_path) catch {};
 
+    // Invalid names used to be copied directly into Zig syntax and exported
+    // symbols, producing a project which only failed later during its build.
+    const invalid_out = try std.fmt.allocPrint(arena, "{s}-invalid", .{out_path});
+    std.Io.Dir.cwd().deleteTree(io, invalid_out) catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, invalid_out) catch {};
+    try runFails(io, ".", &.{ scaffolder, "--name", "not-a-zig-id", "--out", invalid_out });
+    if (std.Io.Dir.openDir(.cwd(), io, invalid_out, .{})) |created| {
+        var created_dir = created;
+        created_dir.close(io);
+        return fail("invalid project name still created its output directory", .{});
+    } else |_| {}
+
+    // A scaffolder must not overwrite an existing project. Leave a sentinel in
+    // the target, verify the command refuses it, then verify the sentinel and
+    // absence of generated files.
+    const occupied_out = try std.fmt.allocPrint(arena, "{s}-occupied", .{out_path});
+    std.Io.Dir.cwd().deleteTree(io, occupied_out) catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, occupied_out) catch {};
+    try std.Io.Dir.createDirPath(.cwd(), io, occupied_out);
+    var occupied = try std.Io.Dir.openDir(.cwd(), io, occupied_out, .{});
+    try occupied.writeFile(io, .{ .sub_path = "keep.txt", .data = "do not replace" });
+    occupied.close(io);
+    try runFails(io, ".", &.{ scaffolder, "--name", "gadget", "--out", occupied_out });
+    occupied = try std.Io.Dir.openDir(.cwd(), io, occupied_out, .{});
+    defer occupied.close(io);
+    const sentinel = try occupied.readFileAlloc(io, "keep.txt", arena, @enumFromInt(1024));
+    if (!std.mem.eql(u8, sentinel, "do not replace")) return fail("scaffolder changed an existing file", .{});
+    if (occupied.statFile(io, "build.zig", .{})) |_| {
+        return fail("scaffolder wrote build.zig into a non-empty directory", .{});
+    } else |_| {}
+
     // Deliberately not the basename of the output directory. `zig init` takes
     // the package name from the directory it runs in and binds the fingerprint
     // it generates to that name, so a scaffolder that renames the package
@@ -56,12 +87,30 @@ pub fn main(init: std.process.Init) !void {
         // there is no project to open and the scaffold is unusable, so it is
         // checked like any other file the scaffolder promises.
         "project.godot",
+        "main.tscn",
+        ".gitignore",
         name ++ ".gdextension",
         "src/" ++ name ++ ".zig",
+        "src/Game.zig",
     }) |wanted| {
         _ = dir.statFile(io, wanted, .{}) catch |err| {
             return fail("scaffolder did not write '{s}': {s}", .{ wanted, @errorName(err) });
         };
+    }
+
+    const entry_source = try dir.readFileAlloc(io, "src/" ++ name ++ ".zig", arena, @enumFromInt(1 << 20));
+    if (std.mem.indexOf(u8, entry_source, "r.registerAll(classes)") == null or
+        std.mem.indexOf(u8, entry_source, "r.unregisterAll(classes)") == null)
+    {
+        return fail("generated entry does not symmetrically register the starter class", .{});
+    }
+    const game_source = try dir.readFileAlloc(io, "src/Game.zig", arena, @enumFromInt(1 << 20));
+    if (std.mem.indexOf(u8, game_source, "pub fn _ready") == null) {
+        return fail("generated Game class has no _ready callback", .{});
+    }
+    const project_source = try dir.readFileAlloc(io, "project.godot", arena, @enumFromInt(1 << 20));
+    if (std.mem.indexOf(u8, project_source, "run/main_scene=\"res://main.tscn\"") == null) {
+        return fail("generated Godot project does not select the starter scene", .{});
     }
 
     const manifest = dir.readFileAlloc(io, "build.zig.zon", arena, @enumFromInt(1 << 20)) catch |err| {
@@ -155,6 +204,17 @@ fn run(io: std.Io, cwd_path: []const u8, argv: []const []const u8) !void {
     const term = try child.wait(io);
     if (term != .exited or term.exited != 0) {
         return fail("'{s}' failed in {s}", .{ argv[0], cwd_path });
+    }
+}
+
+fn runFails(io: std.Io, cwd_path: []const u8, argv: []const []const u8) !void {
+    var cwd_dir = try std.Io.Dir.openDir(.cwd(), io, cwd_path, .{});
+    defer cwd_dir.close(io);
+
+    var child = try std.process.spawn(io, .{ .argv = argv, .cwd = .{ .dir = cwd_dir } });
+    const term = try child.wait(io);
+    if (term == .exited and term.exited == 0) {
+        return fail("'{s}' unexpectedly succeeded in {s}", .{ argv[0], cwd_path });
     }
 }
 
