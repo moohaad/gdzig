@@ -1,6 +1,16 @@
 const std = @import("std");
 const gdzig = @import("gdzig");
 const Input = gdzig.class.Input;
+const project_actions = @import("project_actions");
+
+/// The actions declared in the configured Godot project's Input Map.
+///
+/// Set the gdzig dependency's `godot_project` option to expose them. Action
+/// names that are not ordinary Zig identifiers remain accessible with quoted
+/// syntax, for example `Action.@"menu accept"`. Engine-supplied `ui_*`
+/// defaults are included only when they have an override in `project.godot`;
+/// a small user-defined enum remains useful for untouched built-in actions.
+pub const Action = project_actions.Action;
 
 /// Validates that the provided action is an enum value, and checks if it's pressed.
 pub fn isActionPressed(action: anytype) bool {

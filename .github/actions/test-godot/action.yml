@@ -202,6 +202,10 @@ runs:
       shell: bash
       run: zig build test-res
 
+    - name: Check Input Map actions form a compile-time enum
+      shell: bash
+      run: zig build test-input-actions
+
     # `assertSignalSignature`'s job is to fail, so the only way to know it works
     # is to build a handler that must not compile and read the message back.
     - name: Check signal handler signatures are verified at comptime

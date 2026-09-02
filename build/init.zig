@@ -149,15 +149,19 @@ pub fn main(init: std.process.Init) !void {
         \\pub fn build(b: *Build) !void {{
         \\    const target = b.standardTargetOptions(.{{}});
         \\    const optimize = b.standardOptimizeOption(.{{}});
+        \\    const godot_version = b.option([]const u8, "godot-version", "Godot version to download");
+        \\    const godot_path = b.option([]const u8, "godot-path", "Path to a Godot executable");
         \\
         \\    const gdzig_dep = b.dependency("gdzig", .{{
         \\        .target = target,
         \\        .optimize = optimize,
+        \\        .@"godot-version" = godot_version,
+        \\        .@"godot-path" = godot_path,
         \\        // Needed here as well as on `addExtension`, and not the same option:
-        \\        // this one bakes the project's resource list into the gdzig module,
-        \\        // which is what lets `godot.res` reject a `res://` path the project
-        \\        // does not have. Absolute, because gdzig resolves it against its own
-        \\        // build root rather than yours.
+        \\        // this one bakes the project's resource and Input Map names into the
+        \\        // gdzig module. That lets `godot.res` reject a missing path and
+        \\        // generates `godot.input.Action`. Absolute, because gdzig resolves it
+        \\        // against its own build root rather than yours.
         \\        .godot_project = b.pathFromRoot("."),
         \\    }});
         \\

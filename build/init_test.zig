@@ -115,6 +115,11 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.indexOf(u8, build_source, "extension.manifest") == null) {
         return fail("generated build does not install addExtension's manifest", .{});
     }
+    if (std.mem.indexOf(u8, build_source, ".@\"godot-path\" = godot_path") == null or
+        std.mem.indexOf(u8, build_source, ".@\"godot-version\" = godot_version") == null)
+    {
+        return fail("generated build does not forward its Godot selection to gdzig", .{});
+    }
 
     const manifest = dir.readFileAlloc(io, "build.zig.zon", arena, @enumFromInt(1 << 20)) catch |err| {
         return fail("cannot read the generated build.zig.zon: {s}", .{@errorName(err)});

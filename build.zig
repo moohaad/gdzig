@@ -34,6 +34,15 @@ pub fn build(b: *Build) !void {
     });
     test_step.dependOn(&b.addRunArtifact(manifest_tests).step);
 
+    const project_settings_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/project_settings.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(project_settings_tests).step);
+
     //
     // Dependencies
     //
@@ -223,6 +232,25 @@ pub fn build(b: *Build) !void {
     run_res_test.has_side_effects = true;
     const res_test_step = b.step("test-res", "Check that res:// paths are verified at comptime");
     res_test_step.dependOn(&run_res_test.step);
+
+    // The project's Input Map becomes a generated enum. Compile configured
+    // ordinary and quoted names, then prove an absent name cannot compile.
+    const input_action_test_exe = b.addExecutable(.{
+        .name = "input-action-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/input_action_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_input_action_test = b.addRunArtifact(input_action_test_exe);
+    run_input_action_test.addArtifactArg(init_exe);
+    run_input_action_test.addArg(".zig-cache/input-action-test/actionprobe");
+    run_input_action_test.addArg("../../..");
+    if (godot_exe_host) |exe| run_input_action_test.addFileArg(exe);
+    run_input_action_test.has_side_effects = true;
+    const input_action_test_step = b.step("test-input-actions", "Check that Input Map actions form a compile-time enum");
+    input_action_test_step.dependOn(&run_input_action_test.step);
 
     // Same shape as test-res: `assertSignalSignature`'s job is to fail, so
     // proving it works means building code that must not compile.
@@ -419,6 +447,7 @@ pub fn build(b: *Build) !void {
     test_all_step.dependOn(test_step);
     test_all_step.dependOn(init_test_step);
     test_all_step.dependOn(res_test_step);
+    test_all_step.dependOn(input_action_test_step);
     test_all_step.dependOn(signal_test_step);
     test_all_step.dependOn(virtual_test_step);
     test_all_step.dependOn(registration_test_step);
@@ -443,6 +472,7 @@ pub fn build(b: *Build) !void {
     gdzig_options.addOption(bool, "surface_audit", surface_audit);
 
     var valid_res: std.ArrayList([]const u8) = .empty;
+    var input_actions: []const []const u8 = &.{};
     if (godot_project) |project_path| {
         gdzig_options.addOption(?[]const u8, "godot_project", project_path);
 
@@ -462,12 +492,35 @@ pub fn build(b: *Build) !void {
                 const res_path = b.fmt("res://{s}", .{path});
                 valid_res.append(b.allocator, res_path) catch @panic("OOM");
             }
+
+            const project_file = d.readFileAlloc(
+                io,
+                "project.godot",
+                b.allocator,
+                @enumFromInt(8 << 20),
+            ) catch |err| std.debug.panic(
+                "gdzig: cannot read '{s}': {s}",
+                .{ b.pathFromRoot(b.pathJoin(&.{ project_path, "project.godot" })), @errorName(err) },
+            );
+            input_actions = project_settings.inputActions(b.allocator, project_file) catch |err|
+                std.debug.panic(
+                    "gdzig: cannot parse input actions from '{s}': {s}",
+                    .{ b.pathFromRoot(b.pathJoin(&.{ project_path, "project.godot" })), @errorName(err) },
+                );
         }
         gdzig_options.addOption([]const []const u8, "res_paths", valid_res.items);
     } else {
         gdzig_options.addOption(?[]const u8, "godot_project", null);
         gdzig_options.addOption([]const []const u8, "res_paths", &.{});
     }
+    const project_action_files = b.addWriteFiles();
+    const project_action_source = project_settings.renderActionModule(b.allocator, input_actions) catch
+        @panic("OOM");
+    const project_actions_mod = b.createModule(.{
+        .root_source_file = project_action_files.add("project_actions.zig", project_action_source),
+        .target = target,
+        .optimize = optimize,
+    });
 
     const gdzig_mod = b.addModule("gdzig", .{
         .root_source_file = gdzig_combined.path(b, "gdzig.zig"),
@@ -479,6 +532,7 @@ pub fn build(b: *Build) !void {
             .{ .name = "gdextension", .module = gdextension_mod },
             .{ .name = "common", .module = common_mod },
             .{ .name = "oopz", .module = oopz.module("oopz") },
+            .{ .name = "project_actions", .module = project_actions_mod },
         },
     });
     gdzig_mod.addImport("gdzig", gdzig_mod);
@@ -639,3 +693,4 @@ const bindgen = @import("build/bindgen.zig");
 const common = @import("build/common.zig");
 const doc_examples = @import("build/doc_examples.zig");
 const gdextension = @import("build/gdextension.zig");
+const project_settings = @import("build/project_settings.zig");

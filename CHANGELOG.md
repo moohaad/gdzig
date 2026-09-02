@@ -1,5 +1,9 @@
 # HEAD
 
+- **Input actions follow the Godot project**: when the gdzig dependency receives
+  `godot_project`, it generates `godot.input.Action` from the current Input Map.
+  Renamed, removed, quoted, and misspelled action names are checked by Zig rather
+  than silently returning false at runtime.
 - **Documentation examples are compiled in CI**: marked Zig fences are extracted
   directly from the guides, blocks describing the same file are combined, and
   their declarations are fully analyzed against the generated Godot API.

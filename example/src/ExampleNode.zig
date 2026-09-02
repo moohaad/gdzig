@@ -148,14 +148,13 @@ pub fn _enter_tree(self: *ExampleNode) void {
         std.log.info("Array item: {d}", .{item.as(i64).?});
     }
 
-    // Actions are enum variants rather than loose strings, so every action a
-    // node uses is declared in one place instead of respelled at each call.
-    const Actions = enum { ui_accept, ui_cancel };
-    if (godot.input.isActionPressed(Actions.ui_accept)) {
-        std.log.info("ui_accept pressed!", .{});
+    // Generated from the project's Input Map, so renaming or removing one in
+    // Godot turns this into a compile error instead of a silent runtime miss.
+    if (godot.input.isActionPressed(godot.input.Action.jump)) {
+        std.log.info("jump pressed!", .{});
     }
-    if (godot.input.isActionPressed(Actions.ui_cancel)) {
-        std.log.info("ui_cancel pressed!", .{});
+    if (godot.input.isActionPressed(godot.input.Action.move_up)) {
+        std.log.info("move_up pressed!", .{});
     }
 
     //initialize fields

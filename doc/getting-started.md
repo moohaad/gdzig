@@ -186,6 +186,13 @@ comptime, which keeps the set of actions a node reads in one declaration instead
 spelled out at each call site. Each variant interns its `StringName` at comptime, so
 nothing is allocated per tick.
 
+The explicit `Actions` enum above also makes the snippet independent of a particular
+project. In your project, prefer `const Actions = godot.input.Action;`. When the gdzig
+dependency receives `.godot_project = b.pathFromRoot(".")`—as the scaffold configures
+it—gdzig reads `[input]` from `project.godot` and generates that enum. Removing or
+renaming an Input Map action then points to the exact stale Zig use at compile time.
+Names that need quoting remain available, for example `Actions.@"menu accept"`.
+
 The raw `godot.class.Input` bindings are still there and take a `StringName` — or any
 Zig string, since the parameter is `anytype`. Prefer the enum module: a plain `"jump"`
 builds a `StringName` and destroys it again on every call, measured at 77 ns against

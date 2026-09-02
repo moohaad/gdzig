@@ -45,6 +45,8 @@ Either way you get:
 * `src/Game.zig`, a registered `Node` with a Godot-style `_ready` callback.
 * `.gitignore` entries for Zig, gdzig, and Godot build artifacts, including the
   target-specific generated descriptor.
+* A project-aware `godot.input.Action` enum that follows actions added through
+  **Project Settings → Input Map**.
 
 ## Build the Extension
 
