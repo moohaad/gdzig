@@ -20,6 +20,15 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
+    if (fixture_options.fail) {
+        var buffer: [128]u8 = undefined;
+        var stdout = std.Io.File.stdout().writerStreaming(io, &buffer);
+        try stdout.interface.writeAll("HEADER_CACHE_FAKE_STDOUT_DIAGNOSTIC\n");
+        try stdout.interface.flush();
+        std.debug.print("HEADER_CACHE_FAKE_STDERR_DIAGNOSTIC\n", .{});
+        std.process.exit(23);
+    }
+
     var with_docs = false;
     var with_json = false;
     for (args[1..]) |arg| {

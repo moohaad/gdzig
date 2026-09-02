@@ -72,9 +72,7 @@ fn make(step: *Step, prog_node: Step.MakeOptions) !void {
     const use_docs, const has_json = if (headers.known_flags) |flags|
         .{ flags.use_docs, flags.has_json }
     else blk: {
-        const version_str = runGodotVersion(step, io, godot_path, prog_node) catch |err| {
-            return step.fail("failed to get Godot version: {s}", .{@errorName(err)});
-        };
+        const version_str = try runGodotVersion(step, io, godot_path, prog_node);
         const version = parseVersionString(version_str);
         break :blk .{ shouldUseDocs(version), hasJsonInterface(version) };
     };
@@ -149,25 +147,21 @@ fn make(step: *Step, prog_node: Step.MakeOptions) !void {
     args[arg_count] = "--quit";
     arg_count += 1;
 
-    // Run godot to dump headers
+    // Run Godot quietly on success, but retain both output streams so a failed
+    // dump reports the engine's real diagnostic instead of only its exit code.
     const cwd_path = headers.generated_directory.path orelse
         return step.fail("generated directory path not set", .{});
-    var child = std.process.spawn(io, .{
+    const output = std.process.run(arena, io, .{
         .argv = args[0..arg_count],
         .cwd = .{ .path = cwd_path },
-        .stderr = .ignore,
-        .stdout = .ignore,
+        .stdout_limit = .limited(diagnostic_limit),
+        .stderr_limit = .limited(diagnostic_limit),
     }) catch |err| {
-        // A bare `try` here surfaced only as "error: FileNotFound", with no
-        // indication of which of the two paths was missing.
-        return step.fail("failed to run '{s}' in '{s}': {s}", .{ godot_path, cwd_path, @errorName(err) });
+        return step.fail("failed to run Godot header dump with '{s}' in '{s}': {s}", .{ godot_path, cwd_path, @errorName(err) });
     };
 
-    const result = try child.wait(io);
-
-    // Godot returns 0 on success
-    if (result != .exited or result.exited != 0) {
-        return step.fail("Godot exited with non-zero status", .{});
+    if (output.term != .exited or output.term.exited != 0) {
+        return failGodot(step, "header dump", output.term, output.stdout, output.stderr);
     }
     if (!headersExist(io, b.cache_root.handle, cache_path, has_json)) {
         return step.fail("Godot exited successfully but did not produce every requested GDExtension header", .{});
@@ -198,26 +192,51 @@ fn runGodotVersion(step: *Step, io: Io, godot_path: []const u8, prog_node: Step.
     _ = prog_node;
     const arena = step.owner.allocator;
 
-    var child = try std.process.spawn(io, .{
+    const output = std.process.run(arena, io, .{
         .argv = &.{ godot_path, "--version" },
-        .stderr = .ignore,
-        .stdout = .pipe,
-    });
+        .stdout_limit = .limited(diagnostic_limit),
+        .stderr_limit = .limited(diagnostic_limit),
+    }) catch |err| {
+        return step.fail("failed to run Godot --version with '{s}': {s}", .{ godot_path, @errorName(err) });
+    };
 
-    var buf: [4096]u8 = undefined;
-    var reader = child.stdout.?.readerStreaming(io, &buf);
-    const stdout = try reader.interface.allocRemaining(arena, .limited(1024));
-
-    const result = try child.wait(io);
-
-    if (result != .exited or result.exited != 0) {
-        return step.fail("Godot --version exited with non-zero status", .{});
+    if (output.term != .exited or output.term.exited != 0) {
+        return failGodot(step, "--version", output.term, output.stdout, output.stderr);
     }
 
-    // Return first line, trimmed
-    const first_line = std.mem.sliceTo(stdout, '\n');
+    // Return first line, trimmed.
+    const first_line = std.mem.sliceTo(output.stdout, '\n');
     return std.mem.trim(u8, first_line, "\r ");
 }
+
+fn failGodot(
+    step: *Step,
+    operation: []const u8,
+    term: std.process.Child.Term,
+    stdout: []const u8,
+    stderr: []const u8,
+) error{ OutOfMemory, MakeFailed } {
+    return switch (term) {
+        .exited => |code| step.fail(
+            "Godot {s} exited with status {d}\n--- stdout ---\n{s}\n--- stderr ---\n{s}",
+            .{ operation, code, stdout, stderr },
+        ),
+        .signal => |signal| step.fail(
+            "Godot {s} terminated by signal {t}\n--- stdout ---\n{s}\n--- stderr ---\n{s}",
+            .{ operation, signal, stdout, stderr },
+        ),
+        .stopped => |signal| step.fail(
+            "Godot {s} stopped by signal {t}\n--- stdout ---\n{s}\n--- stderr ---\n{s}",
+            .{ operation, signal, stdout, stderr },
+        ),
+        .unknown => |status| step.fail(
+            "Godot {s} ended with unknown status {d}\n--- stdout ---\n{s}\n--- stderr ---\n{s}",
+            .{ operation, status, stdout, stderr },
+        ),
+    };
+}
+
+const diagnostic_limit = 16 << 20;
 
 /// Parsed version info for determining flags
 const ParsedVersion = struct {

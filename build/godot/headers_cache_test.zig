@@ -1,5 +1,5 @@
 //! Proves that HeadersStep invalidates when an executable is replaced in place
-//! and when the dump flags change.
+//! and when the dump flags change, and preserves diagnostics when Godot fails.
 
 pub fn main(init: std.process.Init) !void {
     var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -8,11 +8,12 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
     const args = try init.minimal.args.toSlice(arena);
-    if (args.len != 5) return fail("expected v1, v2, HeadersStep source, and output paths", .{});
+    if (args.len != 6) return fail("expected v1, v2, failing fixture, HeadersStep source, and output paths", .{});
     const fake_v1 = args[1];
     const fake_v2 = args[2];
-    const headers_source = args[3];
-    const out_path = args[4];
+    const fake_fail = args[3];
+    const headers_source = args[4];
+    const out_path = args[5];
 
     std.Io.Dir.cwd().deleteTree(io, out_path) catch {};
     var out = try std.Io.Dir.cwd().createDirPathOpen(io, out_path, .{});
@@ -43,7 +44,13 @@ pub fn main(init: std.process.Init) !void {
     try runBuild(io, out_path);
     try expectDump(io, arena, out, "v2:no-docs");
 
-    std.debug.print("headers cache: contents, flags, and missing outputs invalidate\n", .{});
+    // A failed engine invocation must retain its status and both diagnostic
+    // streams in the build failure instead of reducing it to a generic error.
+    try std.Io.Dir.cwd().copyFile(fake_fail, out, fake_name, io, .{ .replace = true });
+    try writeBuild(io, out, fake_name, false);
+    try expectBuildFailureDiagnostics(io, arena, out_path);
+
+    std.debug.print("headers cache: invalidation works and Godot diagnostics survive failures\n", .{});
 }
 
 fn writeBuild(io: std.Io, out: std.Io.Dir, fake_name: []const u8, force_no_docs: bool) !void {
@@ -91,6 +98,34 @@ fn runBuild(io: std.Io, cwd_path: []const u8) !void {
     });
     const term = try child.wait(io);
     if (term != .exited or term.exited != 0) return fail("nested header build failed", .{});
+}
+
+fn expectBuildFailureDiagnostics(io: std.Io, arena: std.mem.Allocator, cwd_path: []const u8) !void {
+    const output = try std.process.run(arena, io, .{
+        .argv = &.{ "zig", "build", "--summary", "none" },
+        .cwd = .{ .path = cwd_path },
+        .stdout_limit = .limited(4 << 20),
+        .stderr_limit = .limited(4 << 20),
+    });
+    if (output.term == .exited and output.term.exited == 0) {
+        return fail("nested header build unexpectedly succeeded", .{});
+    }
+
+    const expected = [_][]const u8{
+        "exited with status 23",
+        "HEADER_CACHE_FAKE_STDOUT_DIAGNOSTIC",
+        "HEADER_CACHE_FAKE_STDERR_DIAGNOSTIC",
+    };
+    for (expected) |needle| {
+        if (std.mem.indexOf(u8, output.stdout, needle) == null and
+            std.mem.indexOf(u8, output.stderr, needle) == null)
+        {
+            return fail(
+                "missing '{s}' in nested build diagnostics\n--- stdout ---\n{s}\n--- stderr ---\n{s}",
+                .{ needle, output.stdout, output.stderr },
+            );
+        }
+    }
 }
 
 fn expectDump(io: std.Io, arena: std.mem.Allocator, out: std.Io.Dir, expected: []const u8) !void {

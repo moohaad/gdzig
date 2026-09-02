@@ -196,13 +196,28 @@ pub fn fromBuiltinConstructor(allocator: Allocator, builtin_name: []const u8, co
 /// pointing at std rather than at the line that wrote it. Under a name that
 /// does not claim the protocol, the engine method still works and `{f}` is free
 /// for the real formatter in the mixin.
-fn protocolCollision(builtin_name: []const u8, api_name: []const u8) ?[]const u8 {
+pub fn builtinMethodNameOverride(builtin_name: []const u8, api_name: []const u8) ?[]const u8 {
     const collisions = .{
         .{ "String", "format", "formatValues" },
         .{ "StringName", "format", "formatValues" },
     };
     inline for (collisions) |c| {
         if (std.mem.eql(u8, builtin_name, c[0]) and std.mem.eql(u8, api_name, c[1])) return c[2];
+    }
+    return null;
+}
+
+/// The generated name for class methods whose Godot name is replaced by the
+/// typed signal mixin. Kept here with the builtin overrides so documentation
+/// links and declarations cannot drift apart.
+pub fn classMethodNameOverride(api_name: []const u8) ?[]const u8 {
+    const overrides = .{
+        .{ "connect", "connectRaw" },
+        .{ "disconnect", "disconnectRaw" },
+        .{ "emit_signal", "emitRaw" },
+    };
+    inline for (overrides) |override| {
+        if (std.mem.eql(u8, api_name, override[0])) return override[1];
     }
     return null;
 }
@@ -215,7 +230,7 @@ pub fn fromBuiltinMethod(allocator: Allocator, builtin_name: []const u8, api: Go
         .current_class = builtin_name,
         .verbosity = ctx.config.verbosity,
     }) else null;
-    self.name = if (protocolCollision(builtin_name, api.name)) |renamed|
+    self.name = if (builtinMethodNameOverride(builtin_name, api.name)) |renamed|
         try allocator.dupe(u8, renamed)
     else
         try casez.allocConvert(allocator, gdzig_case.method, api.name);
@@ -328,6 +343,9 @@ pub fn fromClass(allocator: Allocator, class_name: []const u8, has_singleton: bo
     }) else null;
     self.name = blk: {
         if (!api.is_virtual) {
+            if (classMethodNameOverride(api.name)) |renamed| {
+                break :blk try allocator.dupe(u8, renamed);
+            }
             break :blk try casez.allocConvert(allocator, gdzig_case.method, api.name);
         }
 

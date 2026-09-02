@@ -118,6 +118,23 @@ pub fn build(b: *Build) !void {
         .architecture = architecture,
     });
 
+    // Generated documentation links encode Zig autodoc declaration paths.
+    // Check the entire generated surface so a renamed or skipped declaration
+    // cannot silently leave thousands of "Declaration not found" links.
+    const doc_links_test_exe = b.addExecutable(.{
+        .name = "doc-links-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/doc_links_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_doc_links_test = b.addRunArtifact(doc_links_test_exe);
+    run_doc_links_test.addDirectoryArg(bindings);
+    run_doc_links_test.addDirectoryArg(b.path("src"));
+    const doc_links_test_step = b.step("test-doc-links", "Check that generated documentation links resolve");
+    doc_links_test_step.dependOn(&run_doc_links_test.step);
+
     //
     // API audit tool
     //
@@ -236,10 +253,12 @@ pub fn build(b: *Build) !void {
     virtual_test_step.dependOn(&run_virtual_test.step);
 
     // Headers are cached by the Godot executable that produced them. Exercise
-    // replacement at one stable path and a flag-only change with tiny fake
-    // executables, so this gate needs neither a download nor a real engine.
+    // replacement at one stable path, a flag-only change, and a failed dump
+    // with tiny fake executables, so this gate needs neither a download nor a
+    // real engine.
     const header_fake_v1_options = b.addOptions();
     header_fake_v1_options.addOption([]const u8, "marker", "v1");
+    header_fake_v1_options.addOption(bool, "fail", false);
     const header_fake_v1 = b.addExecutable(.{
         .name = "header-cache-fake-v1",
         .root_module = b.createModule(.{
@@ -251,6 +270,7 @@ pub fn build(b: *Build) !void {
     });
     const header_fake_v2_options = b.addOptions();
     header_fake_v2_options.addOption([]const u8, "marker", "v2");
+    header_fake_v2_options.addOption(bool, "fail", false);
     const header_fake_v2 = b.addExecutable(.{
         .name = "header-cache-fake-v2",
         .root_module = b.createModule(.{
@@ -258,6 +278,18 @@ pub fn build(b: *Build) !void {
             .target = b.graph.host,
             .optimize = .Debug,
             .imports = &.{.{ .name = "fixture_options", .module = header_fake_v2_options.createModule() }},
+        }),
+    });
+    const header_fake_fail_options = b.addOptions();
+    header_fake_fail_options.addOption([]const u8, "marker", "xx");
+    header_fake_fail_options.addOption(bool, "fail", true);
+    const header_fake_fail = b.addExecutable(.{
+        .name = "header-cache-fake-fail",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/godot/headers_cache_fake.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+            .imports = &.{.{ .name = "fixture_options", .module = header_fake_fail_options.createModule() }},
         }),
     });
     const header_cache_test_exe = b.addExecutable(.{
@@ -271,10 +303,11 @@ pub fn build(b: *Build) !void {
     const run_header_cache_test = b.addRunArtifact(header_cache_test_exe);
     run_header_cache_test.addArtifactArg(header_fake_v1);
     run_header_cache_test.addArtifactArg(header_fake_v2);
+    run_header_cache_test.addArtifactArg(header_fake_fail);
     run_header_cache_test.addFileArg(b.path("build/godot/HeadersStep.zig"));
     run_header_cache_test.addArg(".zig-cache/header-cache-test/probe");
     run_header_cache_test.has_side_effects = true;
-    const header_cache_test_step = b.step("test-headers-cache", "Check that Godot executable and flag changes invalidate cached headers");
+    const header_cache_test_step = b.step("test-headers-cache", "Check Godot header caching and failure diagnostics");
     header_cache_test_step.dependOn(&run_header_cache_test.step);
 
     // The watcher is a loop that never returns, so this observes it from
@@ -360,6 +393,7 @@ pub fn build(b: *Build) !void {
     test_all_step.dependOn(signal_test_step);
     test_all_step.dependOn(virtual_test_step);
     test_all_step.dependOn(header_cache_test_step);
+    test_all_step.dependOn(doc_links_test_step);
     test_all_step.dependOn(watch_test_step);
     test_all_step.dependOn(package_test_step);
 

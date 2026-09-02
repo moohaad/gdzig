@@ -75,7 +75,7 @@ pub const DocumentContext = struct {
         return doc_ctx;
     }
 
-    pub fn resolveSymbol(self: DocumentContext, symbol: []const u8, symbol_type: Element) ?[]const u8 {
+    pub fn resolveSymbol(self: DocumentContext, symbol: []const u8, symbol_type: Element) ?Symbol {
         return switch (symbol_type) {
             .@"enum", .method, .constant, .member, .annotation => self.resolveGeneric(symbol),
             else => null,
@@ -111,7 +111,7 @@ pub const DocumentContext = struct {
 
     pub fn writeAnnotation(self: DocumentContext, node: Node) anyerror!bool {
         const annotation_name = try node.getValue() orelse return false;
-        
+
         if (self.resolveGeneric(annotation_name)) |symbol| {
             if (try self.writeSymbolLink(symbol)) {
                 return true;

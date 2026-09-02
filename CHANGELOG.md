@@ -1,5 +1,12 @@
 # HEAD
 
+- **Generated documentation links resolve again**: links now use gdzig's actual
+  converted declaration names and utility modules, omit non-declaration virtuals,
+  and follow renamed or hand-written APIs such as `String.formatValues` and
+  `Variant.Tag`. A full-surface link audit prevents future drift.
+- **Godot header failures preserve engine diagnostics**: when an engine dump fails,
+  the build now reports its termination status along with captured stdout and stderr
+  instead of replacing the useful error with a generic non-zero-status message.
 - **Godot header caches follow the executable contents**: replacing a Godot binary at
   the same path or changing its dump flags regenerates `extension_api.json` and the
   GDExtension interface instead of silently reusing headers from the previous engine.

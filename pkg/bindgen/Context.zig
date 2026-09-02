@@ -607,39 +607,57 @@ pub fn isSingleton(self: *const Context, class_name: []const u8) bool {
     return self.singletons.contains(class_name);
 }
 
-fn symbolTableClasses(self: *Context, classes: anytype, module: []const u8) !void {
+const SymbolModule = enum { class, builtin };
+
+fn symbolTableClasses(self: *Context, classes: anytype, comptime module: SymbolModule) !void {
     for (classes) |class| {
         if (util.shouldSkipClass(class.name)) continue;
 
+        const class_name = try casez.allocConvert(self.allocator(), gdzig_case.type, class.name);
         const class_path = try std.fmt.allocPrint(self.allocator(), "{s}.{f}.{s}", .{
-            module,
-            common.fmt(gdzig_case.file, class.name),
-            class.name,
+            @tagName(module),
+            common.fmt(gdzig_case.file, class_name),
+            class_name,
         });
         try self.symbol_lookup.putNoClobber(self.allocator(), class.name, .{
-            .label = class.name,
+            .label = class_name,
             .path = class_path,
         });
 
         for (class.enums orelse &.{}) |@"enum"| {
             const enum_name = try std.fmt.allocPrint(self.allocator(), "{s}.{s}", .{ class.name, @"enum".name });
-            const enum_path = try std.fmt.allocPrint(self.allocator(), "{s}.{s}", .{ class_path, @"enum".name });
+            const generated_enum_name = try casez.allocConvert(self.allocator(), gdzig_case.type, @"enum".name);
+            const enum_path = try std.fmt.allocPrint(self.allocator(), "{s}.{s}", .{ class_path, generated_enum_name });
+            const enum_label = try std.fmt.allocPrint(self.allocator(), "{s}.{s}", .{ class_name, generated_enum_name });
             try self.symbol_lookup.putNoClobber(self.allocator(), enum_name, .{
-                .label = enum_name,
+                .label = enum_label,
                 .path = enum_path,
             });
         }
 
         for (class.methods orelse &.{}) |method| {
+            if (comptime module == .class) {
+                if (method.is_virtual) continue;
+            }
+
             const method_name = try std.fmt.allocPrint(self.allocator(), "{s}.{s}", .{ class.name, method.name });
-            const method_path = try std.fmt.allocPrint(self.allocator(), "{s}.{f}", .{
+            const generated_method_name = if (comptime module == .builtin)
+                if (Function.builtinMethodNameOverride(class.name, method.name)) |renamed|
+                    renamed
+                else
+                    try casez.allocConvert(self.allocator(), gdzig_case.method, method.name)
+            else if (Function.classMethodNameOverride(method.name)) |renamed|
+                renamed
+            else
+                try casez.allocConvert(self.allocator(), gdzig_case.method, method.name);
+            const method_path = try std.fmt.allocPrint(self.allocator(), "{s}.{s}", .{
                 class_path,
-                common.fmt(gdzig_case.method, method.name),
+                generated_method_name,
             });
 
-            const method_label = try std.fmt.allocPrint(self.allocator(), "{s}.{f}", .{
-                class.name,
-                common.fmt(gdzig_case.method, method.name),
+            const method_label = try std.fmt.allocPrint(self.allocator(), "{s}.{s}", .{
+                class_name,
+                generated_method_name,
             });
 
             try self.symbol_lookup.putNoClobber(self.allocator(), method_name, .{
@@ -659,16 +677,30 @@ pub fn buildSymbolLookupTable(self: *Context) !void {
             .path = "builtin.variant.Variant",
         });
 
-        try self.symbolTableClasses(self.api.classes, "class");
-        try self.symbolTableClasses(self.api.builtin_classes, "builtin");
+        // These enums are hand-written inside Variant rather than generated
+        // as global files. Keep the Godot spellings as lookup keys, but point
+        // them at the declarations users can actually open.
+        try self.symbol_lookup.putNoClobber(self.allocator(), "Variant.Type", .{
+            .label = "Variant.Tag",
+            .path = "builtin.variant.Variant.Tag",
+        });
+        try self.symbol_lookup.putNoClobber(self.allocator(), "Variant.Operator", .{
+            .label = "Variant.Operator",
+            .path = "builtin.variant.Variant.Operator",
+        });
+
+        try self.symbolTableClasses(self.api.classes, .class);
+        try self.symbolTableClasses(self.api.builtin_classes, .builtin);
 
         for (self.api.global_enums) |@"enum"| {
+            if (std.mem.startsWith(u8, @"enum".name, "Variant.")) continue;
+            const enum_name = try casez.allocConvert(self.allocator(), gdzig_case.type, @"enum".name);
             const enum_path = try std.fmt.allocPrint(self.allocator(), "global.{f}.{s}", .{
-                common.fmt(gdzig_case.file, @"enum".name),
-                @"enum".name,
+                common.fmt(gdzig_case.file, enum_name),
+                enum_name,
             });
             try self.symbol_lookup.putNoClobber(self.allocator(), @"enum".name, .{
-                .label = @"enum".name,
+                .label = enum_name,
                 .path = enum_path,
             });
         }
@@ -677,8 +709,8 @@ pub fn buildSymbolLookupTable(self: *Context) !void {
             const function_name = try std.fmt.allocPrint(self.allocator(), "{f}", .{
                 common.fmt(gdzig_case.method, function.name),
             });
-            const function_path = try std.fmt.allocPrint(self.allocator(), "general.{s}", .{
-                function_name,
+            const function_path = try std.fmt.allocPrint(self.allocator(), "{s}.{s}", .{
+                function.category, function_name,
             });
 
             try self.symbol_lookup.putNoClobber(self.allocator(), function.name, .{

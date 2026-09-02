@@ -210,9 +210,13 @@ runs:
       shell: bash
       run: zig build test-virtuals
 
-    - name: Check Godot header cache invalidation
+    - name: Check Godot header caching and diagnostics
       shell: bash
       run: zig build test-headers-cache
+
+    - name: Check generated documentation links
+      shell: bash
+      run: zig build test-doc-links
 
     # The watcher never returns, so this observes it through files it deletes
     # rather than its output, and every wait has a deadline: a failure must not
