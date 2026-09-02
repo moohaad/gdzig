@@ -1,5 +1,9 @@
 # HEAD
 
+- **Persistence replacement preserves ownership and recovery data**:
+  `autoRestore` now releases an owning field before replacing it and removes
+  persisted metadata only after a successful decode, preventing both leaked
+  values and lost state when a hot reload changes a field incompatibly.
 - **Registry module setup and teardown are symmetric by construction**:
   `registerAll` and `unregisterAll` now share one classifier and reject types
   that declare only one of `register` or `unregister`, instead of treating the

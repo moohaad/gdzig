@@ -414,7 +414,7 @@ gdzig gives you `zig build watch`. It recursively watches your `src/` directory,
 When Godot hot-reloads your DLL, it preserves exported properties but destroys any internal state in your Zig structs (like timers or temporary counters). gdzig provides `godot.autoPersist(self)` and `godot.autoRestore(self)` to seamlessly save and restore your struct's private state to Godot's metadata during DLL swaps. Put `autoRestore` in your `recreate` and `autoPersist` in your `destroy`!
 
 ```zig
-clicks: i32 = 0, // We want this internal state to survive hot-reload!
+clicks: i64 = 0, // We want this internal state to survive hot-reload!
 
 pub fn recreate(self: *MyNode, allocator: *Allocator) !void {
     // ... basic setup ...
@@ -426,6 +426,12 @@ pub fn destroy(self: *MyNode, allocator: *Allocator) void {
     // ... teardown ...
 }
 ```
+
+Restoring an owning value, such as a `String`, `Array`, or `Gd(Resource)`,
+releases the field's previous value before replacing it. Successfully decoded
+metadata is consumed. If a field's type changed and its saved value no longer
+decodes, gdzig leaves both the current field and the metadata untouched so the
+last good copy remains recoverable.
 
 ## Also worth knowing
 

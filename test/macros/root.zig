@@ -101,6 +101,63 @@ test "autoPersist writes fields to metadata and autoRestore reads them back" {
     try testing.expectEqual(@as(f64, 3.5), node.speed);
 }
 
+test "autoRestore releases an owning value before replacing it" {
+    ensureRegistered();
+
+    var persisted = Resource.init();
+    defer persisted.deinit();
+    var displaced = Resource.init();
+    defer displaced.deinit();
+
+    const persisted_counted = RefCounted.upcast(persisted.get());
+    const displaced_counted = RefCounted.upcast(displaced.get());
+    const persisted_before = persisted_counted.getReferenceCount();
+    const displaced_before = displaced_counted.getReferenceCount();
+
+    {
+        const node = try PersistNode.create();
+        defer node.destroy();
+
+        node.resource = Gd(Resource).borrow(persisted.get());
+        gdzig.autoPersist(node);
+
+        if (node.resource) |*resource| resource.deinit();
+        node.resource = Gd(Resource).borrow(displaced.get());
+        try testing.expectEqual(displaced_before + 1, displaced_counted.getReferenceCount());
+
+        gdzig.autoRestore(node);
+
+        try testing.expectEqual(displaced_before, displaced_counted.getReferenceCount());
+        try testing.expectEqual(persisted_before + 1, persisted_counted.getReferenceCount());
+        try testing.expect(node.resource != null);
+        try testing.expectEqual(persisted.get(), node.resource.?.get());
+    }
+
+    try testing.expectEqual(persisted_before, persisted_counted.getReferenceCount());
+    try testing.expectEqual(displaced_before, displaced_counted.getReferenceCount());
+}
+
+test "autoRestore preserves metadata that cannot be decoded" {
+    ensureRegistered();
+
+    const node = try PersistNode.create();
+    defer node.destroy();
+
+    const key = StringName.fromComptimeLatin1("gdzig_persist_speed");
+    var incompatible: Variant = .init(i64, 42);
+    defer incompatible.deinit();
+    node.base.setMeta(key.*, incompatible);
+    node.speed = 3.5;
+
+    gdzig.autoRestore(node);
+
+    try testing.expectEqual(@as(f64, 3.5), node.speed);
+    try testing.expect(node.base.hasMeta(key.*));
+    var remaining = node.base.getMeta(key.*, .{});
+    defer remaining.deinit();
+    try testing.expectEqual(@as(i64, 42), remaining.as(i64).?);
+}
+
 test "Pool destroys what it holds when it is deinitialised" {
     var pool = try gdzig.Pool(Node).init(allocator, 3);
 
@@ -225,6 +282,7 @@ const PersistNode = struct {
 
     health: i64 = 0,
     speed: f64 = 0,
+    resource: ?Gd(Resource) = null,
 
     pub fn create() !*PersistNode {
         const self = try allocator.create(PersistNode);
@@ -244,7 +302,11 @@ const testing = std.testing;
 
 const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
+const Gd = gdzig.Gd;
 const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;
 const Engine = gdzig.class.Engine;
+const Resource = gdzig.class.Resource;
+const RefCounted = gdzig.class.RefCounted;
 const StringName = gdzig.builtin.StringName;
+const Variant = gdzig.builtin.Variant;

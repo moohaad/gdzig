@@ -32,6 +32,10 @@ pub fn autoPersist(self: anytype) void {
 
 /// Automatically restore all supported Zig struct fields from Godot object metadata.
 /// Call this during `create()` or `_enter_tree()`.
+///
+/// A restored owning value replaces and releases the field's current value.
+/// Metadata is consumed only after it decodes successfully; incompatible data
+/// is left in place so a failed hot reload does not destroy the last good copy.
 pub fn autoRestore(self: anytype) void {
     const T = @TypeOf(self.*);
     const info = @typeInfo(T);
@@ -57,12 +61,30 @@ pub fn autoRestore(self: anytype) void {
                 defer val.deinit();
 
                 if (val.as(field.type)) |decoded| {
+                    deinitOwnedValue(&@field(self, field.name));
                     @field(self, field.name) = decoded;
+                    self.base.removeMeta(key.*);
                 }
-
-                // Optional: remove meta to clean up engine state
-                self.base.removeMeta(key.*);
             }
         }
+    }
+}
+
+/// Release values for which assignment transfers ownership. Raw object
+/// pointers are borrowed by convention and deliberately do not take this path;
+/// builtins and `Gd` handles advertise ownership through `deinit`.
+fn deinitOwnedValue(value: anytype) void {
+    const T = std.meta.Child(@TypeOf(value));
+    if (comptime gdzig.gd.isGd(T) or gdzig.gd.OptionalGd(T) != null) {
+        gdzig.gd.releaseField(T, value);
+        return;
+    }
+
+    switch (@typeInfo(T)) {
+        .optional => if (value.*) |*payload| deinitOwnedValue(payload),
+        .@"struct", .@"union", .@"enum", .@"opaque" => {
+            if (comptime @hasDecl(T, "deinit")) value.deinit();
+        },
+        else => {},
     }
 }
