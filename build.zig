@@ -43,6 +43,15 @@ pub fn build(b: *Build) !void {
     });
     test_step.dependOn(&b.addRunArtifact(project_settings_tests).step);
 
+    const project_scenes_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/project_scenes.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(project_scenes_tests).step);
+
     //
     // Dependencies
     //
@@ -252,6 +261,27 @@ pub fn build(b: *Build) !void {
     const input_action_test_step = b.step("test-input-actions", "Check that Input Map actions form a compile-time enum");
     input_action_test_step.dependOn(&run_input_action_test.step);
 
+    // Scene types cross file boundaries: inherited scenes get their base
+    // children and an instanced node gets the root type from its own file.
+    // Exercise that through a consumer so this also covers the generated
+    // project catalog, not merely the parser in isolation.
+    const typed_scene_test_exe = b.addExecutable(.{
+        .name = "typed-scene-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/typed_scene_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_typed_scene_test = b.addRunArtifact(typed_scene_test_exe);
+    run_typed_scene_test.addArtifactArg(init_exe);
+    run_typed_scene_test.addArg(".zig-cache/typed-scene-test/sceneprobe");
+    run_typed_scene_test.addArg("../../..");
+    if (godot_exe_host) |exe| run_typed_scene_test.addFileArg(exe);
+    run_typed_scene_test.has_side_effects = true;
+    const typed_scene_test_step = b.step("test-typed-scenes", "Check instanced and inherited scene types");
+    typed_scene_test_step.dependOn(&run_typed_scene_test.step);
+
     // Same shape as test-res: `assertSignalSignature`'s job is to fail, so
     // proving it works means building code that must not compile.
     const signal_test_exe = b.addExecutable(.{
@@ -448,6 +478,7 @@ pub fn build(b: *Build) !void {
     test_all_step.dependOn(init_test_step);
     test_all_step.dependOn(res_test_step);
     test_all_step.dependOn(input_action_test_step);
+    test_all_step.dependOn(typed_scene_test_step);
     test_all_step.dependOn(signal_test_step);
     test_all_step.dependOn(virtual_test_step);
     test_all_step.dependOn(registration_test_step);
@@ -473,6 +504,7 @@ pub fn build(b: *Build) !void {
 
     var valid_res: std.ArrayList([]const u8) = .empty;
     var input_actions: []const []const u8 = &.{};
+    var scene_sources: std.ArrayList(project_scenes.Source) = .empty;
     if (godot_project) |project_path| {
         gdzig_options.addOption(?[]const u8, "godot_project", project_path);
 
@@ -491,6 +523,22 @@ pub fn build(b: *Build) !void {
                 std.mem.replaceScalar(u8, path, '\\', '/');
                 const res_path = b.fmt("res://{s}", .{path});
                 valid_res.append(b.allocator, res_path) catch @panic("OOM");
+
+                if (std.mem.endsWith(u8, path, ".tscn")) {
+                    const contents = d.readFileAlloc(
+                        io,
+                        entry.path,
+                        b.allocator,
+                        @enumFromInt(64 << 20),
+                    ) catch |err| std.debug.panic(
+                        "gdzig: cannot read scene '{s}': {s}",
+                        .{ res_path, @errorName(err) },
+                    );
+                    scene_sources.append(b.allocator, .{
+                        .path = res_path,
+                        .contents = contents,
+                    }) catch @panic("OOM");
+                }
             }
 
             const project_file = d.readFileAlloc(
@@ -521,6 +569,19 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    std.mem.sort(project_scenes.Source, scene_sources.items, {}, struct {
+        fn lessThan(_: void, a: project_scenes.Source, z: project_scenes.Source) bool {
+            return std.mem.lessThan(u8, a.path, z.path);
+        }
+    }.lessThan);
+    const project_scene_files = b.addWriteFiles();
+    const project_scene_source = project_scenes.renderModule(b.allocator, scene_sources.items) catch
+        @panic("OOM");
+    const project_scenes_mod = b.createModule(.{
+        .root_source_file = project_scene_files.add("project_scenes.zig", project_scene_source),
+        .target = target,
+        .optimize = optimize,
+    });
 
     const gdzig_mod = b.addModule("gdzig", .{
         .root_source_file = gdzig_combined.path(b, "gdzig.zig"),
@@ -533,6 +594,7 @@ pub fn build(b: *Build) !void {
             .{ .name = "common", .module = common_mod },
             .{ .name = "oopz", .module = oopz.module("oopz") },
             .{ .name = "project_actions", .module = project_actions_mod },
+            .{ .name = "project_scenes", .module = project_scenes_mod },
         },
     });
     gdzig_mod.addImport("gdzig", gdzig_mod);
@@ -693,4 +755,5 @@ const bindgen = @import("build/bindgen.zig");
 const common = @import("build/common.zig");
 const doc_examples = @import("build/doc_examples.zig");
 const gdextension = @import("build/gdextension.zig");
+const project_scenes = @import("build/project_scenes.zig");
 const project_settings = @import("build/project_settings.zig");

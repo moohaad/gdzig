@@ -47,6 +47,8 @@ Either way you get:
   target-specific generated descriptor.
 * A project-aware `godot.input.Action` enum that follows actions added through
   **Project Settings → Input Map**.
+* A project scene catalog, so `godot.Scene` follows instanced roots and inherited
+  children instead of degrading them to `Node` or rejecting the scene.
 
 ## Build the Extension
 

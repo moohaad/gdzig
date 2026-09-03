@@ -488,4 +488,6 @@ the pre-`_ready` value and conclude your setter did not work. Read one frame lat
 - [example/](../example/) — signals, GUI, editor plugins, and a hot-reload harness
   (`zig build reload-test`).
 - Pass `.godot_project = "."` to `addExtension` and every `.tscn` becomes importable,
-  so `children: Scene(@embedFile("Player.tscn")) = .{}` can reach one.
+  so `children: Scene(@embedFile("Player.tscn")) = .{}` can reach one. The matching
+  dependency option catalogs those files: inherited children and instanced scene roots
+  then keep their concrete types. Use `SceneWith` to map your own class names to Zig types.

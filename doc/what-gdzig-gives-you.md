@@ -28,8 +28,23 @@ children: Scene(@embedFile("Player.tscn")) = .{},
 One `Child` field per node in the file, named after the node, so renaming a node in the editor
 breaks the build instead of failing at runtime. Needs `godot_project` set in `addExtension`.
 
-`Child` remains right for what a scene cannot type: an instanced sub-scene, a node added at
-runtime, or a node reached before it enters the tree.
+The dependency's `godot_project` option also gives `Scene` the other `.tscn` files. An
+instanced child then has the concrete type of its referenced scene root, and an inherited
+scene includes the children declared by every base scene. Editing only the referenced file
+invalidates those types on the next build.
+
+Godot knows the name of a GDExtension class but the scene file cannot name its Zig module.
+Map those names once when a scene contains your own classes:
+
+```zig
+const SceneTypes = struct {
+    pub const Player = PlayerNode;
+    pub const Hud = HudNode;
+};
+children: SceneWith(@embedFile("Main.tscn"), SceneTypes) = .{},
+```
+
+`Child` remains right for a node added at runtime or reached before it enters the tree.
 
 Four shapes in all, and which applies depends only on what you know at compile time:
 

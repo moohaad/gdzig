@@ -51,9 +51,9 @@
 //!
 //! [`Scene(@embedFile("Main.tscn"))`](scene.zig) builds a struct of these from
 //! the file, so the paths are not written out at all and a rename fails the
-//! build. `Child` remains the right tool for what a scene file cannot type: an
-//! instanced sub-scene, a node inherited from a base scene, or one added at
-//! runtime.
+//! build. With a project catalog it also follows instanced and inherited
+//! scenes; `SceneWith` supplies Zig types for your own registered classes.
+//! `Child` remains the right tool for a node added at runtime.
 
 const std = @import("std");
 

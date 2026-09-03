@@ -1,5 +1,9 @@
 # HEAD
 
+- **Instanced and inherited scenes stay typed**: `Scene` follows PackedScene
+  references through the generated project catalog, merges inherited children,
+  and invalidates when a referenced `.tscn` changes. `SceneWith` maps custom
+  Godot class names to their concrete Zig types.
 - **Input actions follow the Godot project**: when the gdzig dependency receives
   `godot_project`, it generates `godot.input.Action` from the current Input Map.
   Renamed, removed, quoted, and misspelled action names are checked by Zig rather

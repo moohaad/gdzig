@@ -38,6 +38,7 @@ pub const Children = @import("child.zig").Children;
 pub const SceneNode = @import("child.zig").SceneNode;
 pub const SceneNodeAs = @import("child.zig").SceneNodeAs;
 pub const Scene = @import("scene.zig").Scene;
+pub const SceneWith = @import("scene.zig").SceneWith;
 pub const rpc = @import("rpc.zig");
 pub const coro = @import("coro.zig");
 pub const collections = @import("collections.zig");
@@ -201,7 +202,7 @@ test {
 const std = @import("std");
 
 /// Automatically resolves `@onready` emulation for a given struct instance.
-/// 
+///
 /// Evaluates the `pub const onready = .{ .{ "field", "NodePath" } };` tuple
 /// and populates the fields via `self.base.getNodeOrNull` and `class.castTo`.
 pub fn resolveOnReady(self: anytype) void {
@@ -216,16 +217,16 @@ pub fn resolveOnReady(self: anytype) void {
             const entry = @field(onready, field.name);
             const prop_name = entry[0];
             const node_path = entry[1];
-            
+
             const PropType = @TypeOf(@field(self, prop_name));
             const is_optional = @typeInfo(PropType) == .optional;
             const PtrType = if (is_optional) std.meta.Child(PropType) else PropType;
-            
+
             var godot_str = builtin.String.fromNullTerminatedUtf8(node_path);
             defer godot_str.deinit();
             var node_path_obj = builtin.NodePath.fromString(godot_str);
             defer node_path_obj.deinit();
-            
+
             if (self.base.getNodeOrNull(node_path_obj)) |node| {
                 if (class.castTo(std.meta.Child(PtrType), node)) |cast_node| {
                     @field(self, prop_name) = cast_node;
@@ -236,17 +237,17 @@ pub fn resolveOnReady(self: anytype) void {
 }
 
 /// Loads a PackedScene from the given path, instantiates it, and safely downcasts
-/// it to the requested type `T`. If the load or cast fails, it will free the 
+/// it to the requested type `T`. If the load or cast fails, it will free the
 /// instantiated node (if it was created) and return `null`.
 pub fn instantiateAs(comptime T: type, comptime scene_path: [:0]const u8) ?*T {
     var pscene = load(class.PackedScene, scene_path) orelse return null;
     defer pscene.deinit();
-    
+
     var instance = pscene.get().instantiate(.{}) orelse return null;
     if (class.castTo(T, instance)) |narrowed| {
         return narrowed;
     }
-    
+
     instance.destroy();
     return null;
 }
@@ -256,7 +257,7 @@ pub fn instantiateAs(comptime T: type, comptime scene_path: [:0]const u8) ?*T {
 pub fn callRpc(self: anytype, comptime method_name: [:0]const u8, args: anytype) void {
     var method_sn = builtin.StringName.fromLatin1(method_name);
     defer method_sn.deinit();
-    
+
     const node = class.castTo(class.Node, self.base) orelse return;
     _ = @call(.auto, class.Node.rpc, .{ node, method_sn } ++ args) catch {};
 }
@@ -266,7 +267,7 @@ pub fn callRpc(self: anytype, comptime method_name: [:0]const u8, args: anytype)
 pub fn callRpcId(self: anytype, peer_id: i64, comptime method_name: [:0]const u8, args: anytype) void {
     var method_sn = builtin.StringName.fromLatin1(method_name);
     defer method_sn.deinit();
-    
+
     const node = class.castTo(class.Node, self.base) orelse return;
     _ = @call(.auto, class.Node.rpcId, .{ node, peer_id, method_sn } ++ args) catch {};
 }
@@ -295,7 +296,7 @@ pub fn cleanup(obj: anytype) void {
             cleanup(obj.*);
             return;
         }
-        
+
         switch (@typeInfo(ChildT)) {
             .@"struct", .@"union", .@"enum", .@"opaque" => {},
             else => return,
@@ -466,7 +467,6 @@ pub fn coerceNodePath(val: anytype) CoercedNodePath {
     @compileError("Cannot coerce " ++ @typeName(T) ++ " to NodePath");
 }
 
-
 fn isStringish(comptime T: type) bool {
     switch (@typeInfo(T)) {
         .pointer => |p| {
@@ -474,11 +474,11 @@ fn isStringish(comptime T: type) bool {
             if (p.size == .one) {
                 switch (@typeInfo(p.child)) {
                     .array => |a| if (a.child == u8) return true,
-                    else => {}
+                    else => {},
                 }
             }
         },
-        else => {}
+        else => {},
     }
     return false;
 }
