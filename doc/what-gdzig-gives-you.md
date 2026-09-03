@@ -469,6 +469,42 @@ metadata is consumed. If a field's type changed and its saved value no longer
 decodes, gdzig leaves both the current field and the metadata untouched so the
 last good copy remains recoverable.
 
+When the private state itself changes shape, opt the class into versioned
+migrations by declaring `persist_version` and `migratePersisted` together:
+
+```zig
+pub const persist_version: u32 = 2;
+
+pub fn migratePersisted(
+    from_version: u32,
+    state: *godot.persist.Migration,
+) !void {
+    switch (from_version) {
+        // Version 0 is metadata written before this class had a version.
+        0 => _ = try state.rename("hit_points", "health"),
+        // Each case performs exactly one step: here, v1 becomes v2.
+        1 => if (state.get(i64, "health")) |health| {
+            try state.set("health", health * 2);
+        },
+        else => return error.UnsupportedPersistVersion,
+    }
+}
+```
+
+Keep version numbers monotonic and keep every old step: gdzig calls the hook
+once for each missing version. `Migration` also provides `getVariant`,
+`setVariant`, and `remove`; `rename` preserves a value without decoding it.
+Values returned by `get` transfer ownership for owning types, and a Variant
+returned by `getVariant` must be deinitialized by the caller.
+
+The migration is transactional. gdzig stages all steps, verifies that every
+current field can decode, then commits and restores. A hook error or an
+incompatible result keeps the complete original state for a later fix. State
+tagged with a version newer than the running library is likewise retained and
+never silently downgraded. A later `autoPersist` also refuses to overwrite an
+unconsumed recovery snapshot; rename or remove obsolete keys in their migration
+step so a successful restore consumes the whole snapshot.
+
 ## Also worth knowing
 
 * [memory.md](memory.md) -- allocators, and which side owns what.

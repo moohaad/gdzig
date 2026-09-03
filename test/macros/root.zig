@@ -8,6 +8,7 @@
 
 pub fn register(r: *gdzig.extension.Registry) void {
     r.autoRegister(PersistNode);
+    r.autoRegister(MigratingNode);
     r.autoRegister(BindNode);
 }
 
@@ -158,6 +159,120 @@ test "autoRestore preserves metadata that cannot be decoded" {
     try testing.expectEqual(@as(i64, 42), remaining.as(i64).?);
 }
 
+test "versioned persistence records and consumes the current schema version" {
+    ensureRegistered();
+
+    const node = try MigratingNode.create();
+    defer node.destroy();
+
+    node.health = 9;
+    gdzig.autoPersist(node);
+
+    const version_key = StringName.fromComptimeLatin1("gdzig_persist__version");
+    try testing.expect(node.base.hasMeta(version_key.*));
+    var version = node.base.getMeta(version_key.*, .{});
+    defer version.deinit();
+    try testing.expectEqual(@as(i64, 2), version.as(i64).?);
+
+    node.health = 0;
+    gdzig.autoRestore(node);
+
+    try testing.expectEqual(@as(i64, 9), node.health);
+    try testing.expect(!node.base.hasMeta(version_key.*));
+}
+
+test "autoRestore applies every missing persistence migration in order" {
+    ensureRegistered();
+
+    const node = try MigratingNode.create();
+    defer node.destroy();
+
+    const old_key = StringName.fromComptimeLatin1("gdzig_persist_hit_points");
+    const new_key = StringName.fromComptimeLatin1("gdzig_persist_health");
+    var old_value: Variant = .init(i64, 21);
+    defer old_value.deinit();
+    node.base.setMeta(old_key.*, old_value);
+
+    gdzig.autoRestore(node);
+
+    try testing.expectEqual(@as(i64, 42), node.health);
+    try testing.expect(!node.base.hasMeta(old_key.*));
+    try testing.expect(!node.base.hasMeta(new_key.*));
+}
+
+test "a failed persistence migration retains the original metadata atomically" {
+    ensureRegistered();
+
+    const node = try MigratingNode.create();
+    defer node.destroy();
+
+    const old_key = StringName.fromComptimeLatin1("gdzig_persist_hit_points");
+    const new_key = StringName.fromComptimeLatin1("gdzig_persist_health");
+    var old_value: Variant = .init(i64, 13);
+    defer old_value.deinit();
+    node.base.setMeta(old_key.*, old_value);
+    node.health = 7;
+
+    gdzig.autoRestore(node);
+
+    try testing.expectEqual(@as(i64, 7), node.health);
+    try testing.expect(node.base.hasMeta(old_key.*));
+    try testing.expect(!node.base.hasMeta(new_key.*));
+    var retained = node.base.getMeta(old_key.*, .{});
+    defer retained.deinit();
+    try testing.expectEqual(@as(i64, 13), retained.as(i64).?);
+
+    // A later destroy/reload must not replace the recovery copy with state
+    // from the instance whose restore failed.
+    node.health = 99;
+    gdzig.autoPersist(node);
+    try testing.expect(node.base.hasMeta(old_key.*));
+    try testing.expect(!node.base.hasMeta(new_key.*));
+}
+
+test "an incompatible migrated value rolls the migration back" {
+    ensureRegistered();
+
+    const node = try MigratingNode.create();
+    defer node.destroy();
+
+    const old_key = StringName.fromComptimeLatin1("gdzig_persist_hit_points");
+    const new_key = StringName.fromComptimeLatin1("gdzig_persist_health");
+    var old_value: Variant = .init(f64, 3.5);
+    defer old_value.deinit();
+    node.base.setMeta(old_key.*, old_value);
+    node.health = 7;
+
+    gdzig.autoRestore(node);
+
+    try testing.expectEqual(@as(i64, 7), node.health);
+    try testing.expect(node.base.hasMeta(old_key.*));
+    try testing.expect(!node.base.hasMeta(new_key.*));
+}
+
+test "a future persistence version is retained instead of downgraded" {
+    ensureRegistered();
+
+    const node = try MigratingNode.create();
+    defer node.destroy();
+
+    const health_key = StringName.fromComptimeLatin1("gdzig_persist_health");
+    const version_key = StringName.fromComptimeLatin1("gdzig_persist__version");
+    var health: Variant = .init(i64, 99);
+    defer health.deinit();
+    var version: Variant = .init(i64, 3);
+    defer version.deinit();
+    node.base.setMeta(health_key.*, health);
+    node.base.setMeta(version_key.*, version);
+    node.health = 7;
+
+    gdzig.autoRestore(node);
+
+    try testing.expectEqual(@as(i64, 7), node.health);
+    try testing.expect(node.base.hasMeta(health_key.*));
+    try testing.expect(node.base.hasMeta(version_key.*));
+}
+
 test "Pool destroys what it holds when it is deinitialised" {
     var pool = try gdzig.Pool(Node).init(allocator, 3);
 
@@ -292,6 +407,36 @@ const PersistNode = struct {
     }
 
     pub fn destroy(self: *PersistNode) void {
+        self.base.destroy();
+        allocator.destroy(self);
+    }
+};
+
+const MigratingNode = struct {
+    base: *Node,
+    health: i64 = 0,
+
+    pub const persist_version: u32 = 2;
+
+    pub fn migratePersisted(from_version: u32, state: *gdzig.persist.Migration) !void {
+        switch (from_version) {
+            0 => _ = try state.rename("hit_points", "health"),
+            1 => if (state.get(i64, "health")) |health| {
+                if (health == 13) return error.DeliberateMigrationFailure;
+                try state.set("health", health * 2);
+            },
+            else => return error.UnsupportedPersistVersion,
+        }
+    }
+
+    pub fn create() !*MigratingNode {
+        const self = try allocator.create(MigratingNode);
+        self.* = .{ .base = Node.init() };
+        self.base.setInstance(MigratingNode, self);
+        return self;
+    }
+
+    pub fn destroy(self: *MigratingNode) void {
         self.base.destroy();
         allocator.destroy(self);
     }

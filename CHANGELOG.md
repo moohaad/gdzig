@@ -1,5 +1,11 @@
 # HEAD
 
+- **Hot-reload state has versioned, transactional migrations**: classes can
+  declare `persist_version` with a stepwise `migratePersisted` hook to rename,
+  remove, or transform persisted fields. Legacy state starts at version zero;
+  failed migrations, incompatible results, and state from a newer library are
+  retained instead of being partially restored, downgraded, or overwritten by
+  the replacement instance on its next teardown.
 - **Coroutines run across native platforms on `zio.coro`**: the pinned Zig 0.16
   branch supplies context switching and guarded, grow-on-demand stacks while
   Godot remains the scheduler. Zio also preserves Windows TEB stack metadata;
