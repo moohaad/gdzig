@@ -145,8 +145,11 @@ coro.wait(self.base, 0.4, .{});
 coro.awaitSignal(tween, Tween.Finished);
 ```
 
-Straight-line, in place of a timer and a second function to receive its timeout. Windows only
-for now; `coro.supported` says so at comptime.
+Straight-line, in place of a timer and a second function to receive its timeout. Native
+targets use the low-level `zio.coro` layer for context switching and guarded,
+grow-on-demand stacks; Godot remains the scheduler and resumes each coroutine from the
+signal callback. WebAssembly still needs an explicit state machine; `coro.supported`
+exposes that choice at comptime.
 
 ## "I need to pass a subclass where a base is wanted"
 

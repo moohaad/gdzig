@@ -86,9 +86,13 @@
 //!
 //! ## Platform
 //!
-//! Windows only for now, on Win32 fibers, which provide context switching
-//! without assembly. The other targets need hand-written switching per
-//! architecture; the Godot-side design above is what had to be proven first.
+//! Native targets use `zio.coro` for context switching and guarded,
+//! grow-on-demand stacks. Godot still owns the event loop: gdzig only steps a
+//! coroutine when it starts or when the signal it parked on is emitted.
+//!
+//! WebAssembly remains unsupported: wasm32 has no native stack switcher and
+//! browser stack switching requires Asyncify or JSPI rather than a native CPU
+//! context. Check `supported` at comptime when one source also targets Web.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -104,40 +108,65 @@ const SceneTreeTimer = gdzig.class.SceneTreeTimer;
 const StringName = gdzig.builtin.StringName;
 const Variant = gdzig.builtin.Variant;
 
-pub const supported = builtin.os.tag == .windows;
+const supported_os = switch (builtin.os.tag) {
+    .windows,
+    .linux,
+    .macos,
+    .ios,
+    .tvos,
+    .watchos,
+    .visionos,
+    .freebsd,
+    .netbsd,
+    .openbsd,
+    .dragonfly,
+    .illumos,
+    => true,
+    else => false,
+};
+const supported_arch = switch (builtin.cpu.arch) {
+    .x86_64,
+    .x86,
+    .aarch64,
+    .arm,
+    .thumb,
+    .riscv64,
+    .riscv32,
+    .loongarch64,
+    .powerpc64,
+    .powerpc64le,
+    => true,
+    else => false,
+};
+pub const supported = supported_os and supported_arch;
 
-/// The fiber API, declared only where it exists.
-///
-/// Behind a `supported` check rather than left at container scope: `.winapi`
-/// resolves per target, and on aarch64 it becomes `aarch64_aapcs_win`, which
-/// the LLVM backend rejects outright. A declaration nothing calls was still
-/// enough to fail the build -- so gdzig would not compile for arm64 Android or
-/// arm64 Linux at all, however carefully the caller guarded on `supported`.
-/// x86_64 happened to tolerate it, which is why this went unnoticed.
-const win32 = if (supported) struct {
-    extern "kernel32" fn ConvertThreadToFiber(lpParameter: ?*anyopaque) callconv(.winapi) ?*anyopaque;
-    /// `CreateFiberEx` rather than `CreateFiber`, which takes only a commit size
-    /// and reserves whatever the *host executable's* PE header says -- Godot's
-    /// number, not ours, and megabytes of address space per parked coroutine.
-    extern "kernel32" fn CreateFiberEx(
-        dwStackCommitSize: usize,
-        dwStackReserveSize: usize,
-        dwFlags: u32,
-        lpStartAddress: *const fn (?*anyopaque) callconv(.winapi) void,
-        lpParameter: ?*anyopaque,
-    ) callconv(.winapi) ?*anyopaque;
-    extern "kernel32" fn SwitchToFiber(lpFiber: *anyopaque) callconv(.winapi) void;
-    extern "kernel32" fn DeleteFiber(lpFiber: *anyopaque) callconv(.winapi) void;
-    extern "kernel32" fn IsThreadAFiber() callconv(.winapi) i32;
-} else struct {};
+/// Keep zio out of unsupported builds entirely: merely instantiating its
+/// context type intentionally rejects CPUs without a switcher.
+const zio_coro = if (supported) @import("zio").coro else struct {
+    const Context = struct { stack_info: void = {} };
+    const Coroutine = struct {
+        context: Context = .{},
+        parent_context_ptr: *Context,
 
-/// `GetCurrentFiber` is a TEB macro rather than an exported symbol; on x86-64
-/// the fiber pointer lives at GS:[0x20].
-fn currentFiber() ?*anyopaque {
-    return asm volatile ("movq %%gs:0x20, %[ret]"
-        : [ret] "=r" (-> ?*anyopaque),
-    );
-}
+        fn setup(_: *@This(), _: anytype, _: ?*anyopaque) void {}
+        fn step(_: *@This()) void {
+            unreachable;
+        }
+        fn yield(_: *@This()) void {
+            unreachable;
+        }
+        fn deinit(_: *@This()) void {}
+        fn clearCurrent() void {}
+    };
+
+    fn stackAlloc(_: *void, _: usize, _: usize) !void {}
+    fn stackFree(_: void) void {}
+    fn setupStackGrowth() !void {}
+    fn cleanupStackGrowth() void {}
+};
+
+var main_context: zio_coro.Context = undefined;
+var stack_growth_ready = false;
 
 /// The coroutine currently executing, or null on the plain stack.
 ///
@@ -147,22 +176,15 @@ fn currentFiber() ?*anyopaque {
 /// thread-aware, not just this pointer.
 var current: ?*Coro = null;
 
-/// The fiber for the main thread's stack. A thread must be converted to a
-/// fiber before it can switch to one, so this is filled in the first time a
-/// coroutine starts. Where a coroutine parks *to* is `Coro.caller`, not this.
-var main_fiber: ?*anyopaque = null;
-
-/// Physical memory a coroutine's stack starts with. The rest is faulted in on
-/// demand at the guard page, exactly as a thread stack grows, so this is a
-/// floor and not a budget.
+/// Physical memory a zio coroutine stack starts with. The rest is committed
+/// on demand as the guarded stack grows.
 pub const default_stack_commit = 4 * 1024;
 
 /// Address space a coroutine's stack may grow into, and the hard ceiling on how
 /// deep it can recurse -- past this is a stack overflow.
 ///
-/// Generous on purpose: reserving costs address space rather than memory, and
-/// these stacks run Godot's C++, whose depth is not ours to predict. Trimming
-/// it saves nothing that `default_stack_commit` does not already save.
+/// Generous on purpose: reserving address space is cheap, and these stacks run
+/// Godot's C++, whose depth is not ours to predict.
 pub const default_stack_reserve = 1024 * 1024;
 
 var live_count: usize = 0;
@@ -220,8 +242,9 @@ pub fn cancelAll() usize {
     while (live) |coro| {
         if (coro == current) {
             // Being torn down from inside a coroutine: this fiber is the one
-            // executing and cannot delete itself. Drop it from the list so the
-            // walk finishes; the mapping goes with the library regardless.
+            // executing and cannot delete its own stack. Drop it from the list
+            // so the walk finishes; teardown leaks this one mapping rather
+            // than returning through code that is being unloaded.
             unlinkLive(coro);
             live_count -= 1;
             cancelled += 1;
@@ -251,12 +274,18 @@ pub fn cancelAll() usize {
     return cancelled;
 }
 
+/// Removes zio's per-thread stack-growth support after all coroutines have
+/// been cancelled. Extension teardown calls this before unloading gdzig so a
+/// POSIX signal handler can never point back into an unmapped library.
+pub fn cleanupThread() void {
+    if (!stack_growth_ready) return;
+    zio_coro.Coroutine.clearCurrent();
+    zio_coro.cleanupStackGrowth();
+    stack_growth_ready = false;
+}
+
 pub const Coro = struct {
-    fiber: ?*anyopaque = null,
-    /// The fiber that most recently entered this one, and so the one parking
-    /// returns to. Usually the main stack, but another coroutine when one
-    /// spawns or resumes another.
-    caller: ?*anyopaque = null,
+    runtime: zio_coro.Coroutine,
     state: State = .ready,
     allocator: std.mem.Allocator,
     /// Type-erased body plus its arguments, freed once the body returns.
@@ -314,13 +343,8 @@ pub const Coro = struct {
         unlinkLive(self);
         live_count -= 1;
         self.releaseParked();
-        // Guarded, not just because there is no fiber to delete off Windows,
-        // but because naming `DeleteFiber` at all fails to compile there --
-        // `destroy` is reachable from `cancelAll`, which teardown calls
-        // unconditionally.
-        if (comptime supported) {
-            if (self.fiber) |f| win32.DeleteFiber(f);
-        }
+        self.runtime.deinit();
+        zio_coro.stackFree(self.runtime.context.stack_info);
         self.free_frame(self.allocator, self.frame);
         self.allocator.destroy(self);
     }
@@ -382,7 +406,7 @@ pub const Handle = struct {
         self.task.joiners = coro;
         coro.state = .suspended;
 
-        win32.SwitchToFiber(coro.caller.?);
+        coro.runtime.yield();
     }
 
     /// Whether the body has returned. False for a coroutine that is merely
@@ -457,10 +481,9 @@ fn create(
     args: std.meta.ArgsTuple(@TypeOf(func)),
 ) !*Coro {
     if (comptime !supported) @compileError(
-        "gdzig coroutines are Windows-only for now: they need stackful context " ++
-            "switching, which Win32 fibers provide and other targets need hand-written " ++
-            "assembly for. Use an explicit state machine, or `gdzig.coro.supported` to " ++
-            "pick at comptime.",
+        "gdzig coroutines need a native OS and CPU supported by zio.coro. WebAssembly " ++
+            "and other targets without native stack switching require an explicit state " ++
+            "machine; use `gdzig.coro.supported` to pick at comptime.",
     );
 
     const Args = @TypeOf(args);
@@ -508,8 +531,17 @@ fn create(
         frame.owner_ids[slot] = instanceIdOf(args[arg_index]);
     }
 
-    const coro = try allocator.create(Coro);
+    const coro = allocator.create(Coro) catch |err| {
+        allocator.destroy(frame);
+        return err;
+    };
     coro.* = .{
+        // Zeroing matters on Windows: the initial context includes FiberData,
+        // which zio restores into the TEB on the first switch.
+        .runtime = .{
+            .context = std.mem.zeroes(zio_coro.Context),
+            .parent_context_ptr = &main_context,
+        },
         .allocator = allocator,
         .frame = @ptrCast(frame),
         .run = Frame.run,
@@ -517,15 +549,25 @@ fn create(
         .owners_alive = Frame.ownersAlive,
     };
 
-    if (main_fiber == null) {
-        main_fiber = if (win32.IsThreadAFiber() != 0) currentFiber() else win32.ConvertThreadToFiber(null);
+    if (!stack_growth_ready) {
+        zio_coro.setupStackGrowth() catch |err| {
+            allocator.destroy(frame);
+            allocator.destroy(coro);
+            return err;
+        };
+        stack_growth_ready = true;
     }
 
-    coro.fiber = win32.CreateFiberEx(default_stack_commit, default_stack_reserve, 0, &entry, @ptrCast(coro)) orelse {
+    zio_coro.stackAlloc(
+        &coro.runtime.context.stack_info,
+        default_stack_reserve,
+        default_stack_commit,
+    ) catch |err| {
         allocator.destroy(frame);
         allocator.destroy(coro);
-        return error.FiberCreationFailed;
+        return err;
     };
+    coro.runtime.setup(&zioEntry, @ptrCast(coro));
 
     linkLive(coro);
     live_count += 1;
@@ -548,13 +590,15 @@ fn enter(coro: *Coro) void {
     }
 
     const previous = current;
+    const from = if (previous) |parent| &parent.runtime.context else &main_context;
     current = coro;
     coro.state = .running;
-    coro.caller = currentFiber().?;
+    coro.runtime.parent_context_ptr = from;
 
-    win32.SwitchToFiber(coro.fiber.?);
+    coro.runtime.step();
 
     current = previous;
+    if (previous == null) zio_coro.Coroutine.clearCurrent();
     // Reclaimed here rather than inside the fiber: a fiber cannot delete
     // itself while it is the one executing.
     if (coro.state == .done or coro.state == .cancelled) finish(coro);
@@ -588,19 +632,19 @@ fn finish(coro: *Coro) void {
     }
 }
 
-fn entry(param: ?*anyopaque) callconv(.winapi) void {
+fn zioEntry(_: *zio_coro.Coroutine, param: ?*anyopaque) void {
     const coro: *Coro = @ptrCast(@alignCast(param.?));
+    runEntry(coro);
+}
+
+fn runEntry(coro: *Coro) noreturn {
     coro.run(coro.frame);
     coro.state = .done;
 
-    // Read before switching away: `enter` frees the struct once control lands
-    // back, and this local lives on a stack nothing ever returns to.
-    const back = coro.caller.?;
-
-    // A fiber procedure must never return -- doing so ends the thread. The
-    // loop is unreachable in practice: `enter` deletes this fiber as soon as
-    // control is back with the caller.
-    while (true) win32.SwitchToFiber(back);
+    // A coroutine entry must never return. The loop is unreachable in
+    // practice: `enter` reclaims this stack after the first yield lands back
+    // with its caller.
+    while (true) coro.runtime.yield();
 }
 
 /// One parked `awaitSignal`, owned by the callable Godot holds onto.
@@ -797,7 +841,7 @@ fn park(obj: anytype, comptime S: type, result: *S, owned: ?*RefCounted) void {
     // Back to whoever entered this coroutine, not to the main stack: when a
     // coroutine spawns or resumes another, the entering fiber is the outer
     // coroutine's, and jumping past it would strand it mid-`enter`.
-    win32.SwitchToFiber(coro.caller.?);
+    coro.runtime.yield();
 
     // Resumed. The callable that woke this coroutine is on its way out and its
     // `Waiter` goes with it, so the back-pointer must not outlive the park.

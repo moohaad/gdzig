@@ -23,6 +23,7 @@ pub fn build(b: *Build) !void {
 
     const check_step = b.step("check", "Check the build without installing artifacts");
     const test_step = b.step("test", "Run unit tests");
+    const coro_compile_step = b.step("test-coro-compile", "Compile coroutine tests for the selected target without running them");
     const audit_step = b.step("audit", "Build the extension_api.json auditing tool");
 
     const manifest_tests = b.addTest(.{
@@ -58,6 +59,10 @@ pub fn build(b: *Build) !void {
 
     const casez = b.dependency("casez", .{});
     const oopz = b.dependency("oopz", .{});
+    const zio = b.dependency("zio", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     //
     // Godot
@@ -595,6 +600,7 @@ pub fn build(b: *Build) !void {
             .{ .name = "oopz", .module = oopz.module("oopz") },
             .{ .name = "project_actions", .module = project_actions_mod },
             .{ .name = "project_scenes", .module = project_scenes_mod },
+            .{ .name = "zio", .module = zio.module("zio") },
         },
     });
     gdzig_mod.addImport("gdzig", gdzig_mod);
@@ -633,6 +639,22 @@ pub fn build(b: *Build) !void {
         const tests_common = b.addTest(.{ .root_module = common_mod });
         tests_gdzig_run = b.addRunArtifact(tests_gdzig);
         tests_common_run = b.addRunArtifact(tests_common);
+
+        const coro_target_mod = b.createModule(.{
+            .root_source_file = b.path("test/fiber/root.zig"),
+            .target = target,
+            .optimize = optimize,
+            .pic = true,
+            .imports = &.{.{ .name = "gdzig", .module = gdzig_mod }},
+        });
+        const coro_target_tests = b.addTest(.{
+            .name = "coro-target-compile",
+            .root_module = coro_target_mod,
+            .emit_object = true,
+            .use_llvm = true,
+        });
+        coro_target_tests.entry = .disabled;
+        coro_compile_step.dependOn(&coro_target_tests.step);
 
         const io = b.graph.io;
         var tests_dir = try b.build_root.handle.openDir(io, "test", .{ .iterate = true });

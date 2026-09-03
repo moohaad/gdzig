@@ -199,8 +199,8 @@ pub fn _enter_tree(self: *ExampleNode) void {
         coro.spawn(self.allocator, afterDelay, .{ self, delay }) catch |err|
             std.log.err("example: {s}", .{@errorName(err)});
     } else {
-        // The same wait where coroutines are not supported yet, which is every
-        // platform but Windows. This is the shape `coro` exists to replace.
+        // The same wait on WebAssembly or an unsupported CPU target. This is
+        // the state-machine shape `coro` exists to replace on native targets.
         var timer = self.base.getTree().?.createTimer(delay, .{}).?;
         defer timer.deinit();
         timer.get().connect(SceneTreeTimer.Timeout, self, &onTimeout);

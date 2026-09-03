@@ -1,5 +1,10 @@
 # HEAD
 
+- **Coroutines run across native platforms on `zio.coro`**: the pinned Zig 0.16
+  branch supplies context switching and guarded, grow-on-demand stacks while
+  Godot remains the scheduler. Zio also preserves Windows TEB stack metadata;
+  the same lifecycle, signal, join, cancellation, and deep-stack tests now run
+  on every supported host. WebAssembly remains an explicit state-machine path.
 - **Instanced and inherited scenes stay typed**: `Scene` follows PackedScene
   references through the generated project catalog, merges inherited children,
   and invalidates when a referenced `.tscn` changes. `SceneWith` maps custom

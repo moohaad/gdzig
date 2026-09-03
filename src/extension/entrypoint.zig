@@ -79,6 +79,7 @@ fn exit(_: ?*anyopaque, level: gdzig.c.GDExtensionInitializationLevel) callconv(
                 "were abandoned where they waited, so anything they still held is leaked.",
             .{stranded},
         );
+        gdzig.coro.cleanupThread();
 
         // Last, because unregistering names classes and methods and so interns
         // more literals on the way out. Releasing before that would drop the

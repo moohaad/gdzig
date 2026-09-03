@@ -4,13 +4,11 @@
 //! can park mid-execution, hand control back to Godot, and resume from inside a
 //! later emission. These cover what it did not -- several coroutines at once,
 //! one awaiting inside another, the awaited object dying while parked, the
-//! coroutine's *own* object dying while parked, a frame larger than the
-//! committed stack, signal arguments, and `join`.
-//!
-//! Windows-only, like `coro` itself.
+//! coroutine's *own* object dying while parked, a large suspended frame,
+//! signal arguments, and `join`. They run on every native target supported by
+//! the pinned zio coroutine backend.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 
 pub fn register(r: *gdzig.extension.Registry) void {
@@ -205,10 +203,9 @@ test "awaiting a call needs no primitive: the callee parks its caller" {
     try testing.expectEqual(@as(usize, 0), coro.liveCount());
 }
 
-/// Uses far more stack than `default_stack_commit`, and reads it back after
-/// parking. A frame this size also drags in `__chkstk`, which probes each page
-/// against the TEB's stack limit -- so this covers the bookkeeping a hand-rolled
-/// context switch would have to get right, not just the growth itself.
+/// Uses a 128 KiB frame and reads it back after parking. On Windows this also
+/// exercises `__chkstk` and zio's TEB bookkeeping; on other native targets it
+/// proves the growable stack survives a context switch intact.
 fn deepFrame(emitter: *Emitter, slot: *u8) void {
     var scratch: [128 * 1024]u8 = undefined;
     for (&scratch, 0..) |*b, i| b.* = @truncate(i);
@@ -222,7 +219,7 @@ fn deepFrame(emitter: *Emitter, slot: *u8) void {
     slot.* = 2;
 }
 
-test "a coroutine can use more stack than it commits" {
+test "a coroutine preserves a deep frame across a park" {
     if (comptime !coro.supported) return error.SkipZigTest;
     ensureRegistered();
 

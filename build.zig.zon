@@ -26,6 +26,12 @@
             .url = "git+https://github.com/abhinav/temp.zig#b9ab01063f9b1ef9015b08c6cf62f681a946fafc",
             .hash = "temp-0.4.0-Ogl1FVeIAAAz7NKVplohFzIpVJikGN3WMJzPBr7ZRzw6",
         },
+        // zio's main branch targets Zig 0.16; its zig-0.17 branch follows
+        // compiler master. Pin the reviewed 0.16 commit rather than a branch.
+        .zio = .{
+            .url = "git+https://github.com/lalinsky/zio#9af2e66b3bb4f78bc153e9323cdf8fa9c89da9e4",
+            .hash = "zio-0.17.0-xHbVVMs7KQDQv6kgwE6sVhFoTWa0cyHnc9c3T07cN2aI",
+        },
     },
 
     .paths = .{

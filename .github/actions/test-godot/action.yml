@@ -96,6 +96,17 @@ runs:
       shell: bash
       run: zig build test -Dgodot-path="$GODOT_BIN" --test-timeout 10m
 
+    # Native tests exercise zio on the host. Linux additionally compiles the
+    # complete coroutine suite for the other context layouts so an AArch64 or
+    # RISC-V-only break does not wait for a matching runner to reveal it.
+    - name: Cross-compile zio coroutine targets
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        zig build test-coro-compile -Dtarget=aarch64-linux-gnu -Dgodot-path="$GODOT_BIN"
+        zig build test-coro-compile -Dtarget=riscv64-linux-gnu -Dgodot-path="$GODOT_BIN"
+
     - name: Compile documentation examples
       shell: bash
       run: zig build test-docs -Dgodot-path="$GODOT_BIN"
