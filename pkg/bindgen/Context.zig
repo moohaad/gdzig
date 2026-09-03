@@ -27,6 +27,9 @@ function_imports: StringHashMap(Imports) = .empty,
 builtins: StringArrayHashMap(Builtin) = .empty,
 builtin_sizes: StringArrayHashMap(struct { size: usize, members: StringArrayHashMap(struct { offset: usize, meta: []const u8 }) }) = .empty,
 classes: StringArrayHashMap(Class) = .empty,
+/// Null generates the full class surface. Otherwise contains the transitive
+/// closure selected by `-Dclasses`, keyed by Godot API class name.
+selected_classes: ?StringHashMap(void) = null,
 enums: StringArrayHashMap(Enum) = .empty,
 flags: StringArrayHashMap(Flag) = .empty,
 /// Backing width of every bitfield, keyed exactly as it appears after
@@ -84,6 +87,7 @@ pub fn build(arena: *ArenaAllocator, api: GodotApi, config: Config) !Context {
     try self.castModules();
 
     try self.collectImports();
+    try self.selectClasses();
 
     return self;
 }
@@ -94,6 +98,113 @@ pub fn allocator(self: *const Context) Allocator {
 
 pub fn rawAllocator(self: *const Context) Allocator {
     return self.arena.child_allocator;
+}
+
+/// Whether codegen should emit this Godot API class. The complete class model
+/// remains available so names and documentation links still resolve while a
+/// selective build is being generated.
+pub fn isClassSelected(self: *const Context, api_name: []const u8) bool {
+    const selected = self.selected_classes orelse return true;
+    return selected.contains(api_name);
+}
+
+fn selectClasses(self: *Context) !void {
+    const filter = std.mem.trim(u8, self.config.classes, " \t\r\n");
+    if (filter.len == 0) return;
+
+    var selected: StringHashMap(void) = .empty;
+    var queue: ArrayList([]const u8) = .empty;
+    var requested: usize = 0;
+
+    var names = std.mem.splitScalar(u8, filter, ',');
+    while (names.next()) |raw_name| {
+        const name = std.mem.trim(u8, raw_name, " \t\r\n");
+        if (name.len == 0) continue;
+        requested += 1;
+
+        const api_name = self.resolveClassName(name) orelse {
+            std.log.err(
+                "unknown Godot class '{s}' in selective binding list; use a Godot name such as 'Node2D' or gdzig name such as 'Node2d'",
+                .{name},
+            );
+            return error.UnknownSelectedClass;
+        };
+        try enqueueClass(self.allocator(), &selected, &queue, api_name);
+    }
+
+    if (requested == 0) {
+        std.log.err("selective binding list contains no class names", .{});
+        return error.EmptyClassSelection;
+    }
+
+    // Registration and Variant object conversion use ClassDB even when the
+    // user's own class list does not mention it.
+    try enqueueClass(self.allocator(), &selected, &queue, "ClassDB");
+
+    // Non-class generated modules remain complete. Include the classes their
+    // public signatures require so filtering classes cannot break a builtin or
+    // utility module merely by importing gdzig.
+    for (self.builtins.values()) |*builtin| {
+        try self.enqueueImportedClasses(&selected, &queue, &builtin.imports);
+    }
+    for (self.modules.values()) |*module| {
+        try self.enqueueImportedClasses(&selected, &queue, &module.imports);
+    }
+    for (self.native_structures.values()) |*native| {
+        for (native.fields.items) |field| {
+            var bare = field.type;
+            if (std.mem.lastIndexOfScalar(u8, bare, ']')) |close| bare = bare[close + 1 ..];
+            bare = std.mem.trimStart(u8, bare, "?*");
+            if (std.mem.indexOfScalar(u8, bare, '.')) |dot| bare = bare[0..dot];
+            if (self.resolveClassName(bare)) |api_name| {
+                try enqueueClass(self.allocator(), &selected, &queue, api_name);
+            }
+        }
+    }
+
+    var cursor: usize = 0;
+    while (cursor < queue.items.len) : (cursor += 1) {
+        const class = self.classes.getPtr(queue.items[cursor]).?;
+        try self.enqueueImportedClasses(&selected, &queue, &class.imports);
+    }
+
+    self.selected_classes = selected;
+    logger.info(
+        "Selective bindings: {d} requested classes expanded to {d} required classes out of {d}",
+        .{ requested, selected.count(), self.classes.count() },
+    );
+}
+
+fn resolveClassName(self: *const Context, name: []const u8) ?[]const u8 {
+    if (self.classes.contains(name)) return name;
+    for (self.classes.values()) |class| {
+        if (std.mem.eql(u8, class.name, name)) return class.name_api;
+    }
+    return null;
+}
+
+fn enqueueImportedClasses(
+    self: *const Context,
+    selected: *StringHashMap(void),
+    queue: *ArrayList([]const u8),
+    imports: *const Imports,
+) !void {
+    var iterator = imports.iterator();
+    while (iterator.next()) |name| {
+        if (self.classes.contains(name.*)) {
+            try enqueueClass(self.allocator(), selected, queue, name.*);
+        }
+    }
+}
+
+fn enqueueClass(
+    alloc: Allocator,
+    selected: *StringHashMap(void),
+    queue: *ArrayList([]const u8),
+    api_name: []const u8,
+) !void {
+    const result = try selected.getOrPut(alloc, api_name);
+    if (!result.found_existing) try queue.append(alloc, api_name);
 }
 
 fn collectImports(self: *Context) !void {

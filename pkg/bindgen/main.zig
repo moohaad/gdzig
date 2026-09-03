@@ -31,8 +31,8 @@ pub fn main(init: std.process.Init) !void {
 
     const args = try init.minimal.args.toSlice(allocator);
 
-    if (args.len < 6) {
-        std.debug.print("Usage: bindgen <gdextension_interface.h> <extension_api.json> <mixins_root> <output_path> <float|double> <32|64> <quiet|verbose>\n", .{});
+    if (args.len < 8) {
+        std.debug.print("Usage: bindgen <gdextension_interface.h> <extension_api.json> <mixins_root> <output_path> <float|double> <32|64> <quiet|verbose> [class1,class2,...]\n", .{});
         return;
     }
 
@@ -83,6 +83,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("Output path: {s}\n", .{args[4]});
         std.debug.print("Interface: {s}\n", .{args[1]});
         std.debug.print("API JSON: {s}\n", .{args[2]});
+        if (config.classes.len > 0) std.debug.print("Selected classes: {s}\n", .{config.classes});
     }
 }
 

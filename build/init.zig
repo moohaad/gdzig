@@ -151,12 +151,14 @@ pub fn main(init: std.process.Init) !void {
         \\    const optimize = b.standardOptimizeOption(.{{}});
         \\    const godot_version = b.option([]const u8, "godot-version", "Godot version to download");
         \\    const godot_path = b.option([]const u8, "godot-path", "Path to a Godot executable");
+        \\    const godot_classes = b.option([]const u8, "godot-classes", "Comma-separated Godot classes to generate");
         \\
         \\    const gdzig_dep = b.dependency("gdzig", .{{
         \\        .target = target,
         \\        .optimize = optimize,
         \\        .@"godot-version" = godot_version,
         \\        .@"godot-path" = godot_path,
+        \\        .classes = godot_classes,
         \\        // Needed here as well as on `addExtension`, and not the same option:
         \\        // this one bakes the project's resource and Input Map names into the
         \\        // gdzig module. That lets `godot.res` reject a missing path and

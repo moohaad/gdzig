@@ -42,6 +42,7 @@ fn writeSurfaceGeneric(ctx: *const Context) !void {
 
     var groups: usize = 0;
     for (ctx.classes.values()) |*class| {
+        if (!ctx.isClassSelected(class.name_api)) continue;
         var wrote_header = false;
         for (class.functions.values()) |*function| {
             if (function.skip) continue;
@@ -80,6 +81,7 @@ fn writeSurfaceGeneric(ctx: *const Context) !void {
     try w.writeLine("pub fn all() void {");
     w.indent += 1;
     for (ctx.classes.values()) |*class| {
+        if (!ctx.isClassSelected(class.name_api)) continue;
         var any = false;
         for (class.functions.values()) |*function| {
             if (function.skip) continue;
@@ -485,6 +487,7 @@ fn writeClasses(ctx: *const Context) !void {
         try writeMixin(&w, "class.mixin.zig", .{}, ctx);
 
         for (ctx.classes.values()) |class| {
+            if (!ctx.isClassSelected(class.name_api)) continue;
             try w.printLine(
                 \\pub const {1s} = @import("class/{0s}.zig").{1s};
             , .{ class.module, class.name });
@@ -504,6 +507,7 @@ fn writeClasses(ctx: *const Context) !void {
     // class/[name].zig
     try ctx.config.output.createDirPath(ctx.config.io, "class");
     for (ctx.classes.values()) |*class| {
+        if (!ctx.isClassSelected(class.name_api)) continue;
         const filename = try std.fmt.allocPrint(ctx.rawAllocator(), "class/{s}.zig", .{class.module});
         defer ctx.rawAllocator().free(filename);
 

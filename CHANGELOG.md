@@ -1,5 +1,11 @@
 # HEAD
 
+- **Bindings can be generated for a selected class surface**: the dependency's
+  optional `classes` setting accepts comma-separated Godot or gdzig class names
+  and computes the transitive closure of ancestors and referenced classes.
+  Builtins, globals, utility functions, and native ABI structures stay complete;
+  unknown names fail during bindgen and omitted classes disappear from
+  `godot.class` instead of leaving broken generated imports.
 - **Hot-reload state has versioned, transactional migrations**: classes can
   declare `persist_version` with a stepwise `migratePersisted` hook to rename,
   remove, or transform persisted fields. Legacy state starts at version zero;

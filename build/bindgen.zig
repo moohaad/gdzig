@@ -64,6 +64,8 @@ pub const RunOptions = struct {
     headers: Build.LazyPath,
     precision: []const u8 = "float",
     architecture: []const u8 = "64",
+    /// Comma-separated Godot or gdzig class names. Null generates every class.
+    classes: ?[]const u8 = null,
 };
 
 /// Run bindgen and return the output directory containing generated bindings.
@@ -83,6 +85,7 @@ pub fn run(b: *Build, exe: *Build.Step.Compile, options: RunOptions) Build.LazyP
     cmd.addArg(options.precision);
     cmd.addArg(options.architecture);
     cmd.addArg(if (b.verbose) "verbose" else "quiet");
+    cmd.addArg(options.classes orelse "");
 
     return bindings_output;
 }

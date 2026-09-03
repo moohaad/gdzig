@@ -75,6 +75,20 @@ zig build
 godot --path . --headless --import
 ```
 
+The scaffold also exposes selective bindings for projects that use only a
+small part of Godot's class API:
+
+```sh
+zig build -Dgodot-classes=Node,Sprite2D,Camera2D
+```
+
+The option is comma-separated and accepts either Godot class names (`Node2D`)
+or their generated gdzig spellings (`Node2d`). Required base classes and types
+referenced by method, property, and signal signatures are included
+automatically. Builtin values, globals, utility functions, and native ABI
+structures are not filtered. Leave the option unset while exploring the API;
+an omitted class deliberately does not exist in `godot.class`.
+
 ## 3. A node
 
 Every gdzig node is a struct with two required fields:

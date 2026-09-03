@@ -81,6 +81,8 @@ const gdzig_dep = b.dependency("gdzig", .{
     .optimize = optimize,
     .@"godot-version" = b.option([]const u8, "godot-version", "Godot version to download"),
     .@"godot-path" = b.option([]const u8, "godot-path", "Path to a Godot executable"),
+    // Optional: omit for the full API. Dependencies and ancestors are added.
+    .classes = b.option([]const u8, "godot-classes", "Godot classes to generate"),
     // Absolute because a dependency resolves paths from its own build root.
     .godot_project = b.pathFromRoot("project"),
 });
@@ -124,6 +126,19 @@ compile-time `res://` checks. For example,
 `project.godot`; renamed and misspelled actions fail during compilation. The separate
 relative `godot_project` on `addExtension` makes scenes importable to `@embedFile` and
 runs project preflight checks.
+
+For smaller projects, pass a comma-separated class list to the dependency:
+
+```sh
+zig build -Dgodot-classes=CharacterBody3D,Camera3D,AnimationPlayer
+```
+
+Both Godot names (`GPUParticles2D`) and generated gdzig names
+(`GpuParticles2d`) are accepted. Bindgen automatically includes inheritance and
+every class referenced by the selected APIs, while builtins, global enums,
+utility functions, and native ABI structures remain available. An omitted
+class is absent from `godot.class`, so accidentally using it is a compile error.
+Leave the option unset for the complete Godot class surface.
 
 `godot.Scene(@embedFile("levels/Main.tscn"))` follows inherited scene bases and
 uses an instanced scene's root type for its generated `Child` field. For roots

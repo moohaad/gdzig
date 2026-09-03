@@ -16,6 +16,11 @@ pub fn build(b: *Build) !void {
     // invocation; CI runs it as its own step so regressions still gate.
     const surface_audit = b.option(bool, "surface-audit", "Type-check every generated declaration") orelse false;
     const godot_project = b.option([]const u8, "godot_project", "Path to the Godot project");
+    const selected_classes = b.option(
+        []const u8,
+        "classes",
+        "Comma-separated Godot classes to generate (dependencies are included automatically)",
+    );
 
     //
     // Steps
@@ -148,6 +153,7 @@ pub fn build(b: *Build) !void {
         .headers = headers,
         .precision = precision,
         .architecture = architecture,
+        .classes = selected_classes,
     });
 
     // Generated documentation links encode Zig autodoc declaration paths.
@@ -166,6 +172,30 @@ pub fn build(b: *Build) !void {
     run_doc_links_test.addDirectoryArg(b.path("src"));
     const doc_links_test_step = b.step("test-doc-links", "Check that generated documentation links resolve");
     doc_links_test_step.dependOn(&run_doc_links_test.step);
+
+    const selective_bindings = bindgen.run(b, bindgen_exe, .{
+        .headers = headers,
+        .precision = precision,
+        .architecture = architecture,
+        // Exercise the generated Zig spelling; the direct Godot spelling is
+        // the fast exact-name path and is covered by normal use.
+        .classes = "Node2d",
+    });
+    const selective_bindings_test_exe = b.addExecutable(.{
+        .name = "selective-bindings-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/selective_bindings_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_selective_bindings_test = b.addRunArtifact(selective_bindings_test_exe);
+    run_selective_bindings_test.addDirectoryArg(selective_bindings);
+    const selective_bindings_test_step = b.step(
+        "test-selective-bindings",
+        "Check selective class generation and its dependency closure",
+    );
+    selective_bindings_test_step.dependOn(&run_selective_bindings_test.step);
 
     //
     // API audit tool
@@ -489,6 +519,7 @@ pub fn build(b: *Build) !void {
     test_all_step.dependOn(registration_test_step);
     test_all_step.dependOn(header_cache_test_step);
     test_all_step.dependOn(doc_links_test_step);
+    test_all_step.dependOn(selective_bindings_test_step);
     test_all_step.dependOn(watch_test_step);
     test_all_step.dependOn(package_test_step);
 
@@ -604,6 +635,38 @@ pub fn build(b: *Build) !void {
         },
     });
     gdzig_mod.addImport("gdzig", gdzig_mod);
+
+    // Compile the reduced module as part of its integration gate. The textual
+    // audit above proves the graph is small and self-contained; this catches
+    // lazy Zig errors in maintained runtime files layered over that graph.
+    const selective_gdzig_files = b.addWriteFiles();
+    const selective_gdzig_combined = selective_gdzig_files.addCopyDirectory(b.path("src"), "gdzig", .{
+        .exclude_extensions = &.{".mixin.zig"},
+    });
+    _ = selective_gdzig_files.addCopyDirectory(selective_bindings, "gdzig", .{});
+    const selective_gdzig_mod = b.createModule(.{
+        .root_source_file = selective_gdzig_combined.path(b, "gdzig.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "build_options", .module = gdzig_options.createModule() },
+            .{ .name = "casez", .module = casez.module("casez") },
+            .{ .name = "gdextension", .module = gdextension_mod },
+            .{ .name = "common", .module = common_mod },
+            .{ .name = "oopz", .module = oopz.module("oopz") },
+            .{ .name = "project_actions", .module = project_actions_mod },
+            .{ .name = "project_scenes", .module = project_scenes_mod },
+            .{ .name = "zio", .module = zio.module("zio") },
+        },
+    });
+    selective_gdzig_mod.addImport("gdzig", selective_gdzig_mod);
+    const selective_gdzig_lib = b.addLibrary(.{
+        .name = "gdzig-selective-test",
+        .root_module = selective_gdzig_mod,
+        .linkage = .static,
+        .use_llvm = true,
+    });
+    selective_bindings_test_step.dependOn(&selective_gdzig_lib.step);
 
     const gdzig_lib = b.addLibrary(.{
         .name = "gdzig",

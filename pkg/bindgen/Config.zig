@@ -15,6 +15,8 @@ output: Io.Dir,
 io: Io,
 precision: Precision,
 verbosity: Verbosity,
+/// Comma-separated Godot or gdzig class names. Empty means the full surface.
+classes: []const u8,
 
 /// Address width, matching `-Darch`.
 pub const Arch = enum(u8) {
@@ -44,6 +46,7 @@ pub fn loadFromArgs(io: Io, args: []const [:0]const u8) !Config {
     // args[5]: precision, `float` or `double`
     // args[6]: architecture, `32` or `64`
     // args[7]: verbosity, `quiet` or `verbose`
+    // args[8]: optional comma-separated class filter
     //
     // Precision comes before architecture; see `build/bindgen.zig`, which is the
     // only caller. The two used to be read in this order but named the other way
@@ -57,6 +60,7 @@ pub fn loadFromArgs(io: Io, args: []const [:0]const u8) !Config {
     const precision = std.meta.stringToEnum(Config.Precision, args[5]) orelse std.debug.panic("Invalid precision '{s}', expected one of {any}", .{ args[5], std.meta.tags(Config.Precision) });
     const arch = std.meta.stringToEnum(Config.Arch, args[6]) orelse std.debug.panic("Invalid architecture '{s}', expected one of {any}", .{ args[6], std.meta.tags(Config.Arch) });
     const verbosity = std.meta.stringToEnum(Config.Verbosity, args[7]) orelse .quiet;
+    const classes = if (args.len > 8) args[8] else "";
 
     return .{
         .arch = arch,
@@ -67,6 +71,7 @@ pub fn loadFromArgs(io: Io, args: []const [:0]const u8) !Config {
         .io = io,
         .precision = precision,
         .verbosity = verbosity,
+        .classes = classes,
     };
 }
 
@@ -107,5 +112,6 @@ pub fn testConfig(io: Io, output: Dir) !Config {
         .io = io,
         .precision = .float,
         .verbosity = .quiet,
+        .classes = "",
     };
 }
