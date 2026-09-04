@@ -168,20 +168,17 @@ const ClassC = struct {
     }
 };
 
-/// Reports the address it was actually called with, as a string, so the test can
-/// compare without writing through a pointer that may be wrong.
 const VParent = struct {
-    base: *Object,
+    base: *Node,
+    ready_self: usize = 0,
 
-    pub fn _to_string(self: *VParent) ?String {
-        var buf: [32]u8 = undefined;
-        const text = std.fmt.bufPrintZ(&buf, "{d}", .{@intFromPtr(self)}) catch return null;
-        return String.fromLatin1(text);
+    pub fn _ready(self: *VParent) void {
+        self.ready_self = @intFromPtr(self);
     }
 
     pub fn create() !*VParent {
         const self: *VParent = allocator.create(VParent) catch @panic("out of memory");
-        self.* = .{ .base = Object.init() };
+        self.* = .{ .base = Node.init() };
         self.base.setInstance(VParent, self);
         return self;
     }
@@ -191,7 +188,7 @@ const VParent = struct {
     }
 };
 
-/// Inherits `_to_string` and pushes the base off byte 0: Zig orders fields by
+/// Inherits `_ready` and pushes the base off byte 0: Zig orders fields by
 /// descending alignment, so a `u128` sorts ahead of the embedded parent.
 const VDisplaced = struct {
     base: VParent,
@@ -199,7 +196,7 @@ const VDisplaced = struct {
 
     pub fn create() !*VDisplaced {
         const self: *VDisplaced = allocator.create(VDisplaced) catch @panic("out of memory");
-        self.* = .{ .base = .{ .base = Object.init() } };
+        self.* = .{ .base = .{ .base = Node.init() } };
         self.base.base.setInstance(VDisplaced, self);
         return self;
     }
@@ -288,8 +285,8 @@ const testing = std.testing;
 
 const gdzig = @import("gdzig");
 const allocator = gdzig.testing.allocator;
+const Node = gdzig.class.Node;
 const Object = gdzig.class.Object;
-const String = gdzig.builtin.String;
 const StringName = gdzig.builtin.StringName;
 
 test "castTo narrows a user class to a user descendant" {
@@ -326,7 +323,9 @@ test "castTo refuses a class the object is not" {
 }
 
 test "a displaced base is not the instance address" {
-    // `VDisplaced` inherits `_to_string` from `VParent`, so gdzig builds a vtable
+    ensureRegistered();
+
+    // `VDisplaced` inherits `_ready` from `VParent`, so gdzig builds a vtable
     // wrapper with `Owner = VParent` while Godot hands it a `*VDisplaced`. The
     // wrapper has to narrow, and this is why it cannot just reinterpret:
     // Zig orders fields by descending alignment, so the `u128` sorts ahead of
@@ -339,4 +338,10 @@ test "a displaced base is not the instance address" {
     const narrowed = @intFromPtr(gdzig.class.upcast(*VParent, d));
     try testing.expect(narrowed != @intFromPtr(d));
     try testing.expectEqual(@intFromPtr(d) + @offsetOf(VDisplaced, "base"), narrowed);
+
+    // Go through Godot's virtual dispatch, which retains gdzig's cached call
+    // data. The inherited wrapper must still narrow the most-derived instance
+    // to the displaced owner before invoking `_ready`.
+    d.base.base.notification(Node.NOTIFICATION_READY, .{});
+    try testing.expectEqual(narrowed, d.base.ready_self);
 }

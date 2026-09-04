@@ -3,11 +3,12 @@ pub fn registerClass(comptime T: type, info: ClassInfo4(ClassUserdataOf(T))) voi
     const base_name = StringName.fromType(class.BaseOf(T));
     const callbacks = comptime makeClassCallbacks(T);
     const Userdata = ClassUserdataOf(T);
+    const VirtualCallData = UserClassVTable(T).CallData;
 
     // gdzig targets Godot 4.7, so only the newest registration entry point is
     // reachable. `registerClass1` through `registerClass3` remain available in
     // `ClassDb.mixin.zig` as bindings to the corresponding engine functions.
-    classdb.registerClass4(T, Userdata, void, class_name, base_name, if (Userdata != void) .{
+    classdb.registerClass4(T, Userdata, VirtualCallData, class_name, base_name, if (Userdata != void) .{
         .userdata = info.userdata,
         .is_virtual = info.is_virtual,
         .is_abstract = info.is_abstract,
@@ -336,7 +337,7 @@ pub const DispatchGuard = struct {
     }
 };
 
-fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdataOf(T), void) {
+fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdataOf(T), UserClassVTable(T).CallData) {
     comptime {
         if (!@hasDecl(T, "create") and !canSynthesize(T)) @compileError(synthesisHelp(T, "create"));
         if (!@hasDecl(T, "destroy") and !canSynthesize(T)) @compileError(synthesisHelp(T, "destroy"));
@@ -503,23 +504,39 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
             return T.recreate(obj);
         }
 
-        fn getVirtualImpl(name: *const StringName) ?*const classdb.CallVirtual(T) {
+        fn getVirtualCallDataImpl(name: *const StringName) ?*UserClassVTable(T).CallData {
             const UserVTable = comptime UserClassVTable(T);
             var buf: [256]u8 = undefined;
             const name_str = String.fromStringName(name.*).toLatin1Buf(buf[0..]);
-            const result = UserVTable.get(name_str);
-            return @ptrCast(result);
+            return @constCast(UserVTable.getCallData(name_str));
         }
 
-        fn getVirtual2(userdata: Userdata, name: *const StringName, hash: u32) ?*const classdb.CallVirtual(T) {
+        fn getVirtualCallData2(userdata: Userdata, name: *const StringName, hash: u32) ?*UserClassVTable(T).CallData {
             _ = hash;
             _ = userdata;
-            return getVirtualImpl(name);
+            return getVirtualCallDataImpl(name);
         }
 
-        fn getVirtual2NoUserdata(name: *const StringName, hash: u32) ?*const classdb.CallVirtual(T) {
+        fn getVirtualCallData2NoUserdata(name: *const StringName, hash: u32) ?*UserClassVTable(T).CallData {
             _ = hash;
-            return getVirtualImpl(name);
+            return getVirtualCallDataImpl(name);
+        }
+
+        fn callVirtualWithData(
+            instance: *T,
+            _: *const StringName,
+            call_data: *UserClassVTable(T).CallData,
+            args: ?[*]const *const anyopaque,
+            ret: ?*anyopaque,
+        ) void {
+            // The name lookup has already happened in
+            // `getVirtualCallDataImpl`; every invocation now follows this one
+            // cached function pointer directly.
+            call_data.call.?(
+                @ptrCast(instance),
+                if (args) |values| @ptrCast(values) else null,
+                ret,
+            );
         }
     };
 
@@ -543,9 +560,11 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
         else
             null,
 
-        .get_virtual = if (Userdata != void) Callbacks.getVirtual2 else Callbacks.getVirtual2NoUserdata,
-        // .get_virtual_call_data - not yet supported
-        // .call_virtual_with_data - not yet supported
+        // Godot documents this pair as the cached alternative to
+        // `get_virtual`. The returned vtable entry is static and contains the
+        // fully resolved wrapper, including inherited-owner narrowing.
+        .get_virtual_call_data = if (Userdata != void) Callbacks.getVirtualCallData2 else Callbacks.getVirtualCallData2NoUserdata,
+        .call_virtual_with_data = Callbacks.callVirtualWithData,
 
         .set = if (@hasDecl(T, "_set")) T._set else null,
         .get = if (@hasDecl(T, "_get")) T._get else null,

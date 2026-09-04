@@ -1,3 +1,11 @@
+/// Immutable dispatch state returned to Godot by
+/// `get_virtual_call_data_func`. Each entry lives in static storage, so the
+/// engine may cache its address for as long as the class is registered without
+/// an allocation or teardown callback.
+pub const VirtualCallData = struct {
+    call: c.GDExtensionClassCallVirtual,
+};
+
 /// Comptime vtable for virtual method dispatch using StaticStringMap.
 /// method_names is an array of Zig method names (camelCase with _ prefix).
 /// The VTable computes snake_case keys at comptime for O(1) lookup.
@@ -7,9 +15,11 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
         const CallVirtual = gdzig.class.ClassDB.CallVirtual(T);
         // C calling convention wrapper for Godot
         const CCallVirtual = fn (self: *T, args: [*]const *const anyopaque, ret: *anyopaque) callconv(.c) void;
+        pub const CallData = VirtualCallData;
+
         const implemented_count = countImplemented();
-        const map: std.StaticStringMap(c.GDExtensionClassCallVirtual) = .initComptime(blk: {
-            var kvs: [implemented_count]struct { []const u8, c.GDExtensionClassCallVirtual } = undefined;
+        const map: std.StaticStringMap(*const CallData) = .initComptime(blk: {
+            var kvs: [implemented_count]struct { []const u8, *const CallData } = undefined;
             var idx: usize = 0;
             for (method_names) |method_name| {
                 if (findMethod(method_name)) |wrapper| {
@@ -30,7 +40,7 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
             return count;
         }
 
-        fn findMethod(comptime method_name: []const u8) c.GDExtensionClassCallVirtual {
+        fn findMethod(comptime method_name: []const u8) ?*const CallData {
             @setEvalBranchQuota(1_000_000);
             const godot_method_name = comptime casez.comptimeConvert(godot_case.virtual_method, method_name);
 
@@ -52,7 +62,31 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
             // `getNode` for children, `rpcConfig` for RPCs -- and because the
             // vtable's own unit tests build one over a plain struct.
             if (comptime std.mem.eql(u8, method_name, "_ready") and class.isA(class.Node, T)) {
+                inline for (class.selfAndAncestorsOf(T)) |Owner| {
+                    if (comptime class.isStructClass(Owner) and @hasDecl(Owner, "_ready")) {
+                        const Wrapper = struct {
+                            const call_data: CallData = .{ .call = @ptrCast(&call) };
+
+                            fn call(p_instance: c.GDExtensionClassInstancePtr, _: [*]const c.GDExtensionConstTypePtr, _: c.GDExtensionTypePtr) callconv(.c) void {
+                                const instance: *T = @ptrCast(@alignCast(p_instance));
+                                const guard = DispatchGuard.enter(instance);
+                                defer guard.leave();
+                                child.resolveAll(T, instance);
+                                macros.bindNodes(instance);
+                                rpc.configureAll(T, instance);
+                                const owner = narrowInstance(T, Owner, p_instance);
+                                Owner._ready(owner);
+                            }
+                        };
+                        return &Wrapper.call_data;
+                    }
+                }
+
+                // `_ready` still needs a wrapper when the class declares no
+                // callback: child/RPC setup is itself ready-time work.
                 const Wrapper = struct {
+                    const call_data: CallData = .{ .call = @ptrCast(&call) };
+
                     fn call(p_instance: c.GDExtensionClassInstancePtr, _: [*]const c.GDExtensionConstTypePtr, _: c.GDExtensionTypePtr) callconv(.c) void {
                         const instance: *T = @ptrCast(@alignCast(p_instance));
                         const guard = DispatchGuard.enter(instance);
@@ -60,10 +94,9 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                         child.resolveAll(T, instance);
                         macros.bindNodes(instance);
                         rpc.configureAll(T, instance);
-                        if (comptime @hasDecl(T, "_ready")) T._ready(instance);
                     }
                 };
-                return @ptrCast(&Wrapper.call);
+                return &Wrapper.call_data;
             }
 
             inline for (class.selfAndAncestorsOf(T)) |Owner| {
@@ -77,6 +110,8 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                     if (param_count == 1) {
                         // Only self parameter - generate simpler wrapper
                         const Wrapper = struct {
+                            const call_data: CallData = .{ .call = @ptrCast(&call) };
+
                             fn call(p_instance: c.GDExtensionClassInstancePtr, _: [*]const c.GDExtensionConstTypePtr, p_ret: c.GDExtensionTypePtr) callconv(.c) void {
                                 const instance: *Owner = narrowInstance(T, Owner, p_instance);
                                 const guard = DispatchGuard.enter(instance);
@@ -89,10 +124,12 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                                 }
                             }
                         };
-                        return @ptrCast(&Wrapper.call);
+                        return &Wrapper.call_data;
                     } else {
                         // Multiple parameters - build args tuple
                         const Wrapper = struct {
+                            const call_data: CallData = .{ .call = @ptrCast(&call) };
+
                             fn call(p_instance: c.GDExtensionClassInstancePtr, p_args: [*]const c.GDExtensionConstTypePtr, p_ret: c.GDExtensionTypePtr) callconv(.c) void {
                                 const instance: *Owner = narrowInstance(T, Owner, p_instance);
                                 const guard = DispatchGuard.enter(instance);
@@ -111,7 +148,7 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
                                 }
                             }
                         };
-                        return @ptrCast(&Wrapper.call);
+                        return &Wrapper.call_data;
                     }
                 }
             }
@@ -123,7 +160,13 @@ pub fn VTable(comptime T: type, comptime method_names: anytype) type {
         }
 
         pub fn get(name: []const u8) c.GDExtensionClassCallVirtual {
-            return map.get(name) orelse null;
+            const data = map.get(name) orelse return null;
+            return data.call;
+        }
+
+        /// Return the stable dispatch entry Godot can cache for `name`.
+        pub fn getCallData(name: []const u8) ?*const CallData {
+            return map.get(name);
         }
 
         /// Whether `name` is gdzig's internal spelling of an exposed virtual.
@@ -288,6 +331,29 @@ test "VTable extend combines method names" {
     try std.testing.expect(Derived.has("_ready"));
     try std.testing.expect(Derived.has("_process")); // from base method_names
     try std.testing.expect(Derived.has("_enter_tree")); // new in derived
+}
+
+test "VTable call data is stable and invokes the cached wrapper" {
+    const Probe = struct {
+        calls: usize = 0,
+
+        pub fn _tick(self: *@This()) void {
+            self.calls += 1;
+        }
+    };
+    const ProbeVTable = VTable(Probe, .{"_tick"});
+
+    const first = ProbeVTable.getCallData("_tick").?;
+    const second = ProbeVTable.getCallData("_tick").?;
+    try std.testing.expectEqual(@intFromPtr(first), @intFromPtr(second));
+    try std.testing.expectEqual(ProbeVTable.get("_tick"), first.call);
+    try std.testing.expect(ProbeVTable.getCallData("_missing") == null);
+
+    var probe: Probe = .{};
+    var no_args: [0]c.GDExtensionConstTypePtr = .{};
+    var ret: u8 = 0;
+    first.call.?(@ptrCast(&probe), &no_args, @ptrCast(&ret));
+    try std.testing.expectEqual(@as(usize, 1), probe.calls);
 }
 
 test "VTable maps Godot names to internal names" {

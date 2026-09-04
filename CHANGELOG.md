@@ -1,5 +1,10 @@
 # HEAD
 
+- **Virtual overrides use Godot's cached dispatch path**: registration now
+  supplies `get_virtual_call_data` and `call_virtual_with_data`, backed by
+  immutable vtable entries. Godot resolves a virtual name once and subsequent
+  calls jump through the cached wrapper while preserving inherited-owner
+  narrowing and dispatch lifetime checks.
 - **Bindings can be generated for a selected class surface**: the dependency's
   optional `classes` setting accepts comma-separated Godot or gdzig class names
   and computes the transitive closure of ancestors and referenced classes.

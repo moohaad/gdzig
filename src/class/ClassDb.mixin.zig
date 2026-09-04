@@ -714,9 +714,9 @@ fn wrapGetVirtualCallData2(comptime ClassUserdata: type, comptime VirtualCallUse
 // @since 4.2
 pub fn CallVirtualWithData(comptime T: type, comptime VirtualCallUserdata: type) type {
     return if (VirtualCallUserdata != void)
-        fn (instance: *T, name: *const StringName, virtual_call_userdata: *VirtualCallUserdata, args: [*]const *const anyopaque, ret: *anyopaque) void
+        fn (instance: *T, name: *const StringName, virtual_call_userdata: *VirtualCallUserdata, args: ?[*]const *const anyopaque, ret: ?*anyopaque) void
     else
-        fn (instance: *T, name: *const StringName, args: [*]const *const anyopaque, ret: *anyopaque) void;
+        fn (instance: *T, name: *const StringName, args: ?[*]const *const anyopaque, ret: ?*anyopaque) void;
 }
 
 // @ref GDExtensionClassCallVirtualWithData
@@ -725,11 +725,12 @@ fn wrapCallVirtualWithData(comptime T: type, comptime VirtualCallUserdata: type,
         fn wrapped(p_instance: c.GDExtensionClassInstancePtr, p_name: c.GDExtensionConstStringNamePtr, p_virtual_call_userdata: ?*anyopaque, p_args: [*c]const c.GDExtensionConstTypePtr, r_ret: c.GDExtensionTypePtr) callconv(.c) void {
             const inst = @as(*T, @ptrCast(@alignCast(p_instance)));
             const name = @as(*const StringName, @ptrCast(p_name));
+            const args: ?[*]const *const anyopaque = if (p_args == null) null else @ptrCast(p_args);
             if (VirtualCallUserdata != void) {
                 const userdata = @as(*VirtualCallUserdata, @ptrCast(@alignCast(p_virtual_call_userdata)));
-                callback(inst, name, userdata, @ptrCast(p_args), @ptrCast(r_ret));
+                callback(inst, name, userdata, args, r_ret);
             } else {
-                callback(inst, name, @ptrCast(p_args), @ptrCast(r_ret));
+                callback(inst, name, args, r_ret);
             }
         }
     }.wrapped;
