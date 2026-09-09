@@ -51,11 +51,11 @@ cd gdzig
 zig build
 ```
 
-`zig build` installs `init-gdzig` into `zig-out/bin`. With that directory on your `PATH`,
+`zig build cli` installs `gdzig` into `zig-out/bin`. With that directory on your `PATH`,
 scaffold from wherever the project should live:
 
 ```sh
-init-gdzig --name mygame --out mygame
+gdzig init --name mygame --out mygame
 ```
 
 `--out` has no default: the scaffolder writes where it is told and nowhere else.

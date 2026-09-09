@@ -67,7 +67,7 @@ pub fn main(init: std.process.Init) !void {
     // 2. A project that depends on it.
     const name = "pkgprobe";
     const consumer_path = try std.fs.path.join(arena, &.{ out_path, "consumer" });
-    try run(io, ".", &.{ scaffolder, "--name", name, "--out", consumer_path });
+    try run(io, ".", &.{ scaffolder, "init", "--name", name, "--out", consumer_path });
 
     var consumer = std.Io.Dir.openDir(.cwd(), io, consumer_path, .{}) catch |err| {
         return fail("'{s}' was not created: {s}", .{ consumer_path, @errorName(err) });

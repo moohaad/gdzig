@@ -59,9 +59,40 @@ Build-source checks are advisory; doctor does not load libraries or verify expor
 
 ## Starting a project
 
-Fastest route: `zig build` in a gdzig checkout installs `gdzig` and `init-gdzig`; then
-`init-gdzig --name mygame --out mygame` scaffolds a working project anywhere.
+Fastest route: `zig build cli` in a gdzig checkout installs `gdzig`; then
+`gdzig init --name mygame --out mygame` scaffolds a working project anywhere.
 [doc/quickstart.md](doc/quickstart.md) is that path end to end.
+
+From the generated project's directory:
+
+```sh
+gdzig build
+gdzig run -Dgodot-version=4.7
+gdzig editor
+gdzig watch -Doptimize=ReleaseSafe
+```
+
+Build options are forwarded to `zig build`. `run` and `editor` build and import
+before launching the same Godot selected by the dependency. Pass Godot arguments
+after `--`, for example `gdzig run -- --headless --quit`.
+`watch` forwards build options to each rebuild. Existing projects need the
+`run`, `editor`, and `watch` steps from the current scaffold in their build file.
+The former standalone scaffolder and its build step have been removed; use `gdzig init`.
+
+Generate registered classes from the project directory:
+
+```sh
+gdzig add node Player --base CharacterBody3D
+gdzig add resource Inventory
+gdzig add plugin Tools
+```
+
+The command creates the Zig file and adds it to the scaffold's shared `classes`
+tuple. Nodes get `_ready` and `_physics_process`; plugins get editor registration
+and enter/exit hooks. Existing files are refused. Use `--entry src/mygame.zig`
+if entry detection is ambiguous. Custom registration layouts require manual setup;
+`gdzig add --help` lists supported bases. With selective bindings, include the
+chosen base class in your build's class selection.
 
 To build one by hand instead, [doc/getting-started.md](doc/getting-started.md) walks
 this same setup and finishes with a character you can drive with WASD. What follows is

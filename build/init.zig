@@ -12,6 +12,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Skip the first arg (executable name)
     _ = args_iter.next();
+    _ = args_iter.next(); // gdzig init
 
     while (args_iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "--name") or std.mem.eql(u8, arg, "-n")) {
@@ -41,7 +42,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // Required, with no fallback. It used to default to the project name, so
-    // `zig build init-gdzig` with nothing after it wrote a `mygame/` into
+    // `gdzig init` with nothing after it wrote a `mygame/` into
     // whatever directory the caller happened to be standing in -- for anyone
     // running the step to see what it does, that is this repository. A
     // scaffolder should write where it is told and nowhere else.
@@ -188,11 +189,31 @@ pub fn main(init: std.process.Init) !void {
         \\    b.default_step.dependOn(&install_library.step);
         \\    b.default_step.dependOn(&install_manifest.step);
         \\
+        \\    const import_project = Build.Step.Run.create(b, "import Godot project");
+        \\    import_project.addFileArg(gdzig_dep.namedLazyPath("godot"));
+        \\    import_project.addArgs(&.{{ "--path", b.pathFromRoot("."), "--headless", "--import" }});
+        \\    import_project.step.dependOn(b.getInstallStep());
+        \\    import_project.has_side_effects = true;
+        \\    inline for (.{{ "run", "editor" }}) |command| {{
+        \\        const launch = Build.Step.Run.create(b, command);
+        \\        launch.addFileArg(gdzig_dep.namedLazyPath("godot"));
+        \\        launch.addArgs(&.{{ "--path", b.pathFromRoot(".") }});
+        \\        if (comptime std.mem.eql(u8, command, "editor")) launch.addArg("--editor");
+        \\        if (b.args) |args| launch.addArgs(args);
+        \\        launch.step.dependOn(&import_project.step);
+        \\        launch.has_side_effects = true;
+        \\        b.step(command, "Build, import, and launch Godot").dependOn(&launch.step);
+        \\    }}
+        \\
         \\    const watch_step = b.step("watch", "Watch for changes, clean stale artifacts, and rebuild");
         \\    const watch = gdzig.addWatchStep(b, .{{}});
+        \\    if (b.args) |args| for (args) |arg| {{
+        \\        watch.addArgs(&.{{ "--build-arg", arg }});
+        \\    }};
         \\    watch.addArg("--run");
-        \\    watch.addArg("godot"); // Assuming godot is in PATH
+        \\    watch.addFileArg(gdzig_dep.namedLazyPath("godot"));
         \\    watch.addArgs(&.{{ "--path", "." }});
+        \\    watch.step.dependOn(&import_project.step);
         \\    watch_step.dependOn(&watch.step);
         \\}}
         \\
@@ -204,7 +225,7 @@ pub fn main(init: std.process.Init) !void {
     // `.godot/extension_list.cfg`, which only an import pass writes, and only a
     // real project can be imported. The scaffold is not usable without it.
     const project_godot = try std.fmt.allocPrint(allocator,
-        \\; Written by `zig build init-gdzig`. Godot rewrites this file itself once
+        \\; Written by `gdzig init`. Godot rewrites this file itself once
         \\; the project has been opened in the editor.
         \\
         \\config_version=5
@@ -314,9 +335,9 @@ pub fn main(init: std.process.Init) !void {
     if (!fetched) std.debug.print("  zig fetch --save=gdzig {s}\n", .{fetch_url});
 
     std.debug.print(
-        \\  zig build                             # compile the extension into lib/
-        \\  godot --path . --headless --import    # once; without this Godot loads nothing
-        \\  godot --path .                        # run the starter scene
+        \\  gdzig run                            # build, import, and run the starter scene
+        \\  gdzig editor                         # build, import, and open the editor
+        \\  gdzig watch                          # rebuild when Zig sources change
         \\
         \\The import step is not optional and skipping it fails quietly: Godot reads
         \\.godot/extension_list.cfg to decide what to load, an unimported project has no
@@ -329,7 +350,7 @@ pub fn main(init: std.process.Init) !void {
 /// What to pass, and why `--out` has no default.
 fn usage() void {
     std.debug.print(
-        \\Usage: init-gdzig --out <dir> [--name <project>]
+        \\Usage: gdzig init --out <dir> [--name <project>]
         \\
         \\  -o, --out  <dir>      empty directory to create or populate
         \\  -n, --name <project>  Zig identifier used as the package name (default: mygame)

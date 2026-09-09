@@ -25,7 +25,8 @@ pub fn main(init: std.process.Init) !void {
     var args = try init.minimal.args.iterateAllocator(arena);
     _ = args.next(); // argv[0]
 
-    const scaffolder = args.next() orelse return fail("expected the init executable's path", .{});
+    const cli_arg = args.next() orelse return fail("expected the gdzig executable's path", .{});
+    const scaffolder = try std.Io.Dir.cwd().realPathFileAlloc(io, cli_arg, arena);
     const out_path = args.next() orelse return fail("expected an output directory", .{});
     const dep_path = args.next() orelse return fail("expected a relative path to gdzig", .{});
 
@@ -38,7 +39,7 @@ pub fn main(init: std.process.Init) !void {
     const invalid_out = try std.fmt.allocPrint(arena, "{s}-invalid", .{out_path});
     std.Io.Dir.cwd().deleteTree(io, invalid_out) catch {};
     defer std.Io.Dir.cwd().deleteTree(io, invalid_out) catch {};
-    try runFails(io, ".", &.{ scaffolder, "--name", "not-a-zig-id", "--out", invalid_out });
+    try runFails(io, ".", &.{ scaffolder, "init", "--name", "not-a-zig-id", "--out", invalid_out });
     if (std.Io.Dir.openDir(.cwd(), io, invalid_out, .{})) |created| {
         var created_dir = created;
         created_dir.close(io);
@@ -55,7 +56,7 @@ pub fn main(init: std.process.Init) !void {
     var occupied = try std.Io.Dir.openDir(.cwd(), io, occupied_out, .{});
     try occupied.writeFile(io, .{ .sub_path = "keep.txt", .data = "do not replace" });
     occupied.close(io);
-    try runFails(io, ".", &.{ scaffolder, "--name", "gadget", "--out", occupied_out });
+    try runFails(io, ".", &.{ scaffolder, "init", "--name", "gadget", "--out", occupied_out });
     occupied = try std.Io.Dir.openDir(.cwd(), io, occupied_out, .{});
     defer occupied.close(io);
     const sentinel = try occupied.readFileAlloc(io, "keep.txt", arena, @enumFromInt(1024));
@@ -71,7 +72,7 @@ pub fn main(init: std.process.Init) !void {
     // directory hid that for as long as this gate has existed.
     const name = "gadget";
 
-    try run(io, ".", &.{ scaffolder, "--name", name, "--out", out_path });
+    try run(io, ".", &.{ scaffolder, "init", "--name", name, "--out", out_path });
 
     var dir = std.Io.Dir.openDir(.cwd(), io, out_path, .{}) catch |err| {
         return fail("'{s}' was not created: {s}", .{ out_path, @errorName(err) });
@@ -177,7 +178,17 @@ pub fn main(init: std.process.Init) !void {
             \\{s}
         , .{ build_zig[0..close], name, name, build_zig[close..] }) });
     }
-    try run(io, out_path, &.{ "zig", "build" });
+    try run(io, out_path, &.{ scaffolder, "add", "node", "Player", "--base", "CharacterBody3D" });
+    try run(io, out_path, &.{ scaffolder, "add", "resource", "Inventory" });
+    try run(io, out_path, &.{ scaffolder, "add", "plugin", "Tools" });
+    const before_duplicate = try dir.readFileAlloc(io, "src/" ++ name ++ ".zig", arena, .limited(1 << 20));
+    try runFails(io, out_path, &.{ scaffolder, "add", "node", "Player" });
+    const after_duplicate = try dir.readFileAlloc(io, "src/" ++ name ++ ".zig", arena, .limited(1 << 20));
+    if (!std.mem.eql(u8, before_duplicate, after_duplicate)) return fail("duplicate add changed registration", .{});
+    try run(io, out_path, &.{ scaffolder, "build" });
+    // Launch through the CLI, including a forwarded build option and engine
+    // arguments. The generated step must import after building, then exit.
+    try run(io, out_path, &.{ scaffolder, "run", "-Doptimize=Debug", "--", "--headless", "--quit" });
 
     const descriptor_name = name ++ ".gdextension";
     const descriptor = dir.readFileAlloc(io, descriptor_name, arena, @enumFromInt(1 << 20)) catch |err| {

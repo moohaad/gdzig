@@ -66,6 +66,14 @@ pub fn build(b: *Build) !void {
         }),
     });
     test_step.dependOn(&b.addRunArtifact(doctor_unit_tests).step);
+    const add_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/add.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(add_tests).step);
 
     //
     // Dependencies
@@ -220,43 +228,18 @@ pub fn build(b: *Build) !void {
     // Scaffolding tool
     //
 
-    const init_exe = b.addExecutable(.{
-        // Named for what it is on a PATH, not for what the step is called:
-        // `init.exe` sitting in a bin directory says nothing about whose it is.
-        .name = "init-gdzig",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("build/init.zig"),
-            .target = b.graph.host,
-            .optimize = .Debug,
-        }),
-    });
-    const run_init = b.addRunArtifact(init_exe);
-    if (b.args) |args| {
-        run_init.addArgs(args);
-    }
-    const init_step = b.step("init-gdzig", "Scaffold a new gdzig project");
-    init_step.dependOn(&run_init.step);
-
-    // Installed alongside the bindgen, so scaffolding a *second* project does
-    // not mean going back to this checkout. Without it the only way to reach the
-    // scaffolder is a build step here, and every new project starts with a `cd`
-    // into a clone that has nothing else to do with it.
-    b.installArtifact(init_exe);
-
-    // The umbrella CLI begins with diagnostics. Keep init-gdzig installed as
-    // its stable standalone spelling; adding `gdzig init` later need not break
-    // scripts that already use it.
     const gdzig_cli_exe = b.addExecutable(.{
         .name = "gdzig",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("build/doctor.zig"),
+            .root_source_file = b.path("build/cli.zig"),
             .target = b.graph.host,
             .optimize = .Debug,
         }),
     });
     const install_cli = b.addInstallArtifact(gdzig_cli_exe, .{});
+    const init_exe = gdzig_cli_exe;
     b.getInstallStep().dependOn(&install_cli.step);
-    b.step("cli", "Install the gdzig diagnostic CLI without generating bindings")
+    b.step("cli", "Install the gdzig CLI without generating bindings")
         .dependOn(&install_cli.step);
 
     const doctor_test_exe = b.addExecutable(.{
@@ -295,7 +278,7 @@ pub fn build(b: *Build) !void {
     run_init_test.addArg("../../..");
     // Spawns processes and writes outside the cache, so it must not be elided.
     run_init_test.has_side_effects = true;
-    const init_test_step = b.step("test-init", "Scaffold a project with init-gdzig and build it");
+    const init_test_step = b.step("test-init", "Scaffold a project with gdzig init and run it");
     init_test_step.dependOn(&run_init_test.step);
 
     // `res` earns its keep by *rejecting* a bad path at comptime, which cannot

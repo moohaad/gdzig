@@ -53,6 +53,8 @@ pub fn main(init: std.process.Init) !void {
     var src_dir_path: []const u8 = "src";
     var lib_dir_path: []const u8 = "lib";
     var run_cmd: ?[]const []const u8 = null;
+    var build_argv: std.ArrayList([]const u8) = .empty;
+    try build_argv.appendSlice(allocator, &.{ "zig", "build" });
 
     var args_iter = try init.minimal.args.iterateAllocator(allocator);
     var args_iter_deinit = args_iter;
@@ -64,7 +66,9 @@ pub fn main(init: std.process.Init) !void {
     defer run_args_list.deinit(allocator);
 
     while (args_iter.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--src-dir")) {
+        if (std.mem.eql(u8, arg, "--build-arg")) {
+            try build_argv.append(allocator, args_iter.next() orelse return error.MissingBuildArg);
+        } else if (std.mem.eql(u8, arg, "--src-dir")) {
             src_dir_path = args_iter.next() orelse return error.MissingSrcDir;
         } else if (std.mem.eql(u8, arg, "--lib-dir")) {
             lib_dir_path = args_iter.next() orelse return error.MissingLibDir;
@@ -77,7 +81,7 @@ pub fn main(init: std.process.Init) !void {
 
     if (run_args_list.items.len > 0) {
         run_cmd = run_args_list.items;
-        
+
         // Spawn the Godot watcher thread
         _ = try std.Thread.spawn(.{}, watchGodotThread, .{ init.io, run_cmd.? });
     }
@@ -87,9 +91,9 @@ pub fn main(init: std.process.Init) !void {
 
     // Run build once at startup
     cleanStaleArtifacts(init.io, lib_dir_path);
-    _ = runBuild(init.io);
+    const initial_ok = runBuild(init.io, build_argv.items);
 
-    if (run_cmd != null) {
+    if (initial_ok and run_cmd != null) {
         child_crashed.store(false, .seq_cst);
         child_running.store(true, .seq_cst);
     }
@@ -103,7 +107,7 @@ pub fn main(init: std.process.Init) !void {
             last_mtime = current_mtime;
 
             cleanStaleArtifacts(init.io, lib_dir_path);
-            const build_ok = runBuild(init.io);
+            const build_ok = runBuild(init.io, build_argv.items);
 
             if (build_ok and run_cmd != null) {
                 if (child_crashed.load(.seq_cst)) {
@@ -158,12 +162,12 @@ fn cleanStaleArtifacts(io: std.Io, lib_dir_path: []const u8) void {
     }
 }
 
-fn runBuild(io: std.Io) bool {
+fn runBuild(io: std.Io, argv: []const []const u8) bool {
     var cwd_dir = std.Io.Dir.openDir(.cwd(), io, ".", .{}) catch return false;
     defer cwd_dir.close(io);
 
     var child = std.process.spawn(io, .{
-        .argv = &.{ "zig", "build" },
+        .argv = argv,
         .cwd = .{ .dir = cwd_dir },
     }) catch return false;
 

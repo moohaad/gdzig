@@ -1,5 +1,15 @@
 # HEAD
 
+- **Class templates through `gdzig add`**: generate nodes, resources, and editor
+  plugins, with an import added to the scaffold's shared registration tuple.
+  Node bases accept Godot or Zig spelling. Existing classes and unsupported
+  registration layouts are refused before changing the entry file.
+
+- **One CLI for project workflows**: `gdzig init`, `build`, `run`, `editor`, and
+  `watch` join `doctor`. New scaffold launch steps build and import the project
+  using the dependency's selected Godot. Watch rebuilds retain build options.
+  The standalone `init-gdzig` executable and build step are removed.
+
 - **`gdzig doctor` diagnoses project wiring before Godot starts**: the installed,
   read-only CLI checks Zig and optional Godot compatibility, build dependency and
   manifest setup, generated `.gdextension` descriptors, host library paths, the

@@ -32,7 +32,7 @@ pub fn main(init: std.process.Init) !void {
     std.Io.Dir.cwd().deleteTree(io, out_path) catch {};
 
     const name = "resprobe";
-    try run(io, ".", &.{ scaffolder, "--name", name, "--out", out_path }, null);
+    try run(io, ".", &.{ scaffolder, "init", "--name", name, "--out", out_path }, null);
 
     var dir = std.Io.Dir.openDir(.cwd(), io, out_path, .{}) catch |err| {
         return fail("'{s}' was not created: {s}", .{ out_path, @errorName(err) });

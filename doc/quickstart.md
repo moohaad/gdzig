@@ -13,14 +13,14 @@ gdzig ships a scaffolder. Build it once:
 ```sh
 git clone https://github.com/moohaad/gdzig.git
 cd gdzig
-zig build
+zig build cli
 ```
 
-That installs `init-gdzig` into `zig-out/bin`. Put that directory on your `PATH`, and
+That installs `gdzig` into `zig-out/bin`. Put that directory on your `PATH`, and
 every project after this one is one command, run wherever the project should live:
 
 ```sh
-init-gdzig --name my_awesome_game --out my_awesome_game
+gdzig init --name my_awesome_game --out my_awesome_game
 ```
 
 `--out` says where to write it and has no default: the scaffolder writes where it is
@@ -32,7 +32,7 @@ If you would rather not put anything on your `PATH`, this does the same from any
 directory, with no `cd`:
 
 ```sh
-zig build --build-file /path/to/gdzig/build.zig init-gdzig -- --name my_awesome_game --out my_awesome_game
+/path/to/gdzig/zig-out/bin/gdzig init --name my_awesome_game --out my_awesome_game
 ```
 
 Either way you get:
@@ -57,12 +57,16 @@ descriptor; importing first means neither exists yet.
 
 ```sh
 cd ../my_awesome_game
-zig build
+gdzig build
 ```
 
 The compiled library will appear in `my_awesome_game/lib/`.
 
 ## Open in Godot
+
+Run `gdzig editor` to build, import, and open the editor, or `gdzig run` to play.
+Both use the engine selected by the build; for example,
+`gdzig editor -Dgodot-version=4.7` or `gdzig run -Dgodot-path=/absolute/path/to/godot`.
 
 Open the Godot Editor and import `my_awesome_game/project.godot`. That import pass is
 what writes `.godot/extension_list.cfg`, the file Godot reads to decide what to load --
@@ -70,11 +74,11 @@ until it exists your classes are simply absent, with nothing logged to say why.
 Headless equivalent, if you would rather not open the editor:
 
 ```sh
-godot --path . --headless --import
+gdzig run -- --headless --quit
 ```
 
 Your extension now loads and the starter scene prints `Hello from gdzig!`. Add game logic
-in `src/Game.zig` and run `zig build` (or `zig build watch`) whenever you want to update
+in `src/Game.zig` and run `gdzig build` (or `gdzig watch`) whenever you want to update
 the engine.
 
 ---

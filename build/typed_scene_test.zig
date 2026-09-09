@@ -23,7 +23,7 @@ pub fn main(init: std.process.Init) !void {
         null;
 
     std.Io.Dir.cwd().deleteTree(io, out_path) catch {};
-    try run(io, ".", &.{ scaffolder, "--name", "sceneprobe", "--out", out_path }, null);
+    try run(io, ".", &.{ scaffolder, "init", "--name", "sceneprobe", "--out", out_path }, null);
 
     var dir = try std.Io.Dir.openDir(.cwd(), io, out_path, .{});
     defer dir.close(io);
