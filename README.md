@@ -40,9 +40,26 @@ integration gates that cover the build tooling itself, which is what CI runs.
 `zig build test-docs` compiles the complete Zig examples marked in the guides,
 so API changes cannot leave copy-paste examples silently stale.
 
+The default install also puts `gdzig` in `zig-out/bin`; `zig build cli` installs
+just this command. Add that directory to `PATH` or use the executable's full path. From a project's
+build root, use it to verify the local toolchain, generated descriptor, native
+library, and Godot import state before opening the editor:
+
+```sh
+gdzig doctor                       # project.godot is beside build.zig
+gdzig doctor --project project     # split Zig/Godot layout
+gdzig doctor --godot /path/to/godot
+```
+
+`doctor` is read-only and exits nonzero for broken wiring. If Godot is not in
+`PATH`, that is only a warning because gdzig can download the selected engine
+during `zig build`; pass `--godot` when you want a particular executable checked.
+It checks root-level generated descriptors for the current host's debug selector.
+Build-source checks are advisory; doctor does not load libraries or verify exports.
+
 ## Starting a project
 
-Fastest route: `zig build` in a gdzig checkout installs `init-gdzig`; then
+Fastest route: `zig build` in a gdzig checkout installs `gdzig` and `init-gdzig`; then
 `init-gdzig --name mygame --out mygame` scaffolds a working project anywhere.
 [doc/quickstart.md](doc/quickstart.md) is that path end to end.
 

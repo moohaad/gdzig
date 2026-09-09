@@ -1,5 +1,10 @@
 # HEAD
 
+- **`gdzig doctor` diagnoses project wiring before Godot starts**: the installed,
+  read-only CLI checks Zig and optional Godot compatibility, build dependency and
+  manifest setup, generated `.gdextension` descriptors, host library paths, the
+  Godot import list, and stale hot-reload artifacts. Failures include the command
+  that repairs the common missing-build and missing-import states.
 - **Virtual overrides use Godot's cached dispatch path**: registration now
   supplies `get_virtual_call_data` and `call_virtual_with_data`, backed by
   immutable vtable entries. Godot resolves a virtual name once and subsequent

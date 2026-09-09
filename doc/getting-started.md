@@ -471,6 +471,11 @@ camera is being carried by its parent and `setAsTopLevel` is not in effect.
 
 Each of these fails quietly rather than loudly, which is what makes them worth listing.
 
+Run `gdzig doctor` from beside `build.zig` to check these conditions together.
+For the split layout used in this guide, run `gdzig doctor --project project`.
+It checks Zig and Godot compatibility, the gdzig dependency, generated descriptor
+and native library, and `.godot/extension_list.cfg`; it does not modify the project.
+
 **The extension never loads.** No `.godot/extension_list.cfg` — see step 4. The
 symptom is `class_exists` returning false with no error anywhere.
 

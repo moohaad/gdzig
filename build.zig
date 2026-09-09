@@ -58,6 +58,15 @@ pub fn build(b: *Build) !void {
     });
     test_step.dependOn(&b.addRunArtifact(project_scenes_tests).step);
 
+    const doctor_unit_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/doctor.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(doctor_unit_tests).step);
+
     //
     // Dependencies
     //
@@ -233,6 +242,37 @@ pub fn build(b: *Build) !void {
     // scaffolder is a build step here, and every new project starts with a `cd`
     // into a clone that has nothing else to do with it.
     b.installArtifact(init_exe);
+
+    // The umbrella CLI begins with diagnostics. Keep init-gdzig installed as
+    // its stable standalone spelling; adding `gdzig init` later need not break
+    // scripts that already use it.
+    const gdzig_cli_exe = b.addExecutable(.{
+        .name = "gdzig",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/doctor.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const install_cli = b.addInstallArtifact(gdzig_cli_exe, .{});
+    b.getInstallStep().dependOn(&install_cli.step);
+    b.step("cli", "Install the gdzig diagnostic CLI without generating bindings")
+        .dependOn(&install_cli.step);
+
+    const doctor_test_exe = b.addExecutable(.{
+        .name = "doctor-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/doctor_test.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_doctor_test = b.addRunArtifact(doctor_test_exe);
+    run_doctor_test.addArtifactArg(gdzig_cli_exe);
+    run_doctor_test.addArg(".zig-cache/doctor-test/project");
+    run_doctor_test.has_side_effects = true;
+    const doctor_test_step = b.step("test-doctor", "Check gdzig doctor against healthy and broken projects");
+    doctor_test_step.dependOn(&run_doctor_test.step);
 
     // Scaffolds a throwaway project and builds it. The scaffolder writes four
     // interlocking files and is the first thing a newcomer runs, so "does its
@@ -522,6 +562,7 @@ pub fn build(b: *Build) !void {
     test_all_step.dependOn(selective_bindings_test_step);
     test_all_step.dependOn(watch_test_step);
     test_all_step.dependOn(package_test_step);
+    test_all_step.dependOn(doctor_test_step);
 
     //
     // Library
