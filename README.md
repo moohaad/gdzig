@@ -59,6 +59,10 @@ Build-source checks are advisory; doctor does not load libraries or verify expor
 
 ## Starting a project
 
+For a complete playable introduction, follow [Star Catcher](tutorial/README.md):
+input, typed scenes, signals, resource ownership, a coroutine countdown, and
+desktop export. `zig build test-tutorial` builds and play-tests its source.
+
 Fastest route: `zig build cli` in a gdzig checkout installs `gdzig`; then
 `gdzig init --name mygame --out mygame` scaffolds a working project anywhere.
 [doc/quickstart.md](doc/quickstart.md) is that path end to end.

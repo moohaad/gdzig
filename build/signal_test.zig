@@ -70,6 +70,7 @@ pub fn main(init: std.process.Init) !void {
 
     try rejects(io, arena, dir, entry, out_path, null, "argument count mismatch");
     try rejects(io, arena, dir, entry, out_path, "f64", "type mismatch");
+    try rejects(io, arena, dir, entry, out_path, "f64", "Change this handler parameter to the expected type. Receiver:");
 
     std.debug.print("signals: matching handler accepted, mismatched handlers rejected\n", .{});
 }

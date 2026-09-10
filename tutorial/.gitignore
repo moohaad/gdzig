@@ -1,0 +1,6 @@
+/.zig-cache/
+/zig-out/
+/zig-pkg/
+/project/.godot/
+/project/lib/
+/project/*.gdextension

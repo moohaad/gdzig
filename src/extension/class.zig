@@ -625,6 +625,7 @@ fn validateVirtualMethodNames(comptime T: type, comptime EngineVTable: type) voi
     for (decls) |decl| {
         if (decl.name.len == 0 or decl.name[0] != '_') continue;
         if (@typeInfo(@TypeOf(@field(T, decl.name))) != .@"fn") continue;
+        validateCommonCallback(T, decl.name);
         if (isClassCallback(decl.name)) continue;
         if (EngineVTable.internalNameForGodotName(decl.name) != null) continue;
 
@@ -637,6 +638,21 @@ fn validateVirtualMethodNames(comptime T: type, comptime EngineVTable: type) voi
         }
         @compileError(prefix ++ "Godot will never call this function. Use a virtual exposed by the base class, or make a helper non-pub and give it a non-virtual name.");
     }
+}
+
+/// Diagnose common lifecycle mistakes before generating marshalling wrappers.
+fn validateCommonCallback(comptime T: type, comptime name: []const u8) void {
+    const frame = std.mem.eql(u8, name, "_process") or std.mem.eql(u8, name, "_physics_process");
+    const lifecycle = std.mem.eql(u8, name, "_ready") or std.mem.eql(u8, name, "_enter_tree") or std.mem.eql(u8, name, "_exit_tree");
+    if (!frame and !lifecycle) return;
+    const info = @typeInfo(@TypeOf(@field(T, name))).@"fn";
+    const expected = "pub fn " ++ name ++ "(self: *@This()" ++ (if (frame) ", delta: f64" else "") ++ ") void";
+    const message = "gdzig: invalid callback '" ++ @typeName(T) ++ "." ++ name ++ "'. Expected " ++ expected ++
+        ". Use the owning class pointer as the receiver" ++ (if (frame) " and f64 for delta" else "") ++ "; handle errors inside the callback. Found " ++ @typeName(@TypeOf(@field(T, name)));
+    if (info.is_generic or info.is_var_args or info.params.len != (if (frame) @as(usize, 2) else 1) or info.return_type != void) @compileError(message);
+    if (info.params[0].type != *T and info.params[0].type != *const T) @compileError(message);
+    // The marshaller intentionally supports narrowing the engine's double.
+    if (frame and info.params[1].type != f64 and info.params[1].type != f32) @compileError(message);
 }
 
 /// Build a VTable for a user-defined class by chaining `.extend()` calls from

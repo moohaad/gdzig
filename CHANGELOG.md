@@ -1,5 +1,20 @@
 # HEAD
 
+- **Playable Star Catcher tutorial**: a small native desktop game teaches typed
+  input and scenes, score signals, resource ownership, coroutine countdowns, and
+  desktop export. `test-tutorial`, included in `test-all`, builds the actual game
+  and checks movement, pickups, HUD updates, win, and timeout in headless Godot.
+
+- **Actionable declaration diagnostics**: common lifecycle callbacks report the
+  class, callback, required signature, and actual type before wrapper generation.
+  Unsupported explicitly exported fields name the property and suggest compatible
+  types; signal mismatch errors include receiver and handler context and a fix.
+
+- **Typed parent and indexed-child access**: `getParentAs(T)` and
+  `getChildAs(T, index, options)` return engine or extension classes directly.
+  Missing nodes and type mismatches return null; child indices support negative
+  offsets and internal-child filtering without out-of-range engine errors.
+
 - **Class templates through `gdzig add`**: generate nodes, resources, and editor
   plugins, with an import added to the scaffold's shared registration tuple.
   Node bases accept Godot or Zig spelling. Existing classes and unsupported

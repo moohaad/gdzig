@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub fn assertSignalSignature(comptime S: type, comptime ReceiverType: type, comptime MethodType: type) void {
-    _ = ReceiverType;
+    const context = " Receiver: " ++ @typeName(ReceiverType) ++ "; handler type: " ++ @typeName(MethodType) ++ ".";
     const method_info = @typeInfo(MethodType);
     const fn_info: ?std.builtin.Type.Fn = switch (method_info) {
         .pointer => |p| if (p.size == .one and @typeInfo(p.child) == .@"fn") @typeInfo(p.child).@"fn" else null,
@@ -9,17 +9,17 @@ pub fn assertSignalSignature(comptime S: type, comptime ReceiverType: type, comp
         else => null,
     };
     if (fn_info == null) {
-        @compileError("method must be a function pointer, found " ++ @typeName(MethodType));
+        @compileError("Signal handler must be a function or function pointer; pass the handler declaration, not its result." ++ context);
     }
     const final_fn_info = fn_info.?;
-    
+
     // First parameter must be the receiver
     if (final_fn_info.params.len == 0) {
-        @compileError("Signal handler must take a receiver (e.g. *Self) as its first argument.");
+        @compileError("Signal handler must take a receiver (e.g. *Self) as its first argument." ++ context);
     }
-    
+
     const receiver_param = final_fn_info.params[0];
-    
+
     // It's acceptable for the receiver parameter to be a generic `anytype` or a specific pointer type.
     // If it's a specific type, we verify it roughly matches `ReceiverType`.
     if (receiver_param.type) |ReceiverParamType| {
@@ -35,10 +35,7 @@ pub fn assertSignalSignature(comptime S: type, comptime ReceiverType: type, comp
     const actual_arg_count = final_fn_info.params.len - 1;
 
     if (actual_arg_count != expected_arg_count) {
-        @compileError(std.fmt.comptimePrint(
-            "Signal handler argument count mismatch for signal '{s}'. Signal emits {} arguments, but handler accepts {}.",
-            .{ @typeName(S), expected_arg_count, actual_arg_count }
-        ));
+        @compileError(std.fmt.comptimePrint("Signal handler argument count mismatch for signal '{s}'. Signal emits {} arguments, but handler accepts {}. Add or remove handler parameters after the receiver to match the signal.", .{ @typeName(S), expected_arg_count, actual_arg_count }) ++ context);
     }
 
     // Verify each argument type
@@ -48,16 +45,10 @@ pub fn assertSignalSignature(comptime S: type, comptime ReceiverType: type, comp
             if (field.type != ParamType) {
                 // Check if they are loosely compatible (e.g., both are pointers to something similar, or one is a variant).
                 // Godot passes arguments as Variant or exactly the type. For strictness, we check exact type match.
-                @compileError(std.fmt.comptimePrint(
-                    "Signal handler argument {} type mismatch for signal '{s}'. Expected '{s}', found '{s}'.",
-                    .{ i + 1, @typeName(S), @typeName(field.type), @typeName(ParamType) }
-                ));
+                @compileError(std.fmt.comptimePrint("Signal handler argument {} type mismatch for signal '{s}'. Expected '{s}', found '{s}'. Change this handler parameter to the expected type.", .{ i + 1, @typeName(S), @typeName(field.type), @typeName(ParamType) }) ++ context);
             }
         } else {
-             @compileError(std.fmt.comptimePrint(
-                "Signal handler argument {} must have an explicit type (not anytype).",
-                .{ i + 1 }
-            ));
+            @compileError(std.fmt.comptimePrint("Signal handler argument {} must have an explicit type (not anytype).", .{i + 1}));
         }
     }
 }

@@ -1,0 +1,9 @@
+[gd_scene format=3]
+
+[node name="Game" type="Game"]
+
+[node name="Hud" type="Label" parent="."]
+offset_left = 20.0
+offset_top = 12.0
+theme_override_font_sizes/font_size = 20
+text = "Collect five stars"

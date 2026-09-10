@@ -546,6 +546,12 @@ pub fn build(b: *Build) !void {
     test_all_step.dependOn(watch_test_step);
     test_all_step.dependOn(package_test_step);
     test_all_step.dependOn(doctor_test_step);
+    const tutorial_test = b.addSystemCommand(&.{ b.graph.zig_exe, "build", "test", "-j2" });
+    tutorial_test.setCwd(b.path("tutorial"));
+    if (godot_exe_host) |exe| tutorial_test.addPrefixedFileArg("-Dgodot-path=", exe);
+    tutorial_test.has_side_effects = true;
+    b.step("test-tutorial", "Build and play-test the Star Catcher tutorial").dependOn(&tutorial_test.step);
+    test_all_step.dependOn(&tutorial_test.step);
 
     //
     // Library

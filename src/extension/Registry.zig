@@ -68,9 +68,7 @@ pub fn addClass(self: *Registry, comptime T: type, userdata: ClassUserdataValue(
 /// Only supports classes where userdata is `Allocator` or `void`.
 pub fn autoRegister(self: *Registry, comptime T: type) void {
     const UserdataVal = ClassUserdataValue(T);
-    const userdata: UserdataVal = if (UserdataVal == void) {}
-    else if (UserdataVal == Allocator) self.allocator
-    else @compileError("autoRegister only supports Allocator or void userdata. Use createClass and autoBind for custom userdata.");
+    const userdata: UserdataVal = if (UserdataVal == void) {} else if (UserdataVal == Allocator) self.allocator else @compileError("autoRegister only supports Allocator or void userdata. Use createClass and autoBind for custom userdata.");
     const class = self.createClass(T, userdata, .auto);
     class.autoBind();
 }
@@ -604,7 +602,10 @@ pub fn Class(comptime T: type) type {
                 var len: usize = 0;
                 for (s) |c| {
                     if (c >= 'A' and c <= 'Z') {
-                        if (len > 0) { buf[len] = '_'; len += 1; }
+                        if (len > 0) {
+                            buf[len] = '_';
+                            len += 1;
+                        }
                         buf[len] = c - 'A' + 'a';
                         len += 1;
                     } else {
@@ -684,7 +685,7 @@ pub fn Class(comptime T: type) type {
                     // Godot refuses the second with "already has property" --
                     // leaving the options ignored.
                     isBoundByName(field.name);
-                
+
                 if (!is_ignored) {
                     if (comptime gdzig.builtin.Variant.Tag.forTypeOrNull(field.type) != null) {
                         const type_info = @typeInfo(field.type);
@@ -692,7 +693,7 @@ pub fn Class(comptime T: type) type {
                             const enum_options = comptime blk: {
                                 var hint_str: [:0]const u8 = "";
                                 for (type_info.@"enum".fields, 0..) |efield, i| {
-                                    const entry = std.fmt.comptimePrint("{s}:{d}", .{efield.name, efield.value});
+                                    const entry = std.fmt.comptimePrint("{s}:{d}", .{ efield.name, efield.value });
                                     if (i == 0) {
                                         hint_str = entry;
                                     } else {
@@ -711,7 +712,6 @@ pub fn Class(comptime T: type) type {
                     }
                 }
             }
-
 
             // Auto-bind properties
             if (@hasDecl(T, "properties")) {
@@ -756,7 +756,7 @@ pub fn Class(comptime T: type) type {
                             break :blk opts;
                         };
                         const group = self.createGroup(grp_name, grp_options);
-                        
+
                         const grp_props = grp_val[2];
                         const props_info = @typeInfo(@TypeOf(grp_props));
                         if (props_info == .@"struct" and props_info.@"struct".is_tuple) {
@@ -967,6 +967,13 @@ const AnyProperty = struct {
 
 /// Property registration info, generic over class type and property name.
 pub fn Property(comptime T: type, comptime name: [:0]const u8) type {
+    if (@hasField(T, name)) {
+        const Field = @FieldType(T, name);
+        if (gdzig.builtin.Variant.Tag.forTypeOrNull(Field) == null) {
+            @compileError("gdzig: exported property '" ++ @typeName(T) ++ "." ++ name ++ "' has unsupported type '" ++ @typeName(Field) ++
+                "'. Use a Godot Variant-compatible type (such as String, Array, or a Resource class), or remove this field from explicit property registration and keep it as internal Zig state.");
+        }
+    }
     return struct {
         const Self = @This();
 

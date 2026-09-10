@@ -469,6 +469,17 @@ camera is being carried by its parent and `setAsTopLevel` is not in effect.
 
 ## Gotchas
 
+Registration diagnostics name the owning class and declaration. For `_ready`,
+`_enter_tree`, and `_exit_tree`, use a pointer to the class as the sole parameter
+and return `void`. `_process` and `_physics_process` additionally take a floating
+point delta (`f64` normally; `f32` narrowing is supported). Handle fallible work
+inside the callback instead of returning an error union to Godot.
+
+An explicitly exported field must have a Godot-compatible type. Keep arbitrary
+Zig structs as internal state, or expose a Godot value or Resource instead.
+Signal mismatch messages identify the receiver, signal argument, expected type,
+and actual handler type; the receiver is separate from the emitted arguments.
+
 Each of these fails quietly rather than loudly, which is what makes them worth listing.
 
 Run `gdzig doctor` from beside `build.zig` to check these conditions together.

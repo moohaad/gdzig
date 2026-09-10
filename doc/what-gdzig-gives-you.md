@@ -46,7 +46,7 @@ children: SceneWith(@embedFile("Main.tscn"), SceneTypes) = .{},
 
 `Child` remains right for a node added at runtime or reached before it enters the tree.
 
-Four shapes in all, and which applies depends only on what you know at compile time:
+Choose based on what you know and when the relationship needs to be resolved:
 
 | you know | use |
 |---|---|
@@ -54,12 +54,22 @@ Four shapes in all, and which applies depends only on what you know at compile t
 | the target is the parent | `Parent(T)` |
 | the path only at runtime | `node.getNodeAs(T, path)` |
 | only that you want every `T` | `node.childrenAs(T)` |
+| the current parent, at call time | `node.getParentAs(T)` |
+| a child index | `node.getChildAs(T, index, .{})` |
 
 The first two are fields: resolved once before `_ready`, and the log names the field and path
-when the scene disagrees. The last two are calls, and answer with null or with nothing instead
+when the scene disagrees. The remaining rows are calls, and answer with null or with nothing instead
 of complaining -- a missing node, or a child of some other type, is the ordinary case there.
 
 None of them ends in a cast, which is the point. `getNode` can only promise `?*Node`.
+
+The lookup calls return borrowed pointers and accept engine or registered user
+classes. `getChildAs` supports negative indices and returns null for out-of-range
+indices without logging an engine error. Use `.{ .include_internal = true }`
+to include internal children.
+For scenes, `packed_scene.instantiateAs(T)` already returns the requested root
+type and frees a newly instantiated root if it has the wrong type. On success,
+the caller must parent or free that root.
 
 A fifth spelling, `bind_nodes`, lists the same thing as a declaration rather than as a
 field type:

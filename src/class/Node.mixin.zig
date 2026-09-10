@@ -37,6 +37,24 @@ pub inline fn getNodeAs(self: *const Self, comptime T: type, path: anytype) ?*T 
     return gdzig.class.castTo(T, node);
 }
 
+/// Returns the parent narrowed to an engine or user-defined class, or null
+/// when unparented or of another type. The returned pointer is borrowed.
+pub inline fn getParentAs(self: *const Self, comptime T: type) ?*T {
+    const parent = self.getParent() orelse return null;
+    return gdzig.class.castTo(T, parent);
+}
+
+/// Returns a borrowed child pointer narrowed to `T`, or null for an invalid
+/// index or type mismatch. Negative indices count backward from the end.
+/// Internal children are excluded unless requested, just like `getChild`.
+pub inline fn getChildAs(self: *const Self, comptime T: type, index: i32, options: struct { include_internal: bool = false }) ?*T {
+    const count = self.getChildCount(.{ .include_internal = options.include_internal });
+    const resolved: i64 = if (index < 0) @as(i64, count) + index else index;
+    if (resolved < 0 or resolved >= count) return null;
+    const child = self.getChild(@intCast(resolved), .{ .include_internal = options.include_internal }) orelse return null;
+    return gdzig.class.castTo(T, child);
+}
+
 /// The children that are a `T`, skipping the rest.
 ///
 /// ```zig

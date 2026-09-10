@@ -83,6 +83,32 @@ pub fn main(init: std.process.Init) !void {
     );
 
     std.debug.print("virtuals: valid callback accepted, unknown callbacks rejected\n", .{});
+    try rejects(io, dir, entry, out_path, "_ready", "Expected pub fn _ready(self: *@This()) void");
+    try rejectsSource(io, dir, entry, out_path,
+        \\const godot = @import("godot");
+        \\const std = @import("std");
+        \\const Probe = struct {
+        \\    allocator: std.mem.Allocator,
+        \\    base: *godot.class.Node,
+        \\    pub fn _physics_process(_: *@This(), _: bool) void {}
+        \\};
+        \\pub fn register(r: *godot.extension.Registry) void { r.autoRegister(Probe); }
+    , "delta: f64");
+    try rejectsSource(io, dir, entry, out_path,
+        \\const godot = @import("godot");
+        \\const Probe = struct { bad: struct { value: i32 } };
+        \\comptime { _ = godot.extension.Registry.Property(Probe, "bad"); }
+        \\pub fn register(_: *godot.extension.Registry) void {}
+    , "Probe.bad' has unsupported type");
+}
+
+fn rejectsSource(io: std.Io, dir: std.Io.Dir, entry: []const u8, out_path: []const u8, source: []const u8, wanted: []const u8) !void {
+    try dir.writeFile(io, .{ .sub_path = entry, .data = source });
+    var output: std.ArrayList(u8) = .empty;
+    if (run(io, out_path, &.{ "zig", "build", "-j2" }, &output)) |_| {
+        return fail("invalid declaration compiled", .{});
+    } else |_| {}
+    if (std.mem.indexOf(u8, output.items, wanted) == null) return fail("missing diagnostic '{s}':\n{s}", .{ wanted, output.items });
 }
 
 fn rejects(

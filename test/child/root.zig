@@ -118,6 +118,29 @@ const Node = gdzig.class.Node;
 const Node3d = gdzig.class.Node3d;
 const StringName = gdzig.builtin.StringName;
 
+test "typed parent and child lookups accept engine and extension classes" {
+    ensureRegistered();
+    const owner = try WithReady.create();
+    defer owner.base.destroy();
+    const child = try WithoutReady.create();
+    owner.base.addChild(child.base, .{});
+    try testing.expectEqual(owner, child.base.getParentAs(WithReady).?);
+    try testing.expectEqual(owner.base, child.base.getParentAs(Node).?);
+    try testing.expect(child.base.getParentAs(Node3d) == null);
+    try testing.expect(owner.base.getParentAs(Node) == null);
+    try testing.expectEqual(child, owner.base.getChildAs(WithoutReady, 0, .{}).?);
+    try testing.expectEqual(child.base, owner.base.getChildAs(Node, -1, .{}).?);
+    try testing.expect(owner.base.getChildAs(WithReady, 0, .{}) == null);
+    try testing.expect(owner.base.getChildAs(Node3d, 0, .{}) == null);
+    try testing.expect(owner.base.getChildAs(Node, 1, .{}) == null);
+    try testing.expect(owner.base.getChildAs(Node, std.math.minInt(i32), .{}) == null);
+    try testing.expect(child.base.getChildAs(Node, -1, .{}) == null);
+    const internal = Node.init();
+    owner.base.addChild(internal, .{ .internal = .internal_mode_back });
+    try testing.expect(owner.base.getChildAs(Node, 1, .{}) == null);
+    try testing.expectEqual(internal, owner.base.getChildAs(Node, -1, .{ .include_internal = true }).?);
+}
+
 test "getNodeAs narrows to the asked-for type, and nulls rather than complaining" {
     ensureRegistered();
 
