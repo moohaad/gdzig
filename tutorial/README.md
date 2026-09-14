@@ -148,25 +148,20 @@ directory. A missing library needs a build; a missing import list needs an impor
 
 ## 8. Export a native desktop build
 
-First build a release-safe extension for your current platform:
-
-```sh
-gdzig build -Doptimize=ReleaseSafe
-```
-
 Open the project with the same Godot 4.7 executable. Install its matching export
 templates through **Editor > Manage Export Templates**, then create a preset in
 **Project > Export** for your platform. Select all project resources and exclude
 `test_game.gd`; save the preset. Choose an output directory outside `project/`.
 
-For example, after creating a preset named `Windows Desktop`, export using an
-absolute output path whose parent directory already exists:
+For example, after creating a preset named `Windows Desktop`, export using a
+dedicated empty output directory. Paths are relative to this tutorial directory:
 
 ```sh
-godot --headless --path project --export-release "Windows Desktop" C:/games/starcatcher/StarCatcher.exe
+gdzig export -- --preset "Windows Desktop" --output exports/v1/StarCatcher.exe
 ```
 
-Substitute your selected engine executable, preset name, and output path. Godot
+This builds a ReleaseSafe extension, validates the preset, imports, and exports.
+Pass `-Dgodot-path=/absolute/path/to/godot` before `--` to select an engine. Godot
 requires the preset and matching templates; these are not installed by gdzig.
 See [Godot's export guide](https://docs.godotengine.org/en/stable/tutorials/export/exporting_projects.html)
 and [command-line export reference](https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html).
@@ -176,9 +171,9 @@ and restart. Keep the exported native library and resource pack alongside the
 executable as emitted by Godot. Export is a manual exercise here, not part of the
 headless test: CI does not install export templates.
 
-For another platform, compile the extension for that target before exporting and
-check the generated descriptor's library selector. Changing only the Godot preset
-does not turn a Windows DLL into a Linux or macOS library.
+Only host-native desktop export is currently supported by this command. Changing
+the preset does not turn a Windows DLL into a Linux or macOS library. See the
+[export guide](../doc/exporting.md) for debug exports and current limitations.
 
 Next exercises: add a pickup sound using an owning resource handle, connect a
 second score listener, or replace the drawn circles with scene-instantiated sprites.

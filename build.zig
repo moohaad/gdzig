@@ -132,6 +132,7 @@ pub fn build(b: *Build) !void {
     if (godot_exe_target) |exe| {
         b.addNamedLazyPath("godot", exe);
     }
+    if (godot_exe_host) |exe| b.addNamedLazyPath("godot-host", exe);
     b.addNamedLazyPath("gdextension_interface.h", headers.path(b, "gdextension_interface.h"));
     b.addNamedLazyPath("extension_api.json", headers.path(b, "extension_api.json"));
 
@@ -532,6 +533,42 @@ pub fn build(b: *Build) !void {
         exe.addStepDependencies(&run_package_test.step);
     }
     const test_all_step = b.step("test-all", "Run the unit tests and every integration gate");
+    const export_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("build/export.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    }) });
+    const export_test_step = b.step("test-export", "Check export validation and command execution");
+    export_test_step.dependOn(&b.addRunArtifact(export_tests).step);
+    const export_runner = b.addExecutable(.{ .name = "export-runner-test", .root_module = b.createModule(.{
+        .root_source_file = b.path("build/export.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    }) });
+    const export_process_test = b.addExecutable(.{ .name = "export-process-test", .root_module = b.createModule(.{
+        .root_source_file = b.path("build/export_test.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    }) });
+    const export_process_run = b.addRunArtifact(export_process_test);
+    export_process_run.addArtifactArg(export_runner);
+    export_process_run.addArg(b.pathFromRoot(".zig-cache/export-process-fixture"));
+    export_process_run.has_side_effects = true;
+    export_test_step.dependOn(&export_process_run.step);
+    test_all_step.dependOn(export_test_step);
+    const editor_test = b.addExecutable(.{ .name = "editor-integration-test", .root_module = b.createModule(.{
+        .root_source_file = b.path("build/editor_test.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    }) });
+    const editor_run = b.addRunArtifact(editor_test);
+    editor_run.addArtifactArg(gdzig_cli_exe);
+    editor_run.addFileArg(godot_exe_host.?);
+    editor_run.addArg(b.pathFromRoot(".zig-cache/editor-test-fixture"));
+    editor_run.has_side_effects = true;
+    const editor_test_step = b.step("test-editor", "Test editor addon installation, processes, and lifecycle in Godot");
+    editor_test_step.dependOn(&editor_run.step);
+    test_all_step.dependOn(editor_test_step);
     test_all_step.dependOn(test_step);
     test_all_step.dependOn(init_test_step);
     test_all_step.dependOn(res_test_step);
@@ -859,6 +896,8 @@ const api = @import("build/api.zig");
 pub const addExtension = api.addExtension;
 pub const addTest = api.addTest;
 pub const addWatchStep = api.addWatchStep;
+pub const addExportStep = api.addExportStep;
+pub const ExportOptions = api.ExportOptions;
 pub const Extension = api.Extension;
 pub const ExtensionOptions = api.ExtensionOptions;
 pub const ManifestOptions = api.ManifestOptions;

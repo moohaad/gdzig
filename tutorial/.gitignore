@@ -1,5 +1,6 @@
 /.zig-cache/
 /zig-out/
+/exports/
 /zig-pkg/
 /project/.godot/
 /project/lib/

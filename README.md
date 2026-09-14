@@ -74,6 +74,7 @@ gdzig build
 gdzig run -Dgodot-version=4.7
 gdzig editor
 gdzig watch -Doptimize=ReleaseSafe
+gdzig export -- --preset "Windows Desktop" --output ../exports/v1/Game.exe
 ```
 
 Build options are forwarded to `zig build`. `run` and `editor` build and import
@@ -82,6 +83,11 @@ after `--`, for example `gdzig run -- --headless --quit`.
 `watch` forwards build options to each rebuild. Existing projects need the
 `run`, `editor`, and `watch` steps from the current scaffold in their build file.
 The former standalone scaffolder and its build step have been removed; use `gdzig init`.
+
+Desktop exports require a matching Godot preset and export templates. The command
+checks the platform/architecture, imports, and exports into an empty directory
+outside the project. See [exporting](doc/exporting.md) for debug mode, limitations,
+and the build helper for existing projects.
 
 Generate registered classes from the project directory:
 

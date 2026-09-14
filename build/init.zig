@@ -206,6 +206,7 @@ pub fn main(init: std.process.Init) !void {
         \\    }}
         \\
         \\    const watch_step = b.step("watch", "Watch for changes, clean stale artifacts, and rebuild");
+        \\    _ = gdzig.addExportStep(b, .{{ .dependency = gdzig_dep, .target = target }});
         \\    const watch = gdzig.addWatchStep(b, .{{}});
         \\    if (b.args) |args| for (args) |arg| {{
         \\        watch.addArgs(&.{{ "--build-arg", arg }});

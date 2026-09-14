@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(extension.output, .{ .custom = "../project/lib" }, extension.filename).step);
     b.getInstallStep().dependOn(&b.addInstallFileWithDir(extension.manifest, .{ .custom = "../project" }, extension.manifest_filename).step);
     const import_project = std.Build.Step.Run.create(b, "import tutorial");
+    _ = gdzig.addExportStep(b, .{ .dependency = dep, .target = target, .project = "project" });
     import_project.addFileArg(dep.namedLazyPath("godot"));
     import_project.addArgs(&.{ "--path", b.pathFromRoot("project"), "--headless", "--import" });
     import_project.step.dependOn(b.getInstallStep());

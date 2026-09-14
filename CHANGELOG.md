@@ -1,5 +1,11 @@
 # HEAD
 
+- **Reliable native desktop exports**: `gdzig export` and `addExportStep` build,
+  validate preset platform/architecture, import, and export with the selected host
+  Godot. ReleaseSafe is the CLI default; debug templates are selectable. Existing
+  output is protected, Godot diagnostics are retained, and failed or missing
+  output fails the command. `test-export` joins `test-all`.
+
 - **Playable Star Catcher tutorial**: a small native desktop game teaches typed
   input and scenes, score signals, resource ownership, coroutine countdowns, and
   desktop export. `test-tutorial`, included in `test-all`, builds the actual game

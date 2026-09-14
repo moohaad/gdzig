@@ -634,6 +634,41 @@ pub fn addWatchStep(b: *Build, options: WatchOptions) *Step.Run {
 // Internal helpers
 // ============================================================================
 
+pub const ExportOptions = struct {
+    dependency: ?*Build.Dependency = null,
+    project: []const u8 = ".",
+    target: Build.ResolvedTarget,
+};
+
+/// Builds/installs before exporting with the same host editor used for bindgen.
+/// Pass export arguments through `b.args`; creates the named `export` step.
+pub fn addExportStep(b: *Build, options: ExportOptions) *Step.Run {
+    const dep = options.dependency orelse getSelfDependency(b);
+    const exe = b.addExecutable(.{
+        .name = "gdzig-export",
+        .root_module = b.createModule(.{
+            .root_source_file = dep.path("build/export.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run = b.addRunArtifact(exe);
+    run.addFileArg(dep.namedLazyPath("godot-host"));
+    const t = options.target.result;
+    const host = b.graph.host.result;
+    run.addArgs(&.{
+        b.pathFromRoot(options.project),
+        @import("manifest.zig").platformName(t.os.tag, t.abi) orelse "unsupported",
+        @import("manifest.zig").architectureName(t.cpu.arch) orelse "unsupported",
+        if (t.os.tag == host.os.tag and t.cpu.arch == host.cpu.arch and t.abi == host.abi) "native" else "cross",
+    });
+    if (b.args) |args| run.addArgs(args);
+    run.step.dependOn(b.getInstallStep());
+    run.has_side_effects = true;
+    b.step("export", "Build, validate, import, and export a native desktop game").dependOn(&run.step);
+    return run;
+}
+
 /// Resolves paths and modules from either the current build (when building gdzig itself)
 /// or from a dependency (when gdzig is used as a dependency by downstream projects).
 pub const Resolver = struct {
