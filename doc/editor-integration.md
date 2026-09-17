@@ -20,12 +20,15 @@ The panel provides:
 - **Zig files**: browses `build.zig` and Zig files under `src/`, creates new
   `src/*.zig` files, and edits them in a line-numbered source window. New files
   are not automatically registered as Godot classes; use **Generate class** for that.
+- **Enable .zig in Script Editor**: adds `zig` to Godot's editable text-file
+  extensions. Zig files inside the Godot project then appear in the FileSystem
+  dock and open in Godot's Script Editor when double-clicked. This changes a
+  global Editor Setting, so the button is opt-in and never removes other extensions.
 - **Generate class**: creates and registers a node, resource, or editor plugin
-  through `gdzig add`. Enter a Zig class name. For nodes, choose from the
-  searchable list of instantiable native Node classes reported by the running
-  editor's `ClassDB`; the list
-  therefore matches that Godot build instead of a hard-coded gdzig list. Existing
-  files are never overwritten.
+  through `gdzig add`. Enter a Zig class name. For nodes, click **Base** to use
+  Godot's searchable **Create Node** dialog. The selected base must be an
+  instantiable native Node class in the running Godot build; script and custom
+  extension classes are rejected. Existing files are never overwritten.
 
 Set the gdzig executable to an absolute path if it is not on the editor's PATH.
 Zig must also be on that PATH. The build directory is detected beside the Godot
@@ -80,6 +83,22 @@ disk since it was opened, saving refuses to overwrite it. Disabling the addon
 preserves an unsaved draft in the project's `.godot/gdzig-source-draft.cfg` and
 restores it when the addon is re-enabled. A successful save or explicit discard
 removes the draft.
+
+For the native Script Editor workflow, click **Enable .zig in Script Editor**
+once, then double-click a `.zig` file in Godot's FileSystem dock. The equivalent
+manual setting is **Editor > Editor Settings > Docks > FileSystem > Textfile
+Extensions**: add `zig` to the comma-separated list. Godot's dock only displays
+files under its `res://` project root. If `build.zig` and `src/` live outside
+that root in a split-layout project, use the gdzig **Zig files** browser or an
+external editor instead. Native editing handles Zig as a text file rather than
+a Godot script, so it does not provide Zig language-server completion or inline
+compiler diagnostics. The addon
+registers a lightweight Zig syntax highlighter for new `.zig` tabs in Godot's
+Script Editor and uses the same highlighting in its own **Zig files** window.
+It colors keywords, builtin names, strings, numbers, and comments; it is not a
+Zig parser or formatter. Close and reopen any `.zig` tab that was already open
+when the addon was enabled, as Godot only applies newly registered highlighters
+to subsequently opened files.
 
 ## Build before Play
 

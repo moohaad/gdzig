@@ -3,8 +3,10 @@ extends EditorPlugin
 
 const Runner = preload("process.gd")
 const Diagnostics = preload("diagnostics.gd")
+const ZigHighlighter = preload("zig_highlighter.gd")
 const CONFIG := "res://.godot/gdzig-editor.cfg"
 const SOURCE_DRAFT := "res://.godot/gdzig-source-draft.cfg"
+const TEXTFILE_EXTENSIONS := "docks/filesystem/textfile_extensions"
 var runner: Node
 var panel: VBoxContainer
 var log_view: TextEdit
@@ -12,7 +14,8 @@ var executable: LineEdit
 var build_root: LineEdit
 var build_args: TextEdit
 var class_name_input: LineEdit
-var base_input: OptionButton
+var base_button: Button
+var selected_node_base := "Node"
 var kind_input: OptionButton
 var action_buttons: Array[Button] = []
 var status: Label
@@ -21,6 +24,7 @@ var diagnostic_pending := ""
 var command_root := ""
 var source_window: Window
 var source_view: CodeEdit
+var zig_highlighter: EditorSyntaxHighlighter
 var source_files: ItemList
 var source_name: LineEdit
 var source_path := ""
@@ -44,6 +48,8 @@ func _enter_tree() -> void:
 	runner.release_when_done = false
 	runner.output.connect(_append_output)
 	runner.finished.connect(_finished)
+	zig_highlighter = ZigHighlighter.new()
+	EditorInterface.get_script_editor().register_syntax_highlighter(zig_highlighter)
 	panel = VBoxContainer.new()
 	panel.custom_minimum_size = Vector2(0, 260)
 	executable = _field("gdzig executable (PATH name or absolute path)", "gdzig")
@@ -72,6 +78,7 @@ func _enter_tree() -> void:
 	_button(row, "Doctor", _doctor)
 	_button(row, "Save settings", _save)
 	_button(row, "Zig files", _show_sources)
+	_button(row, "Enable .zig in Script Editor", _enable_native_source_editor)
 	kind_input = OptionButton.new()
 	for kind in ["node", "resource", "plugin"]:
 		kind_input.add_item(kind)
@@ -80,13 +87,12 @@ func _enter_tree() -> void:
 	class_name_input = LineEdit.new()
 	class_name_input.placeholder_text = "ClassName"
 	row.add_child(class_name_input)
-	base_input = OptionButton.new()
-	base_input.tooltip_text = "Instantiable Node classes reported by this Godot editor"
-	base_input.fit_to_longest_item = false
-	base_input.custom_minimum_size.x = 190
-	base_input.get_popup().allow_search = true
-	_populate_node_bases()
-	row.add_child(base_input)
+	base_button = Button.new()
+	base_button.text = "Base: Node…"
+	base_button.tooltip_text = "Choose a native Node base using Godot's Create Node dialog"
+	base_button.custom_minimum_size.x = 190
+	base_button.pressed.connect(_choose_node_base)
+	row.add_child(base_button)
 	_button(row, "Generate class", _generate)
 	status = Label.new()
 	status.text = "Ready. Commands run only when clicked; build before playing."
@@ -127,6 +133,7 @@ func _enter_tree() -> void:
 	source_view = CodeEdit.new()
 	source_view.editable = false
 	source_view.gutters_draw_line_numbers = true
+	source_view.syntax_highlighter = ZigHighlighter.new()
 	source_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	source_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	source_view.text_changed.connect(_source_changed)
@@ -164,27 +171,23 @@ func _field(label_text: String, value: String) -> LineEdit:
 	row.add_child(input)
 	return input
 
-func _populate_node_bases() -> void:
-	base_input.clear()
-	var names: PackedStringArray = PackedStringArray()
-	for engine_class in ClassDB.get_class_list():
-		if ClassDB.class_get_api_type(engine_class) == ClassDB.API_CORE and (engine_class == "Node" or ClassDB.is_parent_class(engine_class, "Node")) and ClassDB.is_class_enabled(engine_class) and ClassDB.can_instantiate(engine_class):
-			names.append(engine_class)
-	names.sort()
-	for engine_class in names:
-		base_input.add_item(engine_class)
-	var node_index := find_node_base("Node")
-	if node_index >= 0:
-		base_input.select(node_index)
+func _choose_node_base() -> void:
+	EditorInterface.popup_create_dialog(_node_base_selected, &"Node", selected_node_base, "Choose native Node base for Zig class")
 
-func find_node_base(engine_class: String) -> int:
-	for index in range(base_input.item_count):
-		if base_input.get_item_text(index) == engine_class:
-			return index
-	return -1
+func _node_base_selected(engine_class: String) -> void:
+	if engine_class.is_empty():
+		return
+	if not _valid_native_node_base(engine_class):
+		_append_output("Choose an instantiable native Node class. Script and custom extension classes cannot be used as Zig bases.\n")
+		return
+	selected_node_base = engine_class
+	base_button.text = "Base: %s…" % engine_class
+
+func _valid_native_node_base(engine_class: String) -> bool:
+	return ClassDB.class_exists(engine_class) and ClassDB.class_get_api_type(engine_class) == ClassDB.API_CORE and (engine_class == "Node" or ClassDB.is_parent_class(engine_class, "Node")) and ClassDB.is_class_enabled(engine_class) and ClassDB.can_instantiate(engine_class)
 
 func _kind_changed(index: int) -> void:
-	base_input.disabled = kind_input.get_item_text(index) != "node"
+	base_button.disabled = kind_input.get_item_text(index) != "node"
 
 func _button(row: HBoxContainer, title: String, action: Callable) -> void:
 	var button := Button.new()
@@ -204,6 +207,21 @@ func _show_sources() -> void:
 		return
 	_refresh_sources()
 	source_window.popup_centered()
+
+func _enable_native_source_editor() -> void:
+	var settings := EditorInterface.get_editor_settings()
+	var extensions := str(settings.get_setting(TEXTFILE_EXTENSIONS))
+	var updated := _with_zig_extension(extensions)
+	if updated != extensions:
+		settings.set_setting(TEXTFILE_EXTENSIONS, updated)
+		EditorInterface.get_resource_filesystem().scan()
+	_append_output("Godot now treats .zig as editable text. Double-click a .zig file under res:// in the FileSystem dock to edit it in the Script Editor.\n")
+
+func _with_zig_extension(extensions: String) -> String:
+	for extension in extensions.split(",", false):
+		if extension.strip_edges().trim_prefix(".").to_lower() == "zig":
+			return extensions
+	return extensions + ("," if not extensions.strip_edges().is_empty() else "") + "zig"
 
 func _refresh_sources() -> void:
 	source_files.clear()
@@ -472,10 +490,10 @@ func _generate() -> void:
 		return
 	var args := PackedStringArray(["add", kind, name_text])
 	if kind == "node":
-		if base_input.selected < 0:
-			_append_output("Godot reported no instantiable Node base classes.\n")
+		if not _valid_native_node_base(selected_node_base):
+			_append_output("Choose an instantiable native Node base class.\n")
 			return
-		args.append_array(["--base", base_input.get_item_text(base_input.selected)])
+		args.append_array(["--base", selected_node_base])
 	_start(args)
 
 func _start(args: PackedStringArray) -> void:
@@ -556,6 +574,7 @@ func _finished(code: int) -> void:
 
 func _exit_tree() -> void:
 	_persist_source_draft()
+	EditorInterface.get_script_editor().unregister_syntax_highlighter(zig_highlighter)
 	remove_tool_menu_item("gdzig")
 	remove_control_from_bottom_panel(panel)
 	panel.queue_free()

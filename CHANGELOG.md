@@ -1,7 +1,8 @@
 # HEAD
 
-- **Godot-backed node base chooser**: the editor class generator lists the
-  instantiable Node classes from the running editor's `ClassDB`. `gdzig add`
+- **Godot-backed node base chooser**: the editor class generator uses Godot's
+  native searchable Create Node dialog, then validates the selected native
+  Node class against the running editor's `ClassDB`. `gdzig add`
   now converts arbitrary engine Node base names using the binding generator's
   casing rules instead of restricting users to ten hard-coded classes. Older
   scaffolds whose symmetric registration tuple is named `nodes` are supported.
@@ -9,6 +10,9 @@
 - **Built-in Zig source editing**: the editor panel can browse project Zig files,
   create new files under `src/`, and edit/save them in Godot. It protects unsaved
   buffers, detects on-disk conflicts, and restores drafts after addon reload.
+  An opt-in action also registers `.zig` as editable text in Godot's native
+  FileSystem dock and Script Editor. Both editors now color Zig keywords,
+  builtins, strings, numbers, and comments.
 - **Clickable diagnostics and opt-in build-before-play**: the editor panel lists
   Zig errors, warnings, and notes with source locations, opening the built-in
   editor or a configured external editor. Optional pre-play builds use Godot's

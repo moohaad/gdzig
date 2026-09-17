@@ -27,7 +27,7 @@ pub fn install(project: std.Io.Dir, io: std.Io) !void {
     // user changes. Roll back only the directory this call created.
     try project.createDir(io, "addons/gdzig", .default_dir);
     errdefer project.deleteTree(io, "addons/gdzig") catch {};
-    inline for (.{ "plugin.cfg", "plugin.gd", "process.gd", "diagnostics.gd" }) |name| {
+    inline for (.{ "plugin.cfg", "plugin.gd", "process.gd", "diagnostics.gd", "zig_highlighter.gd" }) |name| {
         try project.writeFile(io, .{ .sub_path = "addons/gdzig/" ++ name, .data = @embedFile("editor/" ++ name) });
     }
 }

@@ -21,11 +21,26 @@ func _run() -> void:
 		get_tree().quit(1)
 		return
 	check(not panel_plugin.runner.busy(), "enabling does not launch commands")
+	check(panel_plugin.zig_highlighter._get_supported_languages().has("zig"), "native Script Editor highlighter targets Zig files")
+	check(panel_plugin.source_view.syntax_highlighter != panel_plugin.zig_highlighter, "each editor has its own Zig highlighter instance")
+	panel_plugin.source_view.text = "pub const answer: u32 = 42; // comment"
+	var colors: Dictionary = panel_plugin.source_view.syntax_highlighter.get_line_syntax_highlighting(0)
+	check(colors.has(0) and colors.has(3) and colors.has(4), "Zig keywords receive distinct color spans")
+	check(colors.has(24), "Zig numbers receive a color span")
+	check(colors.has(28), "Zig comments receive a color span")
 	check(not panel_plugin.build_before_play.button_pressed, "build-before-play defaults off")
-	check(panel_plugin.base_input.item_count > 50, "node bases populated from ClassDB")
-	check(panel_plugin.base_input.get_popup().allow_search, "node base chooser is searchable")
-	check(panel_plugin.find_node_base("AnimationPlayer") >= 0, "live Godot class is offered")
-	check(panel_plugin.find_node_base("RefCounted") == -1, "non-Node class omitted")
+	check(EditorInterface.has_method("popup_create_dialog"), "Godot Create Node dialog is available")
+	check(panel_plugin.selected_node_base == "Node", "Node is the default Zig base")
+	check(panel_plugin._valid_native_node_base("AnimationPlayer"), "live Godot Node class is accepted")
+	check(not panel_plugin._valid_native_node_base("RefCounted"), "non-Node class is rejected")
+	panel_plugin._node_base_selected("AnimationPlayer")
+	check(panel_plugin.selected_node_base == "AnimationPlayer" and panel_plugin.base_button.text.contains("AnimationPlayer"), "Create Node selection updates the Zig base")
+	panel_plugin._node_base_selected("RefCounted")
+	check(panel_plugin.selected_node_base == "AnimationPlayer", "invalid base selection retains the previous Node")
+	panel_plugin._node_base_selected("")
+	check(panel_plugin.selected_node_base == "AnimationPlayer", "canceling the Create Node dialog retains the Node")
+	check(panel_plugin._with_zig_extension("txt,md") == "txt,md,zig", "native Zig text extension is appended")
+	check(panel_plugin._with_zig_extension("txt, .ZIG ,md") == "txt, .ZIG ,md", "native Zig text extension is not duplicated")
 	check(panel_plugin._build(), "disabled play hook allows Play")
 	var parser = load("res://addons/gdzig/diagnostics.gd")
 	var parsed: Dictionary = parser.parse("C:\\game with spaces\\src\\Player.zig:12:3: error: broken", "/unused")
@@ -75,7 +90,6 @@ func _run() -> void:
 		await get_tree().process_frame
 	panel_plugin.build_before_play.set_pressed_no_signal(false)
 	panel_plugin.class_name_input.text = "EditorProbe"
-	panel_plugin.base_input.select(panel_plugin.find_node_base("AnimationPlayer"))
 	panel_plugin._generate()
 	while panel_plugin.runner.busy():
 		await get_tree().process_frame
