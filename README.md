@@ -59,6 +59,10 @@ Build-source checks are advisory; doctor does not load libraries or verify expor
 
 ## Starting a project
 
+For an optional Godot bottom panel with Build, Doctor, and class generation, run
+`gdzig setup-editor` (or `gdzig setup-editor --project project`) and enable the
+addon in Project Settings > Plugins. See [editor integration](doc/editor-integration.md).
+
 For a complete playable introduction, follow [Star Catcher](tutorial/README.md):
 input, typed scenes, signals, resource ownership, a coroutine countdown, and
 desktop export. `zig build test-tutorial` builds and play-tests its source.

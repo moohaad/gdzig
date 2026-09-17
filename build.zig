@@ -66,15 +66,6 @@ pub fn build(b: *Build) !void {
         }),
     });
     test_step.dependOn(&b.addRunArtifact(doctor_unit_tests).step);
-    const add_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("build/add.zig"),
-            .target = b.graph.host,
-            .optimize = .Debug,
-        }),
-    });
-    test_step.dependOn(&b.addRunArtifact(add_tests).step);
-
     //
     // Dependencies
     //
@@ -229,12 +220,34 @@ pub fn build(b: *Build) !void {
     // Scaffolding tool
     //
 
+    const cli_common_mod = common.build(b, .{
+        .target = b.graph.host,
+        .optimize = .Debug,
+        .casez = casez.module("casez"),
+    });
+    const add_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("build/add.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+            .imports = &.{
+                .{ .name = "casez", .module = casez.module("casez") },
+                .{ .name = "common", .module = cli_common_mod },
+            },
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(add_tests).step);
+
     const gdzig_cli_exe = b.addExecutable(.{
         .name = "gdzig",
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/cli.zig"),
             .target = b.graph.host,
             .optimize = .Debug,
+            .imports = &.{
+                .{ .name = "casez", .module = casez.module("casez") },
+                .{ .name = "common", .module = cli_common_mod },
+            },
         }),
     });
     const install_cli = b.addInstallArtifact(gdzig_cli_exe, .{});

@@ -1,5 +1,25 @@
 # HEAD
 
+- **Godot-backed node base chooser**: the editor class generator lists the
+  instantiable Node classes from the running editor's `ClassDB`. `gdzig add`
+  now converts arbitrary engine Node base names using the binding generator's
+  casing rules instead of restricting users to ten hard-coded classes. Older
+  scaffolds whose symmetric registration tuple is named `nodes` are supported.
+
+- **Built-in Zig source editing**: the editor panel can browse project Zig files,
+  create new files under `src/`, and edit/save them in Godot. It protects unsaved
+  buffers, detects on-disk conflicts, and restores drafts after addon reload.
+- **Clickable diagnostics and opt-in build-before-play**: the editor panel lists
+  Zig errors, warnings, and notes with source locations, opening the built-in
+  editor or a configured external editor. Optional pre-play builds use Godot's
+  synchronous build hook and block Play on errors or a busy runner.
+
+- **Godot editor integration**: `gdzig setup-editor` installs an opt-in bottom
+  panel for Build, Doctor, and class generation. Commands run asynchronously,
+  retain stdout/stderr and exit status, and support split layouts through
+  `gdzig -C`. Installation protects existing addons. `test-editor` exercises the
+  actual addon in headless Godot and is included in `test-all`.
+
 - **Reliable native desktop exports**: `gdzig export` and `addExportStep` build,
   validate preset platform/architecture, import, and export with the selected host
   Godot. ReleaseSafe is the CLI default; debug templates are selectable. Existing
