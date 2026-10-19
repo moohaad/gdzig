@@ -56,7 +56,7 @@ test "print formats without crashing, including past its buffer" {
     // one the implementation has a branch for: a message too long to fit.
     gdzig.print("macros test: {d} and {s}", .{ 42, "text" });
 
-    const long = "x" ** 40_000;
+    const long: [40_000]u8 = @splat('x');
     gdzig.print("{s}", .{long});
 }
 

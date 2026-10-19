@@ -72,12 +72,12 @@ fn stage(owner: *Node) void {
 }
 
 test "the struct has one field per child, and none for the root" {
-    const fields = @typeInfo(Fixture).@"struct".fields;
-    try testing.expectEqual(@as(usize, 7), fields.len);
+    const field_names = @typeInfo(Fixture).@"struct".field_names;
+    try testing.expectEqual(@as(usize, 7), field_names.len);
 
     // "Root" is the class itself, so it is not among them.
-    inline for (fields) |field| {
-        try testing.expect(!std.mem.eql(u8, "Root", field.name));
+    inline for (field_names) |field_name| {
+        try testing.expect(!std.mem.eql(u8, "Root", field_name));
     }
 }
 
@@ -152,7 +152,7 @@ test "SceneNode macro infers type from tscn" {
     // "Sprite" is a Sprite2D in fixture.tscn
     const SpriteField = gdzig.SceneNode(tscn, "Sprite");
     try testing.expectEqual(Sprite2d, SpriteField.Resolves);
-    
+
     // Simpler check: getting a child returns a pointer to the inferred type.
     const S = struct {
         sprite: gdzig.SceneNode(tscn, "Sprite") = .pending,
@@ -165,7 +165,7 @@ test "SceneNodeAs verifies type from tscn" {
     const tscn = @embedFile("fixture.tscn");
     // "Sprite" is a Sprite2D, asking for Sprite2d should work
     const SpriteField = gdzig.SceneNodeAs(tscn, "Sprite", Sprite2d);
-    
+
     // "Sprite" is a Sprite2D, asking for Node2d should work (since Sprite2D inherits Node2D)
     const SpriteAsNode2D = gdzig.SceneNodeAs(tscn, "Sprite", Node2d);
 

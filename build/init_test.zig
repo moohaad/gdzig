@@ -59,7 +59,7 @@ pub fn main(init: std.process.Init) !void {
     try runFails(io, ".", &.{ scaffolder, "init", "--name", "gadget", "--out", occupied_out });
     occupied = try std.Io.Dir.openDir(.cwd(), io, occupied_out, .{});
     defer occupied.close(io);
-    const sentinel = try occupied.readFileAlloc(io, "keep.txt", arena, @enumFromInt(1024));
+    const sentinel = try occupied.readFileAlloc(io, "keep.txt", arena, @fromBackingInt(@intCast(1024)));
     if (!std.mem.eql(u8, sentinel, "do not replace")) return fail("scaffolder changed an existing file", .{});
     if (occupied.statFile(io, "build.zig", .{})) |_| {
         return fail("scaffolder wrote build.zig into a non-empty directory", .{});
@@ -98,21 +98,21 @@ pub fn main(init: std.process.Init) !void {
         };
     }
 
-    const entry_source = try dir.readFileAlloc(io, "src/" ++ name ++ ".zig", arena, @enumFromInt(1 << 20));
+    const entry_source = try dir.readFileAlloc(io, "src/" ++ name ++ ".zig", arena, @fromBackingInt(@intCast(1 << 20)));
     if (std.mem.indexOf(u8, entry_source, "r.registerAll(classes)") == null or
         std.mem.indexOf(u8, entry_source, "r.unregisterAll(classes)") == null)
     {
         return fail("generated entry does not symmetrically register the starter class", .{});
     }
-    const game_source = try dir.readFileAlloc(io, "src/Game.zig", arena, @enumFromInt(1 << 20));
+    const game_source = try dir.readFileAlloc(io, "src/Game.zig", arena, @fromBackingInt(@intCast(1 << 20)));
     if (std.mem.indexOf(u8, game_source, "pub fn _ready") == null) {
         return fail("generated Game class has no _ready callback", .{});
     }
-    const project_source = try dir.readFileAlloc(io, "project.godot", arena, @enumFromInt(1 << 20));
+    const project_source = try dir.readFileAlloc(io, "project.godot", arena, @fromBackingInt(@intCast(1 << 20)));
     if (std.mem.indexOf(u8, project_source, "run/main_scene=\"res://main.tscn\"") == null) {
         return fail("generated Godot project does not select the starter scene", .{});
     }
-    const build_source = try dir.readFileAlloc(io, "build.zig", arena, @enumFromInt(1 << 20));
+    const build_source = try dir.readFileAlloc(io, "build.zig", arena, @fromBackingInt(@intCast(1 << 20)));
     if (std.mem.indexOf(u8, build_source, "extension.manifest") == null) {
         return fail("generated build does not install addExtension's manifest", .{});
     }
@@ -122,7 +122,7 @@ pub fn main(init: std.process.Init) !void {
         return fail("generated build does not forward its Godot selection to gdzig", .{});
     }
 
-    const manifest = dir.readFileAlloc(io, "build.zig.zon", arena, @enumFromInt(1 << 20)) catch |err| {
+    const manifest = dir.readFileAlloc(io, "build.zig.zon", arena, @fromBackingInt(@intCast(1 << 20))) catch |err| {
         return fail("cannot read the generated build.zig.zon: {s}", .{@errorName(err)});
     };
 
@@ -138,7 +138,7 @@ pub fn main(init: std.process.Init) !void {
         \\    .name = .{s},
         \\    .version = "0.0.0",
         \\    .fingerprint = {s},
-        \\    .minimum_zig_version = "0.16.0",
+        \\    .minimum_zig_version = "0.17.0",
         \\    .dependencies = .{{
         \\        .gdzig = .{{ .path = "{s}" }},
         \\    }},
@@ -164,7 +164,7 @@ pub fn main(init: std.process.Init) !void {
     // library. Nothing is installed from it -- surviving configure is the whole
     // assertion.
     {
-        const build_zig = try dir.readFileAlloc(io, "build.zig", arena, @enumFromInt(1 << 20));
+        const build_zig = try dir.readFileAlloc(io, "build.zig", arena, @fromBackingInt(@intCast(1 << 20)));
         const close = std.mem.lastIndexOfScalar(u8, build_zig, '}') orelse
             return fail("generated build.zig has no closing brace", .{});
         try dir.writeFile(io, .{ .sub_path = "build.zig", .data = try std.fmt.allocPrint(arena,
@@ -188,10 +188,10 @@ pub fn main(init: std.process.Init) !void {
     try run(io, out_path, &.{ scaffolder, "build" });
     // Launch through the CLI, including a forwarded build option and engine
     // arguments. The generated step must import after building, then exit.
-    try run(io, out_path, &.{ scaffolder, "run", "-Doptimize=Debug", "--", "--headless", "--quit" });
+    try run(io, out_path, &.{ scaffolder, "run", "-Doptimize=debug", "--", "--headless", "--quit" });
 
     const descriptor_name = name ++ ".gdextension";
-    const descriptor = dir.readFileAlloc(io, descriptor_name, arena, @enumFromInt(1 << 20)) catch |err| {
+    const descriptor = dir.readFileAlloc(io, descriptor_name, arena, @fromBackingInt(@intCast(1 << 20))) catch |err| {
         return fail("build did not install generated '{s}': {s}", .{ descriptor_name, @errorName(err) });
     };
     if (std.mem.indexOf(u8, descriptor, "entry_symbol = \"" ++ name ++ "_init\"") == null) {

@@ -76,6 +76,11 @@ pub fn main(init: std.process.Init) !void {
             while (args_iter.next()) |run_arg| {
                 try run_args_list.append(allocator, run_arg);
             }
+        } else {
+            // Zig 0.17 no longer exposes build passthrough arguments during
+            // configuration. The generated build graph inserts them here, and
+            // every argument before `--run` belongs to the nested build.
+            try build_argv.append(allocator, arg);
         }
     }
 

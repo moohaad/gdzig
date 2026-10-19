@@ -23,10 +23,10 @@ pub fn register(_: *gdzig.extension.Registry) void {}
 /// Names every non-generic public declaration of `Namespace`, which is enough
 /// to make the compiler analyse each one.
 fn touchAll(comptime Namespace: type) void {
-    inline for (@typeInfo(Namespace).@"struct".decls) |decl| {
-        const T = @TypeOf(@field(Namespace, decl.name));
+    inline for (@typeInfo(Namespace).@"struct".decl_names) |decl_name| {
+        const T = @TypeOf(@field(Namespace, decl_name));
         if (@typeInfo(T) == .@"fn" and !@typeInfo(T).@"fn".is_generic) {
-            _ = &@field(Namespace, decl.name);
+            _ = &@field(Namespace, decl_name);
         }
     }
 }

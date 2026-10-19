@@ -161,12 +161,13 @@ pub fn autoPersist(self: anytype) void {
         return;
     }
 
-    inline for (@typeInfo(T).@"struct".fields) |field| {
-        if (comptime !isPersistedField(field)) continue;
+    const fields = @typeInfo(T).@"struct";
+    inline for (fields.field_names, fields.field_types) |field_name, FieldType| {
+        if (comptime !isPersistedField(field_name)) continue;
 
-        if (comptime Variant.Tag.forTypeOrNull(field.type) != null) {
-            const key = StringName.fromComptimeLatin1(key_prefix ++ field.name);
-            const val = Variant.init(field.type, @field(self, field.name));
+        if (comptime Variant.Tag.forTypeOrNull(FieldType) != null) {
+            const key = StringName.fromComptimeLatin1(key_prefix ++ field_name);
+            const val = Variant.init(FieldType, @field(self, field_name));
             self.base.setMeta(key.*, val);
             val.deinit();
         }
@@ -273,15 +274,16 @@ fn runMigrationStep(comptime T: type, from_version: u32, migration: *Migration) 
 }
 
 fn validateMigratedFields(comptime T: type, migration: *const Migration) bool {
-    inline for (@typeInfo(T).@"struct".fields) |field| {
-        if (comptime !isPersistedField(field)) continue;
+    const fields = @typeInfo(T).@"struct";
+    inline for (fields.field_names, fields.field_types) |field_name, FieldType| {
+        if (comptime !isPersistedField(field_name)) continue;
 
-        if (comptime Variant.Tag.forTypeOrNull(field.type) != null) {
-            if (migration.getVariant(field.name)) |raw_value| {
+        if (comptime Variant.Tag.forTypeOrNull(FieldType) != null) {
+            if (migration.getVariant(field_name)) |raw_value| {
                 var value = raw_value;
                 defer value.deinit();
 
-                if (value.as(field.type)) |decoded| {
+                if (value.as(FieldType)) |decoded| {
                     var owned = decoded;
                     deinitOwnedValue(&owned);
                 } else {
@@ -297,18 +299,19 @@ fn restoreFields(self: anytype) bool {
     const T = @TypeOf(self.*);
     var complete = true;
 
-    inline for (@typeInfo(T).@"struct".fields) |field| {
-        if (comptime !isPersistedField(field)) continue;
+    const fields = @typeInfo(T).@"struct";
+    inline for (fields.field_names, fields.field_types) |field_name, FieldType| {
+        if (comptime !isPersistedField(field_name)) continue;
 
-        if (comptime Variant.Tag.forTypeOrNull(field.type) != null) {
-            const key = StringName.fromComptimeLatin1(key_prefix ++ field.name);
+        if (comptime Variant.Tag.forTypeOrNull(FieldType) != null) {
+            const key = StringName.fromComptimeLatin1(key_prefix ++ field_name);
             if (self.base.hasMeta(key.*)) {
                 const val = self.base.getMeta(key.*, .{});
                 defer val.deinit();
 
-                if (val.as(field.type)) |decoded| {
-                    deinitOwnedValue(&@field(self, field.name));
-                    @field(self, field.name) = decoded;
+                if (val.as(FieldType)) |decoded| {
+                    deinitOwnedValue(&@field(self, field_name));
+                    @field(self, field_name) = decoded;
                     self.base.removeMeta(key.*);
                 } else {
                     complete = false;
@@ -319,10 +322,10 @@ fn restoreFields(self: anytype) bool {
     return complete;
 }
 
-fn isPersistedField(comptime field: std.builtin.Type.StructField) bool {
-    if (std.mem.eql(u8, field.name, "base") or std.mem.eql(u8, field.name, "children")) return false;
-    if (std.mem.eql(u8, field.name, "allocator")) return false;
-    return !std.mem.startsWith(u8, field.name, "_");
+fn isPersistedField(comptime field_name: []const u8) bool {
+    if (std.mem.eql(u8, field_name, "base") or std.mem.eql(u8, field_name, "children")) return false;
+    if (std.mem.eql(u8, field_name, "allocator")) return false;
+    return !std.mem.startsWith(u8, field_name, "_");
 }
 
 fn fieldKey(comptime name: [:0]const u8) StringName {

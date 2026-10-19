@@ -16,13 +16,16 @@ pub const Options = struct {
 
 pub fn add(b: *Build, options: Options) !*Step.Run {
     var examples: std.StringArrayHashMapUnmanaged(std.ArrayList(u8)) = .empty;
+    var root_dir = try b.root.openDir(b.graph.io, ".", .{});
+    defer root_dir.close(b.graph.io);
 
     for (options.files) |path| {
-        const markdown = try b.build_root.handle.readFileAlloc(
+        b.dependOnFileContents(b.path(path));
+        const markdown = try root_dir.readFileAlloc(
             b.graph.io,
             path,
             b.allocator,
-            @enumFromInt(8 << 20),
+            @fromBackingInt(@intCast(8 << 20)),
         );
         try collect(b, path, markdown, &examples);
     }

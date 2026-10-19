@@ -30,10 +30,10 @@ pub fn ClassUserdataOf(comptime T: type) type {
         // instance with, which is the shape a hand-written `create` uses too.
         return *Allocator;
     }
-    const params = @typeInfo(@TypeOf(T.create)).@"fn".params;
+    const params = @typeInfo(@TypeOf(T.create)).@"fn".param_types;
     return switch (params.len) {
         0 => void,
-        1 => params[0].type.?,
+        1 => params[0].?,
         inline else => @compileError("Type '" ++ @typeName(T) ++ "'.create must take zero or one parameters"),
     };
 }
@@ -162,8 +162,8 @@ fn initChain(comptime S: type, allocator: *Allocator, obj: anytype) S {
 /// Whether dispatches are counted so that freeing an object out from under one
 /// can be caught. Enabled where the other safety checks are.
 pub const track_dispatch = switch (builtin.mode) {
-    .Debug, .ReleaseSafe => true,
-    .ReleaseFast, .ReleaseSmall => false,
+    .debug, .safe => true,
+    .fast, .small => false,
 };
 
 /// What a user class's instance actually is, so a narrowing cast can be checked
@@ -236,8 +236,7 @@ pub const DestroyInstanceBinding = struct {
     /// instance bindings from whichever thread touches or drops the object, so
     /// two concurrent frees would corrupt the pool's free list.
     ///
-    /// A spin lock rather than a blocking one because Zig 0.16 has no io-free
-    /// blocking mutex: `std.Io.Mutex` wants an `Io`, which a shared library with
+    /// A spin lock because `std.Io.Mutex` wants an `Io`, which a shared library with
     /// no `main` does not have, and `std.atomic.Mutex` is try-only. The critical
     /// section is a pool alloc or free, so spinning is the right trade anyway.
     var pool_lock: std.atomic.Mutex = .unlocked;
@@ -416,15 +415,16 @@ fn makeClassCallbacks(comptime T: type) classdb.ClassCallbacks4(T, ClassUserdata
             // The test decides at comptime and emits nothing for the ordinary
             // field, so a class with no handles pays nothing. Calling a generic
             // helper per field instead was enough comptime work on a wide class
-            // to segfault the 0.16 compiler outright.
+            // to segfault the compiler outright.
             @setEvalBranchQuota(10_000);
-            inline for (@typeInfo(T).@"struct".fields) |field| {
-                if (comptime gd.isGd(field.type)) {
-                    @field(self, field.name).deinit();
-                } else if (comptime gd.OptionalGd(field.type) != null) {
-                    if (@field(self, field.name)) |*handle| {
+            const fields = @typeInfo(T).@"struct";
+            inline for (fields.field_names, fields.field_types) |field_name, FieldType| {
+                if (comptime gd.isGd(FieldType)) {
+                    @field(self, field_name).deinit();
+                } else if (comptime gd.OptionalGd(FieldType) != null) {
+                    if (@field(self, field_name)) |*handle| {
                         handle.deinit();
-                        @field(self, field.name) = null;
+                        @field(self, field_name) = null;
                     }
                 }
             }
@@ -619,21 +619,21 @@ fn validateVirtualMethodNames(comptime T: type, comptime EngineVTable: type) voi
     const type_info = @typeInfo(T);
     if (type_info != .@"struct") return;
 
-    const decls = type_info.@"struct".decls;
-    @setEvalBranchQuota(@max(1000, decls.len * 256));
+    const decl_names = type_info.@"struct".decl_names;
+    @setEvalBranchQuota(@max(1000, decl_names.len * 256));
 
-    for (decls) |decl| {
-        if (decl.name.len == 0 or decl.name[0] != '_') continue;
-        if (@typeInfo(@TypeOf(@field(T, decl.name))) != .@"fn") continue;
-        validateCommonCallback(T, decl.name);
-        if (isClassCallback(decl.name)) continue;
-        if (EngineVTable.internalNameForGodotName(decl.name) != null) continue;
+    for (decl_names) |decl_name| {
+        if (decl_name.len == 0 or decl_name[0] != '_') continue;
+        if (@typeInfo(@TypeOf(@field(T, decl_name))) != .@"fn") continue;
+        validateCommonCallback(T, decl_name);
+        if (isClassCallback(decl_name)) continue;
+        if (EngineVTable.internalNameForGodotName(decl_name) != null) continue;
 
-        const prefix = "Unknown virtual method '" ++ decl.name ++ "' on '" ++ @typeName(T) ++ "'. ";
-        if (suggestClassCallbackGodotName(decl.name)) |suggestion| {
+        const prefix = "Unknown virtual method '" ++ decl_name ++ "' on '" ++ @typeName(T) ++ "'. ";
+        if (suggestClassCallbackGodotName(decl_name)) |suggestion| {
             @compileError(prefix ++ "gdzig matches Godot's snake_case callback names; did you mean '" ++ suggestion ++ "'?");
         }
-        if (EngineVTable.suggestGodotName(decl.name)) |suggestion| {
+        if (EngineVTable.suggestGodotName(decl_name)) |suggestion| {
             @compileError(prefix ++ "gdzig matches Godot's snake_case virtual names; did you mean '" ++ suggestion ++ "'?");
         }
         @compileError(prefix ++ "Godot will never call this function. Use a virtual exposed by the base class, or make a helper non-pub and give it a non-virtual name.");
@@ -649,10 +649,10 @@ fn validateCommonCallback(comptime T: type, comptime name: []const u8) void {
     const expected = "pub fn " ++ name ++ "(self: *@This()" ++ (if (frame) ", delta: f64" else "") ++ ") void";
     const message = "gdzig: invalid callback '" ++ @typeName(T) ++ "." ++ name ++ "'. Expected " ++ expected ++
         ". Use the owning class pointer as the receiver" ++ (if (frame) " and f64 for delta" else "") ++ "; handle errors inside the callback. Found " ++ @typeName(@TypeOf(@field(T, name)));
-    if (info.is_generic or info.is_var_args or info.params.len != (if (frame) @as(usize, 2) else 1) or info.return_type != void) @compileError(message);
-    if (info.params[0].type != *T and info.params[0].type != *const T) @compileError(message);
+    if (info.is_generic or info.attrs.varargs or info.param_types.len != (if (frame) @as(usize, 2) else 1) or info.return_type != void) @compileError(message);
+    if (info.param_types[0] != *T and info.param_types[0] != *const T) @compileError(message);
     // The marshaller intentionally supports narrowing the engine's double.
-    if (frame and info.params[1].type != f64 and info.params[1].type != f32) @compileError(message);
+    if (frame and info.param_types[1] != f64 and info.param_types[1] != f32) @compileError(message);
 }
 
 /// Build a VTable for a user-defined class by chaining `.extend()` calls from

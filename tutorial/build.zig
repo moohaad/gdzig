@@ -4,12 +4,13 @@ const gdzig = @import("gdzig");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const project_root = b.root.joinString(b.allocator, "project") catch @panic("OOM");
     const dep = b.dependency("gdzig", .{
         .target = target,
         .optimize = optimize,
         .@"godot-path" = b.option([]const u8, "godot-path", "Godot executable"),
         .@"godot-version" = b.option([]const u8, "godot-version", "Godot version"),
-        .godot_project = b.pathFromRoot("project"),
+        .godot_project = project_root,
     });
     const extension = gdzig.addExtension(b, .{
         .name = "starcatcher",
@@ -29,16 +30,16 @@ pub fn build(b: *std.Build) void {
     const import_project = std.Build.Step.Run.create(b, "import tutorial");
     _ = gdzig.addExportStep(b, .{ .dependency = dep, .target = target, .project = "project" });
     import_project.addFileArg(dep.namedLazyPath("godot"));
-    import_project.addArgs(&.{ "--path", b.pathFromRoot("project"), "--headless", "--import" });
+    import_project.addArgs(&.{ "--path", project_root, "--headless", "--import" });
     import_project.step.dependOn(b.getInstallStep());
     inline for (.{ "run", "editor", "test" }) |command| {
         const run = std.Build.Step.Run.create(b, command);
         run.addFileArg(dep.namedLazyPath("godot"));
-        run.addArgs(&.{ "--path", b.pathFromRoot("project") });
+        run.addArgs(&.{ "--path", project_root });
         if (comptime std.mem.eql(u8, command, "editor")) run.addArg("--editor");
         if (comptime std.mem.eql(u8, command, "test")) {
             run.addArgs(&.{ "--headless", "--script", "res://test_game.gd" });
-        } else if (b.args) |args| run.addArgs(args);
+        } else run.addPassthruArgs();
         run.step.dependOn(&import_project.step);
         run.has_side_effects = true;
         b.step(command, "Build, import, and launch tutorial").dependOn(&run.step);

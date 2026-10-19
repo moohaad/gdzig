@@ -31,6 +31,7 @@ const AutoBindNode = struct {
 
     /// Bound because it is a field, and nothing names it anywhere else.
     plain_value: i64 = 42,
+    state: State = .idle,
 
     /// A field *and* a `properties` entry, so the two loops both reach it.
     read_only: i64 = 7,
@@ -45,6 +46,8 @@ const AutoBindNode = struct {
     /// by hand looks like. The default is deliberately not what the getter
     /// returns, so a test can tell which of the two was used.
     computed: i64 = 3,
+
+    const State = enum(i32) { idle = 2, running = 9 };
 
     /// Only what needs options. A bare name here would say nothing that the
     /// field does not already say.
@@ -98,6 +101,38 @@ test "a plain field binds with both accessors" {
 
     try testing.expect(hasMethod("get_plain_value"));
     try testing.expect(hasMethod("set_plain_value"));
+}
+
+test "enum fields register accessors and preserve their Inspector choices" {
+    ensureRegistered();
+    try testing.expect(hasMethod("get_state"));
+    try testing.expect(hasMethod("set_state"));
+    var list = ClassDb.classGetPropertyList("AutoBindNode", .{ .no_inheritance = true });
+    defer list.deinit();
+    var i: i64 = 0;
+    while (i < list.size()) : (i += 1) {
+        var entry = list.get(i);
+        defer entry.deinit();
+        var dict = entry.as(Dictionary) orelse continue;
+        defer dict.deinit();
+        var name_key = String.fromLatin1("name");
+        defer name_key.deinit();
+        var name_value = dict.get(.init(String, name_key), .{});
+        defer name_value.deinit();
+        var name = name_value.as(String) orelse continue;
+        defer name.deinit();
+        var buf: [128]u8 = undefined;
+        if (!std.mem.eql(u8, name.toLatin1Buf(&buf), "state")) continue;
+        var hint_key = String.fromLatin1("hint_string");
+        defer hint_key.deinit();
+        var hint_value = dict.get(.init(String, hint_key), .{});
+        defer hint_value.deinit();
+        var hint = hint_value.as(String) orelse return error.MissingEnumHint;
+        defer hint.deinit();
+        try testing.expectEqualStrings("idle:2,running:9", hint.toLatin1Buf(&buf));
+        return;
+    }
+    return error.MissingEnumProperty;
 }
 
 test "a field named in `properties` keeps the tuple's options" {

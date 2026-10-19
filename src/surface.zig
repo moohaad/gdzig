@@ -65,22 +65,22 @@ fn refDecl(comptime Container: type, comptime name: []const u8) void {
 
 /// References every declaration of `T` without recursing into nested types.
 fn refMembers(comptime T: type) void {
-    inline for (comptime std.meta.declarations(T)) |decl| {
-        const Decl = @TypeOf(@field(T, decl.name));
+    inline for (comptime std.meta.declarations(T)) |decl_name| {
+        const Decl = @TypeOf(@field(T, decl_name));
         if (Decl == type) continue;
 
         const info = @typeInfo(Decl);
         if (info == .@"fn" and info.@"fn".is_generic) continue;
 
-        _ = &@field(T, decl.name);
+        _ = &@field(T, decl_name);
     }
 }
 
 test "every generated declaration type-checks" {
     @setEvalBranchQuota(2_000_000);
     inline for (namespaces) |ns| {
-        inline for (comptime std.meta.declarations(ns)) |decl| {
-            refDecl(ns, decl.name);
+        inline for (comptime std.meta.declarations(ns)) |decl_name| {
+            refDecl(ns, decl_name);
         }
     }
 }

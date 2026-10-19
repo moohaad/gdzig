@@ -11,6 +11,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const protocol = @import("protocol.zig");
 const options = @import("runner_options");
+const test_folders = [_][]const u8{options.test_folder};
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -81,11 +82,11 @@ const Runner = struct {
     test_name_indices: std.ArrayList(u32),
 
     fn init(allocator: Allocator, io: Io, environ: std.process.Environ, in: *Io.Reader, out: *Io.Writer) !Runner {
-        const server = try ZigServer.init(.{
+        var server: ZigServer = .{
             .in = in,
             .out = out,
-            .zig_version = builtin.zig_version_string,
-        });
+        };
+        try server.serveStringMessage(.zig_version, builtin.zig_version_string);
 
         return .{
             .allocator = allocator,
@@ -132,7 +133,7 @@ const Runner = struct {
         self.test_name_indices.clearRetainingCapacity();
 
         // Collect metadata from each test folder
-        for (options.test_folders, 0..) |folder, folder_idx| {
+        for (test_folders, 0..) |folder, folder_idx| {
             try self.collectFolderMetadata(folder, @intCast(folder_idx));
         }
 
@@ -240,7 +241,7 @@ const Runner = struct {
         }
 
         const mapping = self.test_mappings.items[global_index];
-        const folder = options.test_folders[mapping.folder_index];
+        const folder = test_folders[mapping.folder_index];
 
         // Spawn Godot
         var child = try self.spawnGodot(folder);

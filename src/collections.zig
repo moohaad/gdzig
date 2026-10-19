@@ -9,12 +9,12 @@ const StringName = gdzig.builtin.StringName;
 pub fn array(items: anytype) Array {
     const T = @TypeOf(items);
     const info = @typeInfo(T);
-    
+
     var arr = Array.init();
-    
+
     if (info == .@"struct" and info.@"struct".is_tuple) {
-        inline for (info.@"struct".fields) |field| {
-            const val = @field(items, field.name);
+        inline for (info.@"struct".field_names) |field_name| {
+            const val = @field(items, field_name);
             const variant = toVariant(val);
             arr.append(variant);
             variant.deinit();
@@ -28,7 +28,7 @@ pub fn array(items: anytype) Array {
     } else {
         @compileError("godot.array expects a tuple, array, or slice, got " ++ @typeName(T));
     }
-    
+
     return arr;
 }
 
@@ -36,21 +36,21 @@ pub fn array(items: anytype) Array {
 pub fn dict(struct_val: anytype) Dictionary {
     const T = @TypeOf(struct_val);
     const info = @typeInfo(T);
-    
+
     if (info != .@"struct" or info.@"struct".is_tuple) {
         @compileError("godot.dict expects an anonymous struct, got " ++ @typeName(T));
     }
-    
+
     var d = Dictionary.init();
-    inline for (info.@"struct".fields) |field| {
-        const key_str = StringName.fromComptimeLatin1(field.name);
+    inline for (info.@"struct".field_names) |field_name| {
+        const key_str = StringName.fromComptimeLatin1(field_name);
         const key_variant = Variant.init(StringName, key_str.*);
-        
-        const val = @field(struct_val, field.name);
+
+        const val = @field(struct_val, field_name);
         const val_variant = toVariant(val);
-        
+
         _ = d.set(key_variant, val_variant);
-        
+
         // Ensure deinit of both variants and StringName if it allocates (fromComptimeLatin1 doesn't allocate StringName buffer but variant holds it)
         key_variant.deinit();
         val_variant.deinit();
@@ -81,13 +81,12 @@ fn toVariant(val: anytype) Variant {
                                 return Variant.init(gdzig.builtin.String, coerced.value);
                             }
                         },
-                        else => {}
+                        else => {},
                     }
                 }
             },
-            else => {}
+            else => {},
         }
         return Variant.init(VType, val);
     }
 }
-

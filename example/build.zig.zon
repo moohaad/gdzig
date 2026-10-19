@@ -2,6 +2,7 @@
     .name = .gdzig_example,
     .fingerprint = 0x215ba1d8ad1afa53,
     .version = "0.0.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .gdzig = .{
             .path = "../",

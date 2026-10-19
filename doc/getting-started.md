@@ -11,7 +11,7 @@ never runs.
 ## Before you start
 
 ```sh
-zig version     # 0.16.0
+zig version     # 0.17.0
 godot --version # 4.7
 ```
 
@@ -202,7 +202,7 @@ nothing is allocated per tick.
 
 The explicit `Actions` enum above also makes the snippet independent of a particular
 project. In your project, prefer `const Actions = godot.input.Action;`. When the gdzig
-dependency receives `.godot_project = b.pathFromRoot(".")`—as the scaffold configures
+dependency receives `.godot_project = b.root.joinString(b.allocator, ".") catch @panic("OOM")`—as the scaffold configures
 it—gdzig reads `[input]` from `project.godot` and generates that enum. Removing or
 renaming an Input Map action then points to the exact stale Zig use at compile time.
 Names that need quoting remain available, for example `Actions.@"menu accept"`.

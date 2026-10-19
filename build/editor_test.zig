@@ -8,6 +8,9 @@ pub fn main(init: std.process.Init) !void {
     const cli = try std.Io.Dir.cwd().realPathFileAlloc(io, args.next().?, a);
     const godot = try std.Io.Dir.cwd().realPathFileAlloc(io, args.next().?, a);
     const fixture_path = args.next().?;
+    // Interrupted test runs can leave an installed addon in the cache fixture.
+    // Start clean so setup-editor's overwrite protection remains testable.
+    try std.Io.Dir.cwd().deleteTree(io, fixture_path);
     try std.Io.Dir.cwd().createDirPath(io, fixture_path);
     defer std.Io.Dir.cwd().deleteTree(io, fixture_path) catch {};
     var fixture = try std.Io.Dir.cwd().openDir(io, fixture_path, .{});

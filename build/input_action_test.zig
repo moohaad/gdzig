@@ -28,14 +28,14 @@ pub fn main(init: std.process.Init) !void {
     var dir = try std.Io.Dir.openDir(.cwd(), io, out_path, .{});
     defer dir.close(io);
 
-    const manifest = try dir.readFileAlloc(io, "build.zig.zon", arena, @enumFromInt(1 << 20));
+    const manifest = try dir.readFileAlloc(io, "build.zig.zon", arena, @fromBackingInt(@intCast(1 << 20)));
     const fingerprint = try between(manifest, ".fingerprint = ", ",");
     try dir.writeFile(io, .{ .sub_path = "build.zig.zon", .data = try std.fmt.allocPrint(arena,
         \\.{{
         \\    .name = .actionprobe,
         \\    .version = "0.0.0",
         \\    .fingerprint = {s},
-        \\    .minimum_zig_version = "0.16.0",
+        \\    .minimum_zig_version = "0.17.0",
         \\    .dependencies = .{{
         \\        .gdzig = .{{ .path = "{s}" }},
         \\    }},
@@ -50,7 +50,7 @@ pub fn main(init: std.process.Init) !void {
         .data = "res://actionprobe.gdextension\n",
     });
 
-    const original_project = try dir.readFileAlloc(io, "project.godot", arena, @enumFromInt(1 << 20));
+    const original_project = try dir.readFileAlloc(io, "project.godot", arena, @fromBackingInt(@intCast(1 << 20)));
     try dir.writeFile(io, .{
         .sub_path = "project.godot",
         .data = try projectSource(arena, original_project, "jump"),

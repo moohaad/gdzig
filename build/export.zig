@@ -31,7 +31,7 @@ pub fn parse(args: []const []const u8) !Options {
 pub fn usage() void {
     std.debug.print(
         \\Usage: gdzig export [Zig build options] -- --preset <name> --output <file> [--debug|--release]
-        \\Default: release export, ReleaseSafe extension (CLI only). Use -Doptimize=Debug for a debug extension.
+        \\Default: release export, ReleaseSafe extension (CLI only). Use -Doptimize=debug for a debug extension.
         \\Configure a desktop preset in Godot and install its matching export templates first.
         \\Output is relative to the build directory, in an empty directory outside the Godot project.
         \\Only host-native desktop targets are supported. Existing output is never replaced.

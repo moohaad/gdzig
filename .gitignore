@@ -37,7 +37,7 @@ src/surface_generic.zig
 # Godot binary downloaded by CI
 .godot-ci/
 
-# Zig 0.16 local package cache
+# Zig local package cache
 zig-pkg/
 
 # Local working note, not part of the repo.

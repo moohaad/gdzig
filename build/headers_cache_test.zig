@@ -1,4 +1,4 @@
-//! Proves that HeadersStep invalidates when an executable is replaced in place
+//! Proves that headers invalidates when an executable is replaced in place
 //! and when the dump flags change, and preserves diagnostics when Godot fails.
 
 pub fn main(init: std.process.Init) !void {
@@ -8,12 +8,13 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
     const args = try init.minimal.args.toSlice(arena);
-    if (args.len != 6) return fail("expected v1, v2, failing fixture, HeadersStep source, and output paths", .{});
+    if (args.len != 7) return fail("expected v1, v2, failing fixture, headers helper, dump tool, and output paths", .{});
     const fake_v1 = args[1];
     const fake_v2 = args[2];
     const fake_fail = args[3];
     const headers_source = args[4];
-    const out_path = args[5];
+    const dump_source = args[5];
+    const out_path = args[6];
 
     std.Io.Dir.cwd().deleteTree(io, out_path) catch {};
     var out = try std.Io.Dir.cwd().createDirPathOpen(io, out_path, .{});
@@ -21,7 +22,9 @@ pub fn main(init: std.process.Init) !void {
 
     const fake_name = if (builtin.os.tag == .windows) "fake-godot.exe" else "fake-godot";
     try std.Io.Dir.cwd().copyFile(fake_v1, out, fake_name, io, .{});
-    try std.Io.Dir.cwd().copyFile(headers_source, out, "HeadersStep.zig", io, .{});
+    try out.createDirPath(io, "build");
+    try std.Io.Dir.cwd().copyFile(headers_source, out, "headers.zig", io, .{});
+    try std.Io.Dir.cwd().copyFile(dump_source, out, "build/header_dump.zig", io, .{});
     try writeBuild(io, out, fake_name, false);
     try runBuild(io, out_path);
     try expectDump(io, arena, out, "v1:docs");
@@ -54,30 +57,19 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn writeBuild(io: std.Io, out: std.Io.Dir, fake_name: []const u8, force_no_docs: bool) !void {
-    const invocation = if (force_no_docs)
-        try std.fmt.allocPrint(
-            std.heap.page_allocator,
-            "HeadersStep.createWithFlags(b, b.path(\"{s}\"), .{{ .use_docs = false, .has_json = false }})",
-            .{fake_name},
-        )
-    else
-        try std.fmt.allocPrint(
-            std.heap.page_allocator,
-            "HeadersStep.create(b, b.path(\"{s}\"))",
-            .{fake_name},
-        );
+    const invocation = try std.fmt.allocPrint(
+        std.heap.page_allocator,
+        "headers.create(b, b.path(\"{s}\"), {s})",
+        .{ fake_name, if (force_no_docs) "false" else "true" },
+    );
     defer std.heap.page_allocator.free(invocation);
     const source = try std.fmt.allocPrint(std.heap.page_allocator,
         \\const std = @import("std");
-        \\const HeadersStep = @import("HeadersStep.zig");
+        \\const headers = @import("headers.zig");
         \\
         \\pub fn build(b: *std.Build) void {{
-        \\    const headers = {s};
-        \\    const install = b.addInstallDirectory(.{{
-        \\        .source_dir = headers.getDirectory(),
-        \\        .install_dir = .prefix,
-        \\        .install_subdir = "headers",
-        \\    }});
+        \\    const directory = {s};
+        \\    const install = b.addInstallFile(directory.path(b, "extension_api.json"), "headers/extension_api.json");
         \\    b.getInstallStep().dependOn(&install.step);
         \\}}
         \\
@@ -129,7 +121,7 @@ fn expectBuildFailureDiagnostics(io: std.Io, arena: std.mem.Allocator, cwd_path:
 }
 
 fn expectDump(io: std.Io, arena: std.mem.Allocator, out: std.Io.Dir, expected: []const u8) !void {
-    const actual = try out.readFileAlloc(io, "zig-out/headers/extension_api.json", arena, @enumFromInt(1024));
+    const actual = try out.readFileAlloc(io, "zig-out/headers/extension_api.json", arena, @fromBackingInt(@intCast(1024)));
     if (!std.mem.eql(u8, actual, expected)) {
         return fail("expected header marker '{s}', got '{s}'", .{ expected, actual });
     }
@@ -145,7 +137,7 @@ fn deleteCachedDump(io: std.Io, arena: std.mem.Allocator, out: std.Io.Dir, expec
         var object = objects.openDir(io, entry.name, .{}) catch continue;
         defer object.close(io);
 
-        const actual = object.readFileAlloc(io, "extension_api.json", arena, @enumFromInt(1024)) catch continue;
+        const actual = object.readFileAlloc(io, "extension_api.json", arena, @fromBackingInt(@intCast(1024))) catch continue;
         if (!std.mem.eql(u8, actual, expected)) continue;
         try object.deleteFile(io, "extension_api.json");
         return;

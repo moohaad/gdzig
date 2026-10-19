@@ -156,7 +156,7 @@ pub fn loadMixinIfExists(self: *Builtin, allocator: Allocator, io: std.Io, input
         break :blk contents[start_idx..stop_idx :0];
     };
 
-    var ast = try Ast.parse(allocator, parse_contents, .zig);
+    var ast = try Ast.parse(allocator, parse_contents, .{ .mode = .zig });
     defer ast.deinit(allocator);
 
     if (ast.errors.len > 0) {
@@ -166,7 +166,7 @@ pub fn loadMixinIfExists(self: *Builtin, allocator: Allocator, io: std.Io, input
 
     const root_decls = ast.rootDecls();
     for (root_decls) |index| {
-        const node = ast.nodes.get(@intFromEnum(index));
+        const node = ast.nodes.get(@backingInt(index));
 
         switch (node.tag) {
             .fn_decl => if (try Function.fromMixin(allocator, ast, index)) |result| {

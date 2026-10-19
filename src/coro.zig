@@ -492,8 +492,8 @@ fn create(
     // touching after a park.
     const owners = comptime blk: {
         var found: []const usize = &.{};
-        for (@typeInfo(Args).@"struct".fields, 0..) |field, i| {
-            if (isObjectArg(field.type)) found = found ++ [_]usize{i};
+        for (@typeInfo(Args).@"struct".field_types, 0..) |FieldType, i| {
+            if (isObjectArg(FieldType)) found = found ++ [_]usize{i};
         }
         break :blk found;
     };
@@ -676,7 +676,7 @@ const Waiter = struct {
 /// a field later and its awaits become compile errors, which is the right way
 /// to find out about them.
 pub fn SignalResult(comptime S: type) type {
-    return if (@typeInfo(S).@"struct".fields.len == 0) void else S;
+    return if (@typeInfo(S).@"struct".field_names.len == 0) void else S;
 }
 
 /// Fills `out` from the Variants Godot emitted.
@@ -691,15 +691,16 @@ fn decodeArgs(
     argv: [*c]const c.GDExtensionConstVariantPtr,
     argc: c.GDExtensionInt,
 ) void {
-    inline for (@typeInfo(S).@"struct".fields, 0..) |field, i| {
+    const fields = @typeInfo(S).@"struct";
+    inline for (fields.field_names, fields.field_types, 0..) |field_name, FieldType, i| {
         if (i >= argc) std.debug.panic(
             "gdzig.coro: {s} declares {d} argument(s) but the emission carried {d}",
-            .{ @typeName(S), @typeInfo(S).@"struct".fields.len, argc },
+            .{ @typeName(S), fields.field_names.len, argc },
         );
         const variant: *const Variant = @ptrCast(@alignCast(argv[i]));
-        @field(out, field.name) = variant.as(field.type) orelse std.debug.panic(
+        @field(out, field_name) = variant.as(FieldType) orelse std.debug.panic(
             "gdzig.coro: {s}.{s} is declared {s}, which the emitted value is not",
-            .{ @typeName(S), field.name, @typeName(field.type) },
+            .{ @typeName(S), field_name, @typeName(FieldType) },
         );
     }
 }

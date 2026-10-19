@@ -55,11 +55,11 @@ Run `zig build -h` to confirm the available steps.
 - `-Dprecision=<float|double>` - Floating point precision (default: "float")
 - `-Darch=<32|64>` - Architecture bits (default: "64")
 - `-Dtarget=<target>` - Cross-compilation target
-- `-Doptimize=<Debug|ReleaseSafe|ReleaseFast|ReleaseSmall>` - Optimization mode
+- `-Doptimize=<debug|safe|fast|small>` - Optimization mode
 
 With neither option, the build downloads `latest_version` (see `build.zig`). The downloader
-lives in `build/godot/`, vendored from `gdzig/godot-versions` because two Zig 0.16 breakages
-left it non-functional; see that directory's README for the local changes.
+comes from the pinned `gdzig/godot-versions` package. `build/headers.zig` uses Zig 0.17 Run
+steps to cache the engine's header dumps while preserving stdout, stderr, and exit status.
 
 ### Auditing a new Godot release
 
@@ -136,7 +136,7 @@ that blocked 4.7 was a code path nothing had walked before, not a missing bindin
 
 ### Type System
 
-- Uses Zig 0.16 features, including the `std.Io` interface (`std.Io.Dir`/`std.Io.File`/`Reader`/`Writer`)
+- Uses Zig 0.17 features, including the `std.Io` interface (`std.Io.Dir`/`std.Io.File`/`Reader`/`Writer`)
 - Builtin types map to Zig equivalents based on precision setting (float/double)
 - Classes use oopz dependency for OOP-style inheritance
 - Supports both 32-bit and 64-bit architectures
@@ -159,7 +159,7 @@ Extensions define an entry point using `gdzig.entrypoint()` or `gdzig.entrypoint
 
 ## Current Status
 
-- Migrated to Zig 0.16. File I/O goes through `std.Io`, so an `Io` instance must be threaded
+- Migrated to Zig 0.17. File I/O goes through `std.Io`, so an `Io` instance must be threaded
   to every file/dir/process call. In bindgen it is carried on `Config.io` (reach it via
   `ctx.config.io`); in the test coordinator it comes from `std.process.Init`; the test harness
   builds its own `std.Io.Threaded` because, as a shared library, it has no `main`.

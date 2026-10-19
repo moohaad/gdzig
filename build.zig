@@ -35,7 +35,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/manifest.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     test_step.dependOn(&b.addRunArtifact(manifest_tests).step);
@@ -44,7 +44,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/project_settings.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     test_step.dependOn(&b.addRunArtifact(project_settings_tests).step);
@@ -53,7 +53,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/project_scenes.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     test_step.dependOn(&b.addRunArtifact(project_scenes_tests).step);
@@ -62,7 +62,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/doctor.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     test_step.dependOn(&b.addRunArtifact(doctor_unit_tests).step);
@@ -89,7 +89,7 @@ pub fn build(b: *Build) !void {
         if (godot_version) |v| {
             break :blk godot.executable(b, b.graph.host, v);
         }
-        if (b.findProgram(&.{"godot"}, &.{}) catch null) |p| {
+        if (b.findProgram(.{ .names = &.{"godot"} })) |p| {
             break :blk .{ .cwd_relative = p };
         }
         break :blk godot.executable(b, b.graph.host, latest_version);
@@ -110,9 +110,10 @@ pub fn build(b: *Build) !void {
     };
 
     const headers = blk: {
-        const api_header_source: godot.HeaderSource = if (godot_path != null) .{ .exe = godot_exe_host.? } else if (godot_version) |v| .{ .version = v } else .{ .version = latest_version };
-        const gdextension_interface_h = godot.headers(b, b.graph.host, api_header_source).path(b, "gdextension_interface.h");
-        const extension_api_json = godot.headers(b, b.graph.host, api_header_source).path(b, "extension_api.json");
+        const api_exe = if (godot_path != null) godot_exe_host.? else godot.executable(b, b.graph.host, godot_version orelse latest_version);
+        const dump = @import("build/headers.zig").create(b, api_exe, true);
+        const gdextension_interface_h = dump.path(b, "gdextension_interface.h");
+        const extension_api_json = dump.path(b, "extension_api.json");
 
         const write = b.addWriteFiles();
         _ = write.addCopyFile(gdextension_interface_h, "gdextension_interface.h");
@@ -154,7 +155,7 @@ pub fn build(b: *Build) !void {
     const bindgen_exe = bindgen.build(b, .{
         .headers = headers,
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
         .precision = precision,
         .architecture = architecture,
     });
@@ -173,7 +174,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/doc_links_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_doc_links_test = b.addRunArtifact(doc_links_test_exe);
@@ -195,7 +196,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/selective_bindings_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_selective_bindings_test = b.addRunArtifact(selective_bindings_test_exe);
@@ -212,7 +213,7 @@ pub fn build(b: *Build) !void {
 
     const apiaudit_exe = apiaudit.build(b, .{
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     audit_step.dependOn(&b.addInstallArtifact(apiaudit_exe, .{}).step);
 
@@ -222,14 +223,14 @@ pub fn build(b: *Build) !void {
 
     const cli_common_mod = common.build(b, .{
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
         .casez = casez.module("casez"),
     });
     const add_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/add.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
             .imports = &.{
                 .{ .name = "casez", .module = casez.module("casez") },
                 .{ .name = "common", .module = cli_common_mod },
@@ -243,7 +244,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/cli.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
             .imports = &.{
                 .{ .name = "casez", .module = casez.module("casez") },
                 .{ .name = "common", .module = cli_common_mod },
@@ -261,7 +262,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/doctor_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_doctor_test = b.addRunArtifact(doctor_test_exe);
@@ -279,7 +280,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/init_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_init_test = b.addRunArtifact(init_test_exe);
@@ -303,7 +304,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/res_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_res_test = b.addRunArtifact(res_test_exe);
@@ -321,7 +322,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/input_action_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_input_action_test = b.addRunArtifact(input_action_test_exe);
@@ -342,7 +343,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/typed_scene_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_typed_scene_test = b.addRunArtifact(typed_scene_test_exe);
@@ -361,7 +362,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/signal_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_signal_test = b.addRunArtifact(signal_test_exe);
@@ -380,7 +381,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/virtual_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_virtual_test = b.addRunArtifact(virtual_test_exe);
@@ -399,7 +400,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/registration_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_registration_test = b.addRunArtifact(registration_test_exe);
@@ -410,62 +411,39 @@ pub fn build(b: *Build) !void {
     const registration_test_step = b.step("test-registration", "Check that registry module hooks are paired");
     registration_test_step.dependOn(&run_registration_test.step);
 
-    // Headers are cached by the Godot executable that produced them. Exercise
-    // replacement at one stable path, a flag-only change, and a failed dump
-    // with tiny fake executables, so this gate needs neither a download nor a
-    // real engine.
-    const header_fake_v1_options = b.addOptions();
-    header_fake_v1_options.addOption([]const u8, "marker", "v1");
-    header_fake_v1_options.addOption(bool, "fail", false);
-    const header_fake_v1 = b.addExecutable(.{
-        .name = "header-cache-fake-v1",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("build/godot/headers_cache_fake.zig"),
-            .target = b.graph.host,
-            .optimize = .Debug,
-            .imports = &.{.{ .name = "fixture_options", .module = header_fake_v1_options.createModule() }},
-        }),
-    });
-    const header_fake_v2_options = b.addOptions();
-    header_fake_v2_options.addOption([]const u8, "marker", "v2");
-    header_fake_v2_options.addOption(bool, "fail", false);
-    const header_fake_v2 = b.addExecutable(.{
-        .name = "header-cache-fake-v2",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("build/godot/headers_cache_fake.zig"),
-            .target = b.graph.host,
-            .optimize = .Debug,
-            .imports = &.{.{ .name = "fixture_options", .module = header_fake_v2_options.createModule() }},
-        }),
-    });
-    const header_fake_fail_options = b.addOptions();
-    header_fake_fail_options.addOption([]const u8, "marker", "xx");
-    header_fake_fail_options.addOption(bool, "fail", true);
-    const header_fake_fail = b.addExecutable(.{
-        .name = "header-cache-fake-fail",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("build/godot/headers_cache_fake.zig"),
-            .target = b.graph.host,
-            .optimize = .Debug,
-            .imports = &.{.{ .name = "fixture_options", .module = header_fake_fail_options.createModule() }},
-        }),
-    });
-    const header_cache_test_exe = b.addExecutable(.{
+    const header_fakes = blk: {
+        var fixtures: [3]*Build.Step.Compile = undefined;
+        inline for (.{ "v1", "v2", "xx" }, 0..) |marker, i| {
+            const fixture_options = b.addOptions();
+            fixture_options.addOption([]const u8, "marker", marker);
+            fixture_options.addOption(bool, "fail", i == 2);
+            fixtures[i] = b.addExecutable(.{
+                .name = b.fmt("header-cache-fake-{s}", .{marker}),
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("build/headers_cache_fake.zig"),
+                    .target = b.graph.host,
+                    .optimize = .debug,
+                    .imports = &.{.{ .name = "fixture_options", .module = fixture_options.createModule() }},
+                }),
+            });
+        }
+        break :blk fixtures;
+    };
+    const header_cache_test = b.addExecutable(.{
         .name = "header-cache-test",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("build/godot/headers_cache_test.zig"),
+            .root_source_file = b.path("build/headers_cache_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
-    const run_header_cache_test = b.addRunArtifact(header_cache_test_exe);
-    run_header_cache_test.addArtifactArg(header_fake_v1);
-    run_header_cache_test.addArtifactArg(header_fake_v2);
-    run_header_cache_test.addArtifactArg(header_fake_fail);
-    run_header_cache_test.addFileArg(b.path("build/godot/HeadersStep.zig"));
+    const run_header_cache_test = b.addRunArtifact(header_cache_test);
+    for (header_fakes) |fixture| run_header_cache_test.addArtifactArg(fixture);
+    run_header_cache_test.addFileArg(b.path("build/headers.zig"));
+    run_header_cache_test.addFileArg(b.path("build/header_dump.zig"));
     run_header_cache_test.addArg(".zig-cache/header-cache-test/probe");
     run_header_cache_test.has_side_effects = true;
-    const header_cache_test_step = b.step("test-headers-cache", "Check Godot header caching and failure diagnostics");
+    const header_cache_test_step = b.step("test-headers-cache", "Check header invalidation and Godot failure diagnostics");
     header_cache_test_step.dependOn(&run_header_cache_test.step);
 
     // The watcher is a loop that never returns, so this observes it from
@@ -476,7 +454,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/watch.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const watch_test_exe = b.addExecutable(.{
@@ -484,7 +462,7 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/watch_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_watch_test = b.addRunArtifact(watch_test_exe);
@@ -495,7 +473,7 @@ pub fn build(b: *Build) !void {
     // The watcher's path arrives relative to this build root, and the test
     // spawns it with the scratch project as its working directory -- where a
     // relative path does not resolve. The root is passed so it can be joined.
-    run_watch_test.addArg(b.pathFromRoot("."));
+    run_watch_test.addArg(absolutePath(b, "."));
     run_watch_test.has_side_effects = true;
     const watch_test_step = b.step("test-watch", "Check that the watcher cleans artifacts and reacts to changes");
     watch_test_step.dependOn(&run_watch_test.step);
@@ -514,13 +492,13 @@ pub fn build(b: *Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("build/package_test.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run_package_test = b.addRunArtifact(package_test_exe);
     run_package_test.addArtifactArg(init_exe);
     run_package_test.addArg(".zig-cache/package-test");
-    run_package_test.addArg(b.pathFromRoot("."));
+    run_package_test.addArg(absolutePath(b, "."));
     run_package_test.has_side_effects = true;
     const package_test_step = b.step("test-package", "Build a project against gdzig as a fetched package");
     package_test_step.dependOn(&run_package_test.step);
@@ -549,35 +527,35 @@ pub fn build(b: *Build) !void {
     const export_tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("build/export.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     }) });
     const export_test_step = b.step("test-export", "Check export validation and command execution");
     export_test_step.dependOn(&b.addRunArtifact(export_tests).step);
     const export_runner = b.addExecutable(.{ .name = "export-runner-test", .root_module = b.createModule(.{
         .root_source_file = b.path("build/export.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     }) });
     const export_process_test = b.addExecutable(.{ .name = "export-process-test", .root_module = b.createModule(.{
         .root_source_file = b.path("build/export_test.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     }) });
     const export_process_run = b.addRunArtifact(export_process_test);
     export_process_run.addArtifactArg(export_runner);
-    export_process_run.addArg(b.pathFromRoot(".zig-cache/export-process-fixture"));
+    export_process_run.addArg(absolutePath(b, ".zig-cache/export-process-fixture"));
     export_process_run.has_side_effects = true;
     export_test_step.dependOn(&export_process_run.step);
     test_all_step.dependOn(export_test_step);
     const editor_test = b.addExecutable(.{ .name = "editor-integration-test", .root_module = b.createModule(.{
         .root_source_file = b.path("build/editor_test.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     }) });
     const editor_run = b.addRunArtifact(editor_test);
     editor_run.addArtifactArg(gdzig_cli_exe);
     editor_run.addFileArg(godot_exe_host.?);
-    editor_run.addArg(b.pathFromRoot(".zig-cache/editor-test-fixture"));
+    editor_run.addArg(absolutePath(b, ".zig-cache/editor-test-fixture"));
     editor_run.has_side_effects = true;
     const editor_test_step = b.step("test-editor", "Test editor addon installation, processes, and lifecycle in Godot");
     editor_test_step.dependOn(&editor_run.step);
@@ -622,10 +600,14 @@ pub fn build(b: *Build) !void {
     var input_actions: []const []const u8 = &.{};
     var scene_sources: std.ArrayList(project_scenes.Source) = .empty;
     if (godot_project) |project_path| {
+        // Resource names, Input Map entries, and scene catalogs are read during
+        // configuration. Revisit them on every build under Zig 0.17's cached
+        // build graphs, including when an explicit engine path skips PATH lookup.
+        b.graph.poisonCache();
         gdzig_options.addOption(?[]const u8, "godot_project", project_path);
 
         const io = b.graph.io;
-        var dir = b.build_root.handle.openDir(io, project_path, .{ .iterate = true }) catch null;
+        var dir = b.root.openDir(io, project_path, .{ .iterate = true }) catch null;
         if (dir) |*d| {
             defer d.close(io);
             var walker = d.walk(b.allocator) catch @panic("OOM");
@@ -635,7 +617,7 @@ pub fn build(b: *Build) !void {
                 if (std.mem.startsWith(u8, entry.path, ".godot")) continue;
                 if (std.mem.startsWith(u8, entry.path, ".git")) continue;
 
-                const path = b.dupe(entry.path);
+                const path = b.allocator.dupe(u8, entry.path) catch @panic("OOM");
                 std.mem.replaceScalar(u8, path, '\\', '/');
                 const res_path = b.fmt("res://{s}", .{path});
                 valid_res.append(b.allocator, res_path) catch @panic("OOM");
@@ -645,7 +627,7 @@ pub fn build(b: *Build) !void {
                         io,
                         entry.path,
                         b.allocator,
-                        @enumFromInt(64 << 20),
+                        @fromBackingInt(@intCast(64 << 20)),
                     ) catch |err| std.debug.panic(
                         "gdzig: cannot read scene '{s}': {s}",
                         .{ res_path, @errorName(err) },
@@ -661,15 +643,15 @@ pub fn build(b: *Build) !void {
                 io,
                 "project.godot",
                 b.allocator,
-                @enumFromInt(8 << 20),
+                @fromBackingInt(@intCast(8 << 20)),
             ) catch |err| std.debug.panic(
                 "gdzig: cannot read '{s}': {s}",
-                .{ b.pathFromRoot(b.pathJoin(&.{ project_path, "project.godot" })), @errorName(err) },
+                .{ absolutePath(b, b.pathJoin(&.{ project_path, "project.godot" })), @errorName(err) },
             );
             input_actions = project_settings.inputActions(b.allocator, project_file) catch |err|
                 std.debug.panic(
                     "gdzig: cannot parse input actions from '{s}': {s}",
-                    .{ b.pathFromRoot(b.pathJoin(&.{ project_path, "project.godot" })), @errorName(err) },
+                    .{ absolutePath(b, b.pathJoin(&.{ project_path, "project.godot" })), @errorName(err) },
                 );
         }
         gdzig_options.addOption([]const []const u8, "res_paths", valid_res.items);
@@ -800,7 +782,7 @@ pub fn build(b: *Build) !void {
         coro_compile_step.dependOn(&coro_target_tests.step);
 
         const io = b.graph.io;
-        var tests_dir = try b.build_root.handle.openDir(io, "test", .{ .iterate = true });
+        var tests_dir = try b.root.openDir(io, "test", .{ .iterate = true });
         defer tests_dir.close(io);
 
         var iter = tests_dir.iterate();
@@ -902,8 +884,13 @@ fn getGodotVersion(b: *Build, p: Build.LazyPath) []const u8 {
 const std = @import("std");
 const Build = std.Build;
 
-// Vendored rather than a package dependency; see build/godot/README.md.
-const godot = @import("build/godot/build.zig");
+fn absolutePath(b: *Build, sub_path: []const u8) []const u8 {
+    const cwd = std.process.currentPathAlloc(b.graph.io, b.allocator) catch @panic("cannot resolve working directory");
+    const root = b.root.joinString(b.allocator, "") catch @panic("OOM");
+    return std.fs.path.resolve(b.allocator, &.{ cwd, root, sub_path }) catch @panic("OOM");
+}
+
+const godot = @import("godot_versions");
 
 const api = @import("build/api.zig");
 pub const addExtension = api.addExtension;

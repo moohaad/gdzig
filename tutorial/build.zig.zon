@@ -2,7 +2,7 @@
     .name = .gdzig_tutorial,
     .fingerprint = 0x2e9c9ce0a690e68e,
     .version = "0.0.0",
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{ .gdzig = .{ .path = ".." } },
     .paths = .{ "build.zig", "build.zig.zon", "src", "project", "README.md" },
 }

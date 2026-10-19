@@ -16,9 +16,9 @@
 //! The package is built from `git ls-files` rather than by copying the tree:
 //! tracked files are what a fetched package contains, 198 of them and about two
 //! megabytes, where the working tree carries 226 MB of generated bindings that a
-//! consumer regenerates for itself. Committed state only, so an uncommitted
-//! regression shows up on the next run rather than this one -- acceptable for a
-//! gate whose question is "would a published package work".
+//! consumer regenerates for itself. Copy current tracked contents, skipping
+//! files deleted in the working tree, so migrations can be validated before
+//! committing them.
 
 pub fn main(init: std.process.Init) !void {
     var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -53,6 +53,7 @@ pub fn main(init: std.process.Init) !void {
     while (it.next()) |rel| {
         if (rel.len == 0) continue;
         src.copyFile(rel, pkg, rel, io, .{ .make_path = true }) catch |err| {
+            if (err == error.FileNotFound) continue;
             return fail("could not copy '{s}': {s}", .{ rel, @errorName(err) });
         };
         copied += 1;
@@ -74,14 +75,14 @@ pub fn main(init: std.process.Init) !void {
     };
     defer consumer.close(io);
 
-    const manifest = try consumer.readFileAlloc(io, "build.zig.zon", arena, @enumFromInt(1 << 20));
+    const manifest = try consumer.readFileAlloc(io, "build.zig.zon", arena, @fromBackingInt(@intCast(1 << 20)));
     const fingerprint = try between(manifest, ".fingerprint = ", ",");
     try consumer.writeFile(io, .{ .sub_path = "build.zig.zon", .data = try std.fmt.allocPrint(arena,
         \\.{{
         \\    .name = .{s},
         \\    .version = "0.0.0",
         \\    .fingerprint = {s},
-        \\    .minimum_zig_version = "0.16.0",
+        \\    .minimum_zig_version = "0.17.0",
         \\    .dependencies = .{{
         \\        .gdzig = .{{ .path = "../pkg" }},
         \\    }},
@@ -114,7 +115,7 @@ pub fn main(init: std.process.Init) !void {
 /// reimplementing which of them are ignored is how that list goes stale.
 fn gitListFiles(io: std.Io, arena: std.mem.Allocator, dir: std.Io.Dir, root: []const u8) ![]const u8 {
     var child = std.process.spawn(io, .{
-        .argv = &.{ "git", "ls-files", "-z" },
+        .argv = &.{ "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z" },
         .cwd = .{ .dir = dir },
         .stdout = .pipe,
     }) catch |err| {

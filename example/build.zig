@@ -8,8 +8,8 @@ pub fn build(b: *Build) !void {
     const single_threaded = b.option(bool, "single_threaded", "Target single threaded GdExtension [default: false]") orelse false;
 
     if (!single_threaded and target.result.cpu.arch.isWasm()) {
-        target.query.cpu_features_add.addFeature(@intFromEnum(std.Target.wasm.Feature.atomics));
-        target.query.cpu_features_add.addFeature(@intFromEnum(std.Target.wasm.Feature.bulk_memory));
+        target.query.cpu_features_add.addFeature(@backingInt(std.Target.wasm.Feature.atomics));
+        target.query.cpu_features_add.addFeature(@backingInt(std.Target.wasm.Feature.bulk_memory));
     }
 
     // Dependencies
@@ -18,7 +18,7 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
         .@"godot-version" = godot_version,
         .@"godot-path" = godot_path,
-        .godot_project = b.pathFromRoot("project"),
+        .godot_project = b.root.joinString(b.allocator, "project") catch @panic("OOM"),
     });
 
     // Extension module
@@ -57,7 +57,7 @@ pub fn build(b: *Build) !void {
     run.addDirectoryArg(b.path("./project"));
     // Forwarded so the example can be driven the way the demos are:
     // `zig build run -- --headless --quit-after 300`.
-    if (b.args) |args| run.addArgs(args);
+    run.addPassthruArgs();
     run.step.dependOn(&install_library.step);
     run.step.dependOn(&install_manifest.step);
 

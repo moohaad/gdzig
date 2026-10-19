@@ -33,9 +33,10 @@ fn assertDemoSceneTypes() void {
         pub const ExampleNode = @import("ExampleNode.zig");
     };
     const Children = godot.SceneWith(@embedFile("demo/demo.tscn"), Types);
-    for (@typeInfo(Children).@"struct".fields) |field| {
-        if (std.mem.eql(u8, field.name, "ExampleNode")) {
-            if (field.type.Resolves != ExampleNode)
+    const fields = @typeInfo(Children).@"struct";
+    for (fields.field_names, fields.field_types) |field_name, FieldType| {
+        if (std.mem.eql(u8, field_name, "ExampleNode")) {
+            if (FieldType.Resolves != ExampleNode)
                 @compileError("demo ExampleNode lost its Zig scene type");
             return;
         }

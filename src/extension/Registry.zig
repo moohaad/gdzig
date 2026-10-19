@@ -133,8 +133,8 @@ pub fn registerAll(self: *Registry, comptime items: anytype) void {
     if (info != .@"struct" or !info.@"struct".is_tuple) {
         @compileError("registerAll expects a tuple of types");
     }
-    inline for (info.@"struct".fields) |field| {
-        const T = @field(items, field.name);
+    inline for (info.@"struct".field_names) |field_name| {
+        const T = @field(items, field_name);
         switch (comptime registrationKind(T)) {
             .module => self.addModule(T),
             .class => self.autoRegister(T),
@@ -152,11 +152,11 @@ pub fn unregisterAll(self: *Registry, comptime items: anytype) void {
     if (info != .@"struct" or !info.@"struct".is_tuple) {
         @compileError("unregisterAll expects a tuple of types");
     }
-    const fields = info.@"struct".fields;
-    comptime var i = fields.len;
+    const field_names = info.@"struct".field_names;
+    comptime var i = field_names.len;
     inline while (i > 0) {
         i -= 1;
-        const T = @field(items, fields[i].name);
+        const T = @field(items, field_names[i]);
         switch (comptime registrationKind(T)) {
             .module => self.removeModule(T),
             .class => self.removeClass(T),
@@ -444,11 +444,11 @@ pub fn Class(comptime T: type) type {
                 break :blk enum_name;
             };
 
-            inline for (info.@"enum".fields) |field| {
+            inline for (info.@"enum".field_names, info.@"enum".field_values) |field_name, field_value| {
                 self.constants.append(alloc, .{
                     .enum_name = short_name,
-                    .name = field.name,
-                    .value = field.value,
+                    .name = field_name,
+                    .value = field_value,
                     .is_bitfield = false,
                 }) catch @panic("OOM");
             }
@@ -476,11 +476,11 @@ pub fn Class(comptime T: type) type {
             };
 
             comptime var bit: u5 = 0;
-            inline for (info.@"struct".fields) |field| {
-                if (field.type == bool) {
+            inline for (info.@"struct".field_names, info.@"struct".field_types) |field_name, FieldType| {
+                if (FieldType == bool) {
                     self.constants.append(alloc, .{
                         .enum_name = short_name,
-                        .name = field.name,
+                        .name = field_name,
                         .value = @as(i64, 1) << bit,
                         .is_bitfield = true,
                     }) catch @panic("OOM");
@@ -539,13 +539,13 @@ pub fn Class(comptime T: type) type {
             if (isBoundByName(prop)) return true;
             const info = @typeInfo(T);
             if (info != .@"struct") return false;
-            inline for (info.@"struct".fields) |field| {
-                if (!std.mem.eql(u8, field.name, prop)) continue;
-                if (std.mem.eql(u8, field.name, "allocator")) return false;
-                if (std.mem.eql(u8, field.name, "base")) return false;
-                if (std.mem.eql(u8, field.name, "bus")) return false;
-                if (std.mem.startsWith(u8, field.name, "_")) return false;
-                return gdzig.builtin.Variant.Tag.forTypeOrNull(field.type) != null;
+            inline for (info.@"struct".field_names, info.@"struct".field_types) |field_name, FieldType| {
+                if (!std.mem.eql(u8, field_name, prop)) continue;
+                if (std.mem.eql(u8, field_name, "allocator")) return false;
+                if (std.mem.eql(u8, field_name, "base")) return false;
+                if (std.mem.eql(u8, field_name, "bus")) return false;
+                if (std.mem.startsWith(u8, field_name, "_")) return false;
+                return gdzig.builtin.Variant.Tag.forTypeOrNull(FieldType) != null;
             }
             return false;
         }
@@ -569,13 +569,13 @@ pub fn Class(comptime T: type) type {
             const groups = @field(T, "groups");
             const info = @typeInfo(@TypeOf(groups));
             if (info != .@"struct" or !info.@"struct".is_tuple) return false;
-            inline for (info.@"struct".fields) |field| {
-                const grp = @field(groups, field.name);
+            inline for (info.@"struct".field_names) |field_name| {
+                const grp = @field(groups, field_name);
                 const props = grp[2];
                 const props_info = @typeInfo(@TypeOf(props));
                 if (props_info == .@"struct" and props_info.@"struct".is_tuple) {
-                    inline for (props_info.@"struct".fields) |pfield| {
-                        if (std.mem.eql(u8, entryName(@field(props, pfield.name)), name)) return true;
+                    inline for (props_info.@"struct".field_names) |prop_field_name| {
+                        if (std.mem.eql(u8, entryName(@field(props, prop_field_name)), name)) return true;
                     }
                 }
             }
@@ -589,8 +589,8 @@ pub fn Class(comptime T: type) type {
             const properties = @field(T, "properties");
             const info = @typeInfo(@TypeOf(properties));
             if (info != .@"struct" or !info.@"struct".is_tuple) return false;
-            inline for (info.@"struct".fields) |field| {
-                if (std.mem.eql(u8, entryName(@field(properties, field.name)), name)) return true;
+            inline for (info.@"struct".field_names) |field_name| {
+                if (std.mem.eql(u8, entryName(@field(properties, field_name)), name)) return true;
             }
             return false;
         }
@@ -632,32 +632,32 @@ pub fn Class(comptime T: type) type {
                 const signals = @field(T, "signals");
                 const sig_info = @typeInfo(@TypeOf(signals));
                 if (sig_info == .@"struct" and sig_info.@"struct".is_tuple) {
-                    inline for (sig_info.@"struct".fields) |field| {
-                        self.addSignal(@field(signals, field.name));
+                    inline for (sig_info.@"struct".field_names) |field_name| {
+                        self.addSignal(@field(signals, field_name));
                     }
                 }
             }
 
             // Auto-bind methods
-            inline for (info.@"struct".decls) |decl| {
-                const is_ignored = comptime std.mem.eql(u8, decl.name, "create") or
-                    std.mem.eql(u8, decl.name, "recreate") or
-                    std.mem.eql(u8, decl.name, "destroy") or
-                    std.mem.eql(u8, decl.name, "register") or
-                    std.mem.eql(u8, decl.name, "unregister") or
-                    std.mem.eql(u8, decl.name, "signals") or
-                    std.mem.eql(u8, decl.name, "properties") or
-                    std.mem.eql(u8, decl.name, "onready") or
-                    std.mem.startsWith(u8, decl.name, "_");
+            inline for (info.@"struct".decl_names) |decl_name| {
+                const is_ignored = comptime std.mem.eql(u8, decl_name, "create") or
+                    std.mem.eql(u8, decl_name, "recreate") or
+                    std.mem.eql(u8, decl_name, "destroy") or
+                    std.mem.eql(u8, decl_name, "register") or
+                    std.mem.eql(u8, decl_name, "unregister") or
+                    std.mem.eql(u8, decl_name, "signals") or
+                    std.mem.eql(u8, decl_name, "properties") or
+                    std.mem.eql(u8, decl_name, "onready") or
+                    std.mem.startsWith(u8, decl_name, "_");
 
                 if (!is_ignored) {
-                    const decl_info = @typeInfo(@TypeOf(@field(T, decl.name)));
+                    const decl_info = @typeInfo(@TypeOf(@field(T, decl_name)));
                     if (decl_info == .@"fn") {
                         const method_info = decl_info.@"fn";
-                        if (method_info.params.len > 0) {
-                            const first_param = method_info.params[0].type;
+                        if (method_info.param_types.len > 0) {
+                            const first_param = method_info.param_types[0];
                             if (first_param == *T or first_param == *const T) {
-                                const snake_name = comptime camelToSnake(decl.name);
+                                const snake_name = comptime camelToSnake(decl_name);
                                 // A `getSpeed` beside a `speed` property *is*
                                 // that property's getter: `autoDetectGetter`
                                 // prefers the decl over the field. Binding it
@@ -674,40 +674,40 @@ pub fn Class(comptime T: type) type {
             }
 
             // Auto-bind properties from fields
-            inline for (info.@"struct".fields) |field| {
-                const is_ignored = comptime std.mem.eql(u8, field.name, "allocator") or
-                    std.mem.eql(u8, field.name, "base") or
-                    std.mem.eql(u8, field.name, "bus") or
-                    std.mem.startsWith(u8, field.name, "_") or
+            inline for (info.@"struct".field_names, info.@"struct".field_types) |field_name, FieldType| {
+                const is_ignored = comptime std.mem.eql(u8, field_name, "allocator") or
+                    std.mem.eql(u8, field_name, "base") or
+                    std.mem.eql(u8, field_name, "bus") or
+                    std.mem.startsWith(u8, field_name, "_") or
                     // Listed in `properties` or in a `groups` entry below,
                     // either of which binds it with its own options. Binding it
                     // here too would register the same property twice, and
                     // Godot refuses the second with "already has property" --
                     // leaving the options ignored.
-                    isBoundByName(field.name);
+                    isBoundByName(field_name);
 
                 if (!is_ignored) {
-                    if (comptime gdzig.builtin.Variant.Tag.forTypeOrNull(field.type) != null) {
-                        const type_info = @typeInfo(field.type);
+                    if (comptime gdzig.builtin.Variant.Tag.forTypeOrNull(FieldType) != null) {
+                        const type_info = @typeInfo(FieldType);
                         if (type_info == .@"enum") {
                             const enum_options = comptime blk: {
                                 var hint_str: [:0]const u8 = "";
-                                for (type_info.@"enum".fields, 0..) |efield, i| {
-                                    const entry = std.fmt.comptimePrint("{s}:{d}", .{ efield.name, efield.value });
+                                for (type_info.@"enum".field_names, type_info.@"enum".field_values, 0..) |enum_name, enum_value, i| {
+                                    const entry = std.fmt.comptimePrint("{s}:{d}", .{ enum_name, enum_value });
                                     if (i == 0) {
                                         hint_str = entry;
                                     } else {
                                         hint_str = hint_str ++ "," ++ entry;
                                     }
                                 }
-                                var opts = Property(T, field.name ++ "").CreateOptions{};
+                                var opts = Property(T, field_name ++ "").CreateOptions{};
                                 opts.hint = .property_hint_enum;
                                 opts.hint_string = hint_str;
                                 break :blk opts;
                             };
-                            self.addProperty(field.name ++ "", enum_options);
+                            self.addProperty(field_name ++ "", enum_options);
                         } else {
-                            self.addProperty(field.name ++ "", .auto);
+                            self.addProperty(field_name ++ "", .auto);
                         }
                     }
                 }
@@ -718,16 +718,16 @@ pub fn Class(comptime T: type) type {
                 const properties = @field(T, "properties");
                 const prop_info = @typeInfo(@TypeOf(properties));
                 if (prop_info == .@"struct" and prop_info.@"struct".is_tuple) {
-                    inline for (prop_info.@"struct".fields) |field| {
-                        const prop_val = @field(properties, field.name);
+                    inline for (prop_info.@"struct".field_names) |field_name| {
+                        const prop_val = @field(properties, field_name);
                         const val_info = @typeInfo(@TypeOf(prop_val));
                         if (val_info == .@"struct" and val_info.@"struct".is_tuple) {
                             const name_str = prop_val[0];
                             const options = comptime blk: {
                                 var opts = Property(T, name_str).CreateOptions{};
                                 const opts_info = @typeInfo(@TypeOf(prop_val[1])).@"struct";
-                                for (opts_info.fields) |f| {
-                                    @field(opts, f.name) = @field(prop_val[1], f.name);
+                                for (opts_info.field_names) |option_name| {
+                                    @field(opts, option_name) = @field(prop_val[1], option_name);
                                 }
                                 break :blk opts;
                             };
@@ -744,14 +744,14 @@ pub fn Class(comptime T: type) type {
                 const groups = @field(T, "groups");
                 const grp_info = @typeInfo(@TypeOf(groups));
                 if (grp_info == .@"struct" and grp_info.@"struct".is_tuple) {
-                    inline for (grp_info.@"struct".fields) |field| {
-                        const grp_val = @field(groups, field.name);
+                    inline for (grp_info.@"struct".field_names) |field_name| {
+                        const grp_val = @field(groups, field_name);
                         const grp_name = grp_val[0];
                         const grp_options = comptime blk: {
                             var opts = Group(T).CreateOptions{};
                             const opts_info = @typeInfo(@TypeOf(grp_val[1])).@"struct";
-                            for (opts_info.fields) |f| {
-                                @field(opts, f.name) = @field(grp_val[1], f.name);
+                            for (opts_info.field_names) |option_name| {
+                                @field(opts, option_name) = @field(grp_val[1], option_name);
                             }
                             break :blk opts;
                         };
@@ -760,16 +760,16 @@ pub fn Class(comptime T: type) type {
                         const grp_props = grp_val[2];
                         const props_info = @typeInfo(@TypeOf(grp_props));
                         if (props_info == .@"struct" and props_info.@"struct".is_tuple) {
-                            inline for (props_info.@"struct".fields) |pfield| {
-                                const prop_val = @field(grp_props, pfield.name);
+                            inline for (props_info.@"struct".field_names) |prop_field_name| {
+                                const prop_val = @field(grp_props, prop_field_name);
                                 const val_info = @typeInfo(@TypeOf(prop_val));
                                 if (val_info == .@"struct" and val_info.@"struct".is_tuple) {
                                     const name_str = prop_val[0];
                                     const options = comptime blk: {
                                         var opts = Property(T, name_str).CreateOptions{};
                                         const o_info = @typeInfo(@TypeOf(prop_val[1])).@"struct";
-                                        for (o_info.fields) |f| {
-                                            @field(opts, f.name) = @field(prop_val[1], f.name);
+                                        for (o_info.field_names) |option_name| {
+                                            @field(opts, option_name) = @field(prop_val[1], option_name);
                                         }
                                         break :blk opts;
                                     };
@@ -1332,13 +1332,13 @@ pub fn Signal(comptime T: type, comptime S: type) type {
             const class_name = StringName.fromType(T);
             const signal_name = StringName.fromSignal(S);
 
-            const fields = @typeInfo(S).@"struct".fields;
-            var arg_info: [fields.len]classdb.PropertyInfo = undefined;
-            var names: [fields.len]*const StringName = undefined;
-            inline for (fields, 0..) |field, i| {
-                names[i] = StringName.fromComptimeLatin1(field.name);
+            const fields = @typeInfo(S).@"struct";
+            var arg_info: [fields.field_names.len]classdb.PropertyInfo = undefined;
+            var names: [fields.field_names.len]*const StringName = undefined;
+            inline for (fields.field_names, fields.field_types, 0..) |field_name, FieldType, i| {
+                names[i] = StringName.fromComptimeLatin1(field_name);
                 arg_info[i] = .{
-                    .type = Variant.Tag.forType(field.type),
+                    .type = Variant.Tag.forType(FieldType),
                     .name = names[i],
                 };
             }

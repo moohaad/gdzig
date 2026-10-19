@@ -64,7 +64,7 @@ pub const Variant = extern struct {
                 .tag = .object,
                 .data = .{
                     .object = .{
-                        .id = @enumFromInt(obj.getInstanceId()),
+                        .id = @fromBackingInt(@intCast(obj.getInstanceId())),
                         .object = obj,
                     },
                 },
@@ -114,7 +114,7 @@ pub const Variant = extern struct {
             const obj = Object.upcast(obj_ptr);
             return .{
                 .tag = .object,
-                .data = .{ .object = .{ .id = @enumFromInt(obj.getInstanceId()), .object = obj } },
+                .data = .{ .object = .{ .id = @fromBackingInt(@intCast(obj.getInstanceId())), .object = obj } },
             };
         }
 
@@ -285,7 +285,7 @@ pub const Variant = extern struct {
     pub fn callStatic(variant_tag: Tag, method: StringName, args: []const *const Variant) CallError!Variant {
         var ret: Variant = undefined;
         var err: CallResult = undefined;
-        raw.variantCallStatic(@intFromEnum(variant_tag), @ptrCast(&method), @ptrCast(args.ptr), @intCast(args.len), @ptrCast(&ret), @ptrCast(&err));
+        raw.variantCallStatic(@backingInt(variant_tag), @ptrCast(&method), @ptrCast(args.ptr), @intCast(args.len), @ptrCast(&ret), @ptrCast(&err));
         try err.throw();
         return ret;
     }
@@ -294,7 +294,7 @@ pub const Variant = extern struct {
     inline fn evaluate(a: Variant, op: Operator, b: Variant) PropertyError!Variant {
         var result: Variant = undefined;
         var valid: u8 = 0;
-        raw.variantEvaluate(@intFromEnum(op), @ptrCast(&a), @ptrCast(&b), @ptrCast(&result), &valid);
+        raw.variantEvaluate(@backingInt(op), @ptrCast(&a), @ptrCast(&b), @ptrCast(&result), &valid);
         if (valid == 0) return error.InvalidOperation;
         return result;
     }
@@ -536,7 +536,7 @@ pub const Variant = extern struct {
 
     /// Gets the object instance ID from this Variant (if it contains an Object).
     pub fn getObjectInstanceId(self: Variant) ObjectId {
-        return @enumFromInt(raw.variantGetObjectInstanceId.?(@ptrCast(&self)));
+        return @fromBackingInt(@intCast(raw.variantGetObjectInstanceId.?(@ptrCast(&self))));
     }
 
     /// Converts this Variant to a boolean.
@@ -718,30 +718,30 @@ pub const Variant = extern struct {
         /// Gets the name of this Variant type.
         pub fn getName(self: Tag) String {
             var result: String = undefined;
-            raw.variantGetTypeName(@intFromEnum(self), result.ptr());
+            raw.variantGetTypeName(@backingInt(self), result.ptr());
             return result;
         }
 
         /// Checks if this Variant type has the given member.
         pub fn hasMember(self: Tag, member: StringName) bool {
-            return raw.variantHasMember(@intFromEnum(self), @ptrCast(&member)) != 0;
+            return raw.variantHasMember(@backingInt(self), @ptrCast(&member)) != 0;
         }
 
         /// Gets the value of a constant from this Variant type.
         pub fn getConstant(self: Tag, constant_name: StringName) Variant {
             var result: Variant = undefined;
-            raw.variantGetConstantValue(@intFromEnum(self), @ptrCast(&constant_name), @ptrCast(&result));
+            raw.variantGetConstantValue(@backingInt(self), @ptrCast(&constant_name), @ptrCast(&result));
             return result;
         }
 
         /// Checks if Variants can be converted from one type to another.
         pub fn canConvert(from: Tag, to: Tag) bool {
-            return raw.variantCanConvert(@intFromEnum(from), @intFromEnum(to)) != 0;
+            return raw.variantCanConvert(@backingInt(from), @backingInt(to)) != 0;
         }
 
         /// Checks if Variants can be converted from one type to another using stricter rules.
         pub fn canConvertStrict(from: Tag, to: Tag) bool {
-            return raw.variantCanConvertStrict(@intFromEnum(from), @intFromEnum(to)) != 0;
+            return raw.variantCanConvertStrict(@backingInt(from), @backingInt(to)) != 0;
         }
 
         /// Returns true if this variant type requires heap allocation when wrapped in a Variant.
@@ -864,7 +864,7 @@ inline fn getVariantFromTypeConstructor(comptime tag: Variant.Tag) Child(c.GDExt
     }.function;
 
     if (function.* == null) {
-        function.* = raw.getVariantFromTypeConstructor(@intFromEnum(tag));
+        function.* = raw.getVariantFromTypeConstructor(@backingInt(tag));
     }
 
     return function.*.?;
@@ -877,7 +877,7 @@ inline fn getVariantToTypeConstructor(comptime tag: Variant.Tag) Child(c.GDExten
     }.function;
 
     if (function.* == null) {
-        function.* = raw.getVariantToTypeConstructor(@intFromEnum(tag));
+        function.* = raw.getVariantToTypeConstructor(@backingInt(tag));
     }
 
     return function.*.?;
@@ -924,7 +924,7 @@ test "forType" {
         .{ .bool, bool },
         .{ .int, i64 },
         .{ .float, f64 },
-        .{ .int, enum(u32) {} },
+        .{ .int, enum(u32) { value } },
     };
 
     inline for (pairs) |pair| {

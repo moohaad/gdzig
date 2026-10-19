@@ -10,8 +10,17 @@ pub fn register(r: *gdzig.extension.Registry) void {
     class.addMethod("take_optional_node", .auto);
     class.addMethod("take_narrow_node", .auto);
     class.addMethod("take_required_node", .auto);
+    class.addEnum(TestMode);
 
     registerWide(r);
+}
+
+const TestMode = enum(i32) { IDLE = 2, RUNNING = 9 };
+
+test "registered enum constants preserve names and explicit values" {
+    ensureRegistered();
+    try testing.expectEqual(@as(i64, 2), ClassDb.classGetIntegerConstant("TestNode", "IDLE"));
+    try testing.expectEqual(@as(i64, 9), ClassDb.classGetIntegerConstant("TestNode", "RUNNING"));
 }
 
 /// As wide, as deeply derived, and as virtual-heavy as a real game entity.

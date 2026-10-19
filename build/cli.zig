@@ -74,7 +74,7 @@ pub fn main(init: std.process.Init) !void {
             @import("export.zig").usage();
             std.process.exit(2);
         };
-        if (!has_optimize) try argv.append(allocator, "-Doptimize=ReleaseSafe");
+        if (!has_optimize) try argv.append(allocator, "-Doptimize=safe");
         try argv.append(allocator, "--");
         try argv.appendSlice(allocator, export_args.items);
     }

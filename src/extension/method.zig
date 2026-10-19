@@ -69,7 +69,7 @@ pub fn MethodConfig(comptime Class: type) type {
         pub fn fromName(comptime name: [:0]const u8, comptime decl_name: [:0]const u8, comptime options: Registry.Method(Class).CreateOptions) Self {
             const MethodType = @TypeOf(@field(Class, decl_name));
             const fn_info = @typeInfo(MethodType).@"fn";
-            const Args = fn_info.params;
+            const Args = fn_info.param_types;
             const ReturnType = fn_info.return_type orelse void;
             const arg_count = Args.len - 1;
 
@@ -81,7 +81,7 @@ pub fn MethodConfig(comptime Class: type) type {
             const arg_infos: [arg_count]classdb.PropertyInfo = comptime blk: {
                 var infos: [arg_count]classdb.PropertyInfo = undefined;
                 for (0..arg_count) |i| {
-                    const ArgType = Args[i + 1].type.?;
+                    const ArgType = Args[i + 1].?;
                     infos[i] = .{ .type = .forType(ArgType), .usage = variantUsage(ArgType) };
                 }
                 break :blk infos;
@@ -111,7 +111,7 @@ pub fn MethodConfig(comptime Class: type) type {
                     var call_args: std.meta.ArgsTuple(MethodType) = undefined;
                     call_args[0] = instance;
                     inline for (1..Args.len) |i| {
-                        const ArgType = Args[i].type.?;
+                        const ArgType = Args[i].?;
                         call_args[i] = args[i - 1].as(ArgType) orelse return error.InvalidArgument;
                     }
                     if (ReturnType == void) {
@@ -129,7 +129,7 @@ pub fn MethodConfig(comptime Class: type) type {
                     var call_args: std.meta.ArgsTuple(MethodType) = undefined;
                     call_args[0] = instance;
                     inline for (1..Args.len) |i| {
-                        const ArgType = Args[i].type.?;
+                        const ArgType = Args[i].?;
                         call_args[i] = ptrToArg(ArgType, args[i - 1]);
                     }
                     if (ReturnType == void) {

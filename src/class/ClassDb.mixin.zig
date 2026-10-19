@@ -817,12 +817,12 @@ fn wrapCall(comptime T: type, comptime Userdata: type, comptime callback: Call(T
             if (Userdata != void) {
                 const userdata = @as(*Userdata, @ptrCast(@alignCast(method_userdata)));
                 ret.* = callback(userdata, inst, args) catch |err| {
-                    if (r_error) |e| e.* = @bitCast(CallResult.fromError(err));
+                    if (r_error) |e| CallResult.fromError(err).writeTo(e);
                     return;
                 };
             } else {
                 ret.* = callback(inst, args) catch |err| {
-                    if (r_error) |e| e.* = @bitCast(CallResult.fromError(err));
+                    if (r_error) |e| CallResult.fromError(err).writeTo(e);
                     return;
                 };
             }
@@ -899,6 +899,14 @@ pub const CallResult = extern struct {
                 error.InstanceIsNull => .instance_is_null,
                 error.MethodNotConst => .method_not_const,
             },
+        };
+    }
+
+    fn writeTo(self: CallResult, out: *c.GDExtensionCallError) void {
+        out.* = .{
+            .@"error" = @backingInt(self.@"error"),
+            .argument = self.argument,
+            .expected = self.expected,
         };
     }
 };
@@ -1139,7 +1147,7 @@ pub inline fn registerMethod(
             .method_flags = @bitCast(info.flags),
             .has_return_value = @intFromBool(info.return_value_info != null),
             .return_value_info = @ptrCast(info.return_value_info),
-            .return_value_metadata = @intFromEnum(info.return_value_metadata),
+            .return_value_metadata = @backingInt(info.return_value_metadata),
             .argument_count = @intCast(info.argument_info.len),
             .arguments_info = if (info.argument_info.len > 0) @ptrCast(@constCast(info.argument_info.ptr)) else null,
             .arguments_metadata = if (info.argument_metadata.len > 0) @ptrCast(@constCast(info.argument_metadata.ptr)) else null,
@@ -1251,7 +1259,7 @@ pub inline fn registerVirtualMethod(class_name: *const StringName, info: Virtual
             .name = @ptrCast(@constCast(info.name)),
             .method_flags = @bitCast(info.flags),
             .return_value = @bitCast(info.return_value),
-            .return_value_metadata = @intFromEnum(info.return_value_metadata),
+            .return_value_metadata = @backingInt(info.return_value_metadata),
             .argument_count = @intCast(info.arguments.len),
             .arguments = @ptrCast(@constCast(info.arguments.ptr)),
             .arguments_metadata = @ptrCast(@constCast(info.arguments_metadata.ptr)),

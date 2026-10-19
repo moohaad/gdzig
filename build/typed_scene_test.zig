@@ -28,14 +28,14 @@ pub fn main(init: std.process.Init) !void {
     var dir = try std.Io.Dir.openDir(.cwd(), io, out_path, .{});
     defer dir.close(io);
 
-    const manifest = try dir.readFileAlloc(io, "build.zig.zon", arena, @enumFromInt(1 << 20));
+    const manifest = try dir.readFileAlloc(io, "build.zig.zon", arena, @fromBackingInt(@intCast(1 << 20)));
     const fingerprint = try between(manifest, ".fingerprint = ", ",");
     try dir.writeFile(io, .{ .sub_path = "build.zig.zon", .data = try std.fmt.allocPrint(arena,
         \\.{{
         \\    .name = .sceneprobe,
         \\    .version = "0.0.0",
         \\    .fingerprint = {s},
-        \\    .minimum_zig_version = "0.16.0",
+        \\    .minimum_zig_version = "0.17.0",
         \\    .dependencies = .{{
         \\        .gdzig = .{{ .path = "{s}" }},
         \\    }},
@@ -128,9 +128,10 @@ fn probeSource() []const u8 {
     \\const Children = godot.Scene(@embedFile("derived.tscn"));
     \\
     \\fn expectType(comptime name: []const u8, comptime Expected: type) void {
-    \\    inline for (@typeInfo(Children).@"struct".fields) |field| {
-    \\        if (comptime std.mem.eql(u8, field.name, name)) {
-    \\            if (field.type.Resolves != Expected)
+    \\    const fields = @typeInfo(Children).@"struct";
+    \\    inline for (fields.field_names, fields.field_types) |field_name, FieldType| {
+    \\        if (comptime std.mem.eql(u8, field_name, name)) {
+    \\            if (FieldType.Resolves != Expected)
     \\                @compileError(name ++ " should resolve to " ++ @typeName(Expected));
     \\            return;
     \\        }

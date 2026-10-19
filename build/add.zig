@@ -56,7 +56,7 @@ pub fn main(init: std.process.Init) !void {
     const output_path = try std.fs.path.join(a, &.{ std.fs.path.dirname(path) orelse ".", filename });
     const insertion = try std.fmt.allocPrint(a, "{s}\n    @import(\"{s}\"),\n", .{ if (end.needs_comma) "," else "", filename });
     const edited = try std.mem.concat(a, u8, &.{ original[0..end.offset], insertion, original[end.offset..] });
-    var tree = try std.zig.Ast.parse(a, try a.dupeZ(u8, edited), .zig);
+    var tree = try std.zig.Ast.parse(a, try a.dupeSentinel(u8, edited, 0), .{ .mode = .zig });
     defer tree.deinit(a);
     if (tree.errors.len != 0) return error.InvalidEntrySyntax;
     var formatted: std.Io.Writer.Allocating = .init(a);
@@ -105,7 +105,7 @@ fn registration(body: []const u8) ?Registration {
 
 fn registrationTupleName(body: []const u8) ?[]const u8 {
     const a = std.heap.page_allocator;
-    const terminated = a.dupeZ(u8, body) catch return null;
+    const terminated = a.dupeSentinel(u8, body, 0) catch return null;
     defer a.free(terminated);
     var tokens = std.zig.Tokenizer.init(terminated);
     var previous: std.zig.Token.Tag = .invalid;
@@ -140,7 +140,7 @@ fn registrationTupleName(body: []const u8) ?[]const u8 {
 // registration logic or evaluate a build file.
 fn tupleEnd(body: []const u8, tuple_name: []const u8) ?End {
     const a = std.heap.page_allocator;
-    const terminated = a.dupeZ(u8, body) catch return null;
+    const terminated = a.dupeSentinel(u8, body, 0) catch return null;
     defer a.free(terminated);
     var tokens = std.zig.Tokenizer.init(terminated);
     var depth: usize = 0;

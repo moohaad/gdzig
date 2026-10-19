@@ -31,14 +31,14 @@ test "{f} does not stop at the chunk size" {
     // `format` takes 256 characters per pass. A formatter that fills one stack
     // buffer and returns looks correct on every short string and silently cuts
     // this one, which is the failure worth pinning.
-    const long = "x" ** 1000;
-    var s = String.fromLatin1(long);
+    const long: [1000]u8 = @splat('x');
+    var s = String.fromLatin1(&long);
     defer s.deinit();
 
     var buf: [2048]u8 = undefined;
     const written = try std.fmt.bufPrint(&buf, "{f}", .{s});
     try testing.expectEqual(@as(usize, 1000), written.len);
-    try testing.expectEqualStrings(long, written);
+    try testing.expectEqualStrings(&long, written);
 }
 
 test "Godot's own interpolation survives the rename" {

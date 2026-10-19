@@ -256,18 +256,18 @@ pub fn callVoid(self: *Self, method_name: []const u8, args: anytype) void {
     var string_name = StringName.fromSlice(method_name);
     defer string_name.deinit();
 
-    const fields = @typeInfo(@TypeOf(args)).@"struct".fields;
-    var variant_args: [fields.len]Variant = undefined;
-    var variant_ptrs: [fields.len]*const Variant = undefined;
+    const fields = @typeInfo(@TypeOf(args)).@"struct";
+    var variant_args: [fields.field_names.len]Variant = undefined;
+    var variant_ptrs: [fields.field_names.len]*const Variant = undefined;
 
-    inline for (fields, 0..) |field, i| {
-        variant_args[i] = Variant.init(field.type, @field(args, field.name));
+    inline for (fields.field_names, fields.field_types, 0..) |field_name, FieldType, i| {
+        variant_args[i] = Variant.init(FieldType, @field(args, field_name));
         variant_ptrs[i] = &variant_args[i];
     }
 
     defer {
-        inline for (fields, 0..) |field, i| {
-            if (allocatesAsVariant(field.type)) variant_args[i].deinit();
+        inline for (fields.field_types, 0..) |FieldType, i| {
+            if (allocatesAsVariant(FieldType)) variant_args[i].deinit();
         }
     }
 
@@ -284,10 +284,10 @@ pub fn callVoid(self: *Self, method_name: []const u8, args: anytype) void {
 /// API mentions it (`Tween.tweenAwait` in Godot 4.7+).
 pub fn emit(self: *Self, comptime S: type, signal: AssertNonAllocating(S)) EmitError!void {
     const signal_name = StringName.fromSignal(S);
-    const fields = @typeInfo(S).@"struct".fields;
-    var args: [fields.len]Variant = undefined;
-    inline for (fields, 0..) |field, i| {
-        args[i] = Variant.init(field.type, @field(signal, field.name));
+    const fields = @typeInfo(S).@"struct";
+    var args: [fields.field_names.len]Variant = undefined;
+    inline for (fields.field_names, fields.field_types, 0..) |field_name, FieldType, i| {
+        args[i] = Variant.init(FieldType, @field(signal, field_name));
     }
     // No defer needed - non-allocating types don't need cleanup
     return emitImpl(self, signal_name.*, args);
@@ -296,13 +296,13 @@ pub fn emit(self: *Self, comptime S: type, signal: AssertNonAllocating(S)) EmitE
 /// Emits a signal. Will necessarily allocate when calling across the FFI with Transform2d, Aabb, Basis, Transform3d, or Projection.
 pub fn emitAlloc(self: *Self, comptime S: type, signal: S) EmitError!void {
     const signal_name = StringName.fromSignal(S);
-    const fields = @typeInfo(S).@"struct".fields;
-    var args: [fields.len]Variant = undefined;
-    inline for (fields, 0..) |field, i| {
-        args[i] = Variant.init(field.type, @field(signal, field.name));
+    const fields = @typeInfo(S).@"struct";
+    var args: [fields.field_names.len]Variant = undefined;
+    inline for (fields.field_names, fields.field_types, 0..) |field_name, FieldType, i| {
+        args[i] = Variant.init(FieldType, @field(signal, field_name));
     }
-    defer inline for (&args, fields) |*arg, field| {
-        if (allocatesAsVariant(field.type)) arg.deinit();
+    defer inline for (&args, fields.field_types) |*arg, FieldType| {
+        if (allocatesAsVariant(FieldType)) arg.deinit();
     };
     return emitImpl(self, signal_name.*, args);
 }
@@ -323,10 +323,10 @@ fn emitImpl(self: *Self, signal_name: StringName, args: anytype) EmitError!void 
 
 /// Returns `S` if no fields allocate, otherwise generates a compile error.
 fn AssertNonAllocating(comptime S: type) type {
-    const fields = @typeInfo(S).@"struct".fields;
-    inline for (fields) |field| {
-        if (allocatesAsVariant(field.type)) {
-            @compileError("Signal field '" ++ field.name ++ "' has type " ++ @typeName(field.type) ++
+    const fields = @typeInfo(S).@"struct";
+    inline for (fields.field_names, fields.field_types) |field_name, FieldType| {
+        if (allocatesAsVariant(FieldType)) {
+            @compileError("Signal field '" ++ field_name ++ "' has type " ++ @typeName(FieldType) ++
                 " which allocates when wrapped in Variant. Use emitAlloc instead.");
         }
     }

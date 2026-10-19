@@ -79,8 +79,8 @@ const RefCounted = class.RefCounted;
 
 /// Whether handles carry release tracking. Enabled where safety checks are.
 const track_release = switch (builtin.mode) {
-    .Debug, .ReleaseSafe => true,
-    .ReleaseFast, .ReleaseSmall => false,
+    .debug, .safe => true,
+    .fast, .small => false,
 };
 
 /// Whether `T` is some `Gd(U)`.

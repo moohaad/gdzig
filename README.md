@@ -9,12 +9,12 @@ expected until a stable version is released. Issue reports, feature requests, an
 
 ## Prerequisites
 
-1. zig 0.16.0
+1. zig 0.17.0
 2. godot 4.7
 
 **Note:** gdzig targets Godot 4.7 only. Earlier versions are not supported; pin an older gdzig if you need one.
 
-**Note:** We are targeting stable releases of Zig only. 0.15.x is no longer supported; use a tag prior to the 0.16 migration if you need it.
+**Note:** We are targeting stable releases of Zig only. 0.16.x is no longer supported; use a tag prior to the 0.17 migration if you need it.
 
 ## Usage:
 
@@ -77,7 +77,7 @@ From the generated project's directory:
 gdzig build
 gdzig run -Dgodot-version=4.7
 gdzig editor
-gdzig watch -Doptimize=ReleaseSafe
+gdzig watch -Doptimize=safe
 gdzig export -- --preset "Windows Desktop" --output ../exports/v1/Game.exe
 ```
 
@@ -146,7 +146,7 @@ const gdzig_dep = b.dependency("gdzig", .{
     // Optional: omit for the full API. Dependencies and ancestors are added.
     .classes = b.option([]const u8, "godot-classes", "Godot classes to generate"),
     // Absolute because a dependency resolves paths from its own build root.
-    .godot_project = b.pathFromRoot("project"),
+    .godot_project = b.root.joinString(b.allocator, "project") catch @panic("OOM"),
 });
 
 const mod = b.createModule(.{

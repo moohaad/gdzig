@@ -90,6 +90,9 @@ pub const Extension = struct {
 ///
 /// Returns an ExtensionStep, or null if waiting for lazy dependencies.
 pub fn addExtension(b: *Build, options: ExtensionOptions) ?*Extension {
+    // Source discovery and project maintenance below must also run when the
+    // compilation itself is cached (e.g. cleaning a stale hot-reload library).
+    b.graph.poisonCache();
     const dep = options.dependency orelse getSelfDependency(b);
     const is_wasm = options.target.result.cpu.arch.isWasm();
 
@@ -184,11 +187,11 @@ fn isWithin(path: []const u8, parent: []const u8) bool {
 fn hidePackageCache(b: *Build, project: []const u8) void {
     const io = b.graph.io;
 
-    const project_abs = b.pathFromRoot(project);
-    const cache_abs = b.pathFromRoot("zig-pkg");
+    const project_abs = absolutePath(b, project);
+    const cache_abs = absolutePath(b, "zig-pkg");
     if (!isWithin(cache_abs, project_abs)) return;
 
-    var dir = b.build_root.handle.openDir(io, "zig-pkg", .{}) catch return;
+    var dir = b.root.openDir(io, "zig-pkg", .{}) catch return;
     defer dir.close(io);
 
     if (dir.statFile(io, ".gdignore", .{})) |_| return else |_| {}
@@ -262,7 +265,7 @@ fn warnIfUnregistered(b: *Build, root_module: *Build.Module) void {
     const dir_path = std.fs.path.dirname(src.sub_path) orelse return;
     const entry_name = std.fs.path.basename(src.sub_path);
 
-    var dir = src.owner.build_root.handle.openDir(io, dir_path, .{ .iterate = true }) catch return;
+    var dir = src.owner.root.openDir(io, dir_path, .{ .iterate = true }) catch return;
     defer dir.close(io);
 
     var names: std.ArrayList([]const u8) = .empty;
@@ -312,7 +315,7 @@ fn clearReloadLeftovers(b: *Build, project: []const u8, name: []const u8) void {
     const io = b.graph.io;
     const lib_path = b.pathJoin(&.{ project, "lib" });
 
-    var dir = b.build_root.handle.openDir(io, lib_path, .{ .iterate = true }) catch return;
+    var dir = b.root.openDir(io, lib_path, .{ .iterate = true }) catch return;
     defer dir.close(io);
 
     const prefix = b.fmt("~{s}.", .{name});
@@ -321,7 +324,7 @@ fn clearReloadLeftovers(b: *Build, project: []const u8, name: []const u8) void {
         if (entry.kind != .file) continue;
         if (!std.mem.startsWith(u8, entry.name, prefix)) continue;
         dir.deleteFile(io, entry.name) catch continue;
-        std.log.warn("gdzig: removed stale reload artifact {s}/{s}", .{ b.pathFromRoot(lib_path), entry.name });
+        std.log.warn("gdzig: removed stale reload artifact {s}/{s}", .{ absolutePath(b, lib_path), entry.name });
     }
 }
 
@@ -340,9 +343,9 @@ fn warnIfNotImported(b: *Build, project: []const u8, name: []const u8) void {
     // reader of the warning is not necessarily standing there -- a nested
     // build, a CI log, a `zig build` run from a parent directory all put them
     // somewhere else. Absolute is longer and can be pasted as it stands.
-    const shown = b.pathFromRoot(project);
+    const shown = absolutePath(b, project);
 
-    var file = b.build_root.handle.openFile(io, list_path, .{}) catch {
+    var file = b.root.openFile(io, list_path, .{}) catch {
         std.log.warn(
             "gdzig: '{s}' has no .godot/extension_list.cfg, so Godot will load no extension " ++
                 "at all and your classes will be missing with no error. Open the project in the " ++
@@ -370,10 +373,10 @@ fn warnIfNotImported(b: *Build, project: []const u8, name: []const u8) void {
 fn addSceneImports(b: *Build, mod: *Build.Module, project: []const u8) void {
     const io = b.graph.io;
 
-    var dir = b.build_root.handle.openDir(io, project, .{ .iterate = true }) catch |err| {
+    var dir = b.root.openDir(io, project, .{ .iterate = true }) catch |err| {
         std.debug.panic(
             "gdzig: godot_project '{s}' cannot be opened: {s}",
-            .{ b.pathFromRoot(project), @errorName(err) },
+            .{ absolutePath(b, project), @errorName(err) },
         );
     };
     defer dir.close(io);
@@ -387,7 +390,7 @@ fn addSceneImports(b: *Build, mod: *Build.Module, project: []const u8) void {
         // `.godot/` is the editor's import cache, regenerated and not source.
         if (std.mem.startsWith(u8, entry.path, ".")) continue;
 
-        const name = b.dupe(entry.path);
+        const name = b.allocator.dupe(u8, entry.path) catch @panic("OOM");
         std.mem.replaceScalar(u8, name, '\\', '/');
 
         mod.addAnonymousImport(name, .{
@@ -418,10 +421,12 @@ fn addExtensionWeb(
 
     // Install and activate emsdk
     const emsdk_script = if (b.graph.host.result.os.tag == .windows) "emsdk.bat" else "emsdk";
-    const install_emsdk = b.addSystemCommand(&.{emsdk_path.path(b, emsdk_script).getPath(b)});
+    const install_emsdk = Build.Step.Run.create(b, "install emsdk");
+    install_emsdk.addFileArg(emsdk_path.path(b, emsdk_script));
     install_emsdk.addArgs(&.{ "install", options.emsdk_version });
 
-    const activate_emsdk = b.addSystemCommand(&.{emsdk_path.path(b, emsdk_script).getPath(b)});
+    const activate_emsdk = Build.Step.Run.create(b, "activate emsdk");
+    activate_emsdk.addFileArg(emsdk_path.path(b, emsdk_script));
     activate_emsdk.addArgs(&.{ "activate", options.emsdk_version });
     activate_emsdk.step.dependOn(&install_emsdk.step);
 
@@ -432,7 +437,8 @@ fn addExtensionWeb(
     const optimize = options.optimize;
     const single_threaded = mod.single_threaded orelse false;
 
-    const run_emcc = b.addSystemCommand(&.{emsdk_path.path(b, "upstream/emscripten/emcc").getPath(b)});
+    const run_emcc = Build.Step.Run.create(b, "link emscripten module");
+    run_emcc.addFileArg(emsdk_path.path(b, "upstream/emscripten/emcc"));
     run_emcc.addArtifactArg(lib);
 
     run_emcc.addArgs(&.{
@@ -446,21 +452,21 @@ fn addExtensionWeb(
     }
 
     run_emcc.addArgs(switch (optimize) {
-        .Debug => &.{
+        .debug => &.{
             "-O0",
             "-g3",
             "-fsanitize=undefined",
         },
-        .ReleaseSafe => &.{
+        .safe => &.{
             "-O3",
             "-fsanitize=undefined",
             "-fsanitize-minimal-runtime",
         },
-        .ReleaseFast => &.{"-O3"},
-        .ReleaseSmall => &.{"-Oz"},
+        .fast => &.{"-O3"},
+        .small => &.{"-Oz"},
     });
 
-    if (optimize != .Debug) {
+    if (optimize != .debug) {
         run_emcc.addArgs(&.{
             "-flto",
             "--closure",
@@ -568,9 +574,12 @@ pub fn addTestImpl(b: *Build, paths: Resolver, options: TestOptions) *Step.Run {
     install_project.step.dependOn(&install_ext.step);
 
     const runner_options = b.addOptions();
-    runner_options.addOption([]const []const u8, "test_folders", &.{
-        b.fmt("{s}/{s}", .{ b.install_path, install_subdir }),
-    });
+    // Installation happens before execution, after the coordinator is built.
+    // Hashing the directory here would fail on a fresh --prefix.
+    runner_options.addOptionPathUntracked(
+        "test_folder",
+        b.graph.path(.install_prefix, install_subdir),
+    );
     runner_options.addOptionPath("godot_exe", paths.namedLazyPath("godot"));
 
     const coordinator = b.addExecutable(.{
@@ -578,7 +587,7 @@ pub fn addTestImpl(b: *Build, paths: Resolver, options: TestOptions) *Step.Run {
         .root_module = b.createModule(.{
             .root_source_file = paths.path("src/testing/coordinator.zig"),
             .target = options.target,
-            .optimize = .Debug,
+            .optimize = .debug,
             .imports = &.{
                 .{ .name = "runner_options", .module = runner_options.createModule() },
             },
@@ -612,7 +621,7 @@ pub fn addWatchStep(b: *Build, options: WatchOptions) *Step.Run {
         .root_module = b.createModule(.{
             .root_source_file = dep.path("build/watch.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
 
@@ -641,7 +650,7 @@ pub const ExportOptions = struct {
 };
 
 /// Builds/installs before exporting with the same host editor used for bindgen.
-/// Pass export arguments through `b.args`; creates the named `export` step.
+/// Pass export arguments after `--`; creates the named `export` step.
 pub fn addExportStep(b: *Build, options: ExportOptions) *Step.Run {
     const dep = options.dependency orelse getSelfDependency(b);
     const exe = b.addExecutable(.{
@@ -649,7 +658,7 @@ pub fn addExportStep(b: *Build, options: ExportOptions) *Step.Run {
         .root_module = b.createModule(.{
             .root_source_file = dep.path("build/export.zig"),
             .target = b.graph.host,
-            .optimize = .Debug,
+            .optimize = .debug,
         }),
     });
     const run = b.addRunArtifact(exe);
@@ -657,12 +666,12 @@ pub fn addExportStep(b: *Build, options: ExportOptions) *Step.Run {
     const t = options.target.result;
     const host = b.graph.host.result;
     run.addArgs(&.{
-        b.pathFromRoot(options.project),
+        absolutePath(b, options.project),
         @import("manifest.zig").platformName(t.os.tag, t.abi) orelse "unsupported",
         @import("manifest.zig").architectureName(t.cpu.arch) orelse "unsupported",
         if (t.os.tag == host.os.tag and t.cpu.arch == host.cpu.arch and t.abi == host.abi) "native" else "cross",
     });
-    if (b.args) |args| run.addArgs(args);
+    run.addPassthruArgs();
     run.step.dependOn(b.getInstallStep());
     run.has_side_effects = true;
     b.step("export", "Build, validate, import, and export a native desktop game").dependOn(&run.step);
@@ -703,16 +712,14 @@ fn getSelfDependency(b: *Build) *Build.Dependency {
     const deps = build_runner.dependencies;
     const build_zig = @import("../build.zig");
 
-    inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
-        const pkg_hash = decl.name;
+    inline for (@typeInfo(deps.packages).@"struct".decl_names) |pkg_hash| {
         const pkg = @field(deps.packages, pkg_hash);
         if (@hasDecl(pkg, "build_zig") and pkg.build_zig == build_zig) {
             for (b.available_deps) |available| {
                 if (std.mem.eql(u8, available[1], pkg_hash)) {
-                    const build_root = pkg.build_root;
                     var it = b.graph.dependency_cache.iterator();
                     while (it.next()) |entry| {
-                        if (std.mem.eql(u8, entry.key_ptr.build_root_string, build_root)) {
+                        if (std.mem.eql(u8, entry.key_ptr.pkg_hash, pkg_hash)) {
                             return entry.value_ptr.*;
                         }
                     }
@@ -771,3 +778,9 @@ const std = @import("std");
 const Build = std.Build;
 const Step = std.Build.Step;
 const manifest = @import("manifest.zig");
+
+fn absolutePath(b: *Build, sub_path: []const u8) []const u8 {
+    const cwd = std.process.currentPathAlloc(b.graph.io, b.allocator) catch @panic("cannot resolve working directory");
+    const root = b.root.joinString(b.allocator, "") catch @panic("OOM");
+    return std.fs.path.resolve(b.allocator, &.{ cwd, root, sub_path }) catch @panic("OOM");
+}

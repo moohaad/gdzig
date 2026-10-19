@@ -16,7 +16,6 @@ pub fn build(b: *Build, options: BuildOptions) *Build.Step.Compile {
 
     const bbcodez = b.dependency("bbcodez", .{ .target = target, .optimize = optimize });
     const casez = b.dependency("casez", .{ .target = target, .optimize = optimize });
-    const temp = b.dependency("temp", .{ .target = target, .optimize = optimize });
 
     const common_mod = common.build(b, .{
         .target = target,
@@ -37,7 +36,7 @@ pub fn build(b: *Build, options: BuildOptions) *Build.Step.Compile {
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "architecture", options.architecture);
     build_options.addOption([]const u8, "precision", options.precision);
-    build_options.addOptionPath("headers", options.headers);
+    build_options.addOptionPathDirectory("headers", options.headers);
 
     const mod = b.createModule(.{
         .target = target,
@@ -50,7 +49,6 @@ pub fn build(b: *Build, options: BuildOptions) *Build.Step.Compile {
             .{ .name = "casez", .module = casez.module("casez") },
             .{ .name = "common", .module = common_mod },
             .{ .name = "gdextension", .module = gdextension_mod },
-            .{ .name = "temp", .module = temp.module("temp") },
         },
     });
 
@@ -84,7 +82,7 @@ pub fn run(b: *Build, exe: *Build.Step.Compile, options: RunOptions) Build.LazyP
     const bindings_output = cmd.addOutputDirectoryArg("bindings");
     cmd.addArg(options.precision);
     cmd.addArg(options.architecture);
-    cmd.addArg(if (b.verbose) "verbose" else "quiet");
+    cmd.addArg(if (b.graph.verbose) "verbose" else "quiet");
     cmd.addArg(options.classes orelse "");
 
     return bindings_output;

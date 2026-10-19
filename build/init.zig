@@ -116,7 +116,7 @@ pub fn main(init: std.process.Init) !void {
     defer seed_dir.close(init.io);
 
     var fingerprint: []const u8 = "0x0";
-    if (seed_dir.readFileAlloc(init.io, "build.zig.zon", allocator, @as(std.Io.Limit, @enumFromInt(1024 * 1024)))) |zon_content| {
+    if (seed_dir.readFileAlloc(init.io, "build.zig.zon", allocator, @as(std.Io.Limit, @fromBackingInt(@intCast(1024 * 1024))))) |zon_content| {
         defer allocator.free(zon_content);
         if (std.mem.indexOf(u8, zon_content, ".fingerprint = ")) |idx| {
             const start = idx + 15;
@@ -132,7 +132,7 @@ pub fn main(init: std.process.Init) !void {
         \\    .name = .{s},
         \\    .version = "0.0.0",
         \\    .fingerprint = {s},
-        \\    .minimum_zig_version = "0.16.0",
+        \\    .minimum_zig_version = "0.17.0",
         \\    .dependencies = .{{
         \\    }},
         \\    .paths = .{{ "build.zig", "build.zig.zon", "src" }},
@@ -153,6 +153,7 @@ pub fn main(init: std.process.Init) !void {
         \\    const godot_version = b.option([]const u8, "godot-version", "Godot version to download");
         \\    const godot_path = b.option([]const u8, "godot-path", "Path to a Godot executable");
         \\    const godot_classes = b.option([]const u8, "godot-classes", "Comma-separated Godot classes to generate");
+        \\    const project_root = b.root.joinString(b.allocator, ".") catch @panic("OOM");
         \\
         \\    const gdzig_dep = b.dependency("gdzig", .{{
         \\        .target = target,
@@ -165,7 +166,7 @@ pub fn main(init: std.process.Init) !void {
         \\        // gdzig module. That lets `godot.res` reject a missing path and
         \\        // generates `godot.input.Action`. Absolute, because gdzig resolves it
         \\        // against its own build root rather than yours.
-        \\        .godot_project = b.pathFromRoot("."),
+        \\        .godot_project = project_root,
         \\    }});
         \\
         \\    const mod = b.createModule(.{{
@@ -191,15 +192,15 @@ pub fn main(init: std.process.Init) !void {
         \\
         \\    const import_project = Build.Step.Run.create(b, "import Godot project");
         \\    import_project.addFileArg(gdzig_dep.namedLazyPath("godot"));
-        \\    import_project.addArgs(&.{{ "--path", b.pathFromRoot("."), "--headless", "--import" }});
+        \\    import_project.addArgs(&.{{ "--path", project_root, "--headless", "--import" }});
         \\    import_project.step.dependOn(b.getInstallStep());
         \\    import_project.has_side_effects = true;
         \\    inline for (.{{ "run", "editor" }}) |command| {{
         \\        const launch = Build.Step.Run.create(b, command);
         \\        launch.addFileArg(gdzig_dep.namedLazyPath("godot"));
-        \\        launch.addArgs(&.{{ "--path", b.pathFromRoot(".") }});
+        \\        launch.addArgs(&.{{ "--path", project_root }});
         \\        if (comptime std.mem.eql(u8, command, "editor")) launch.addArg("--editor");
-        \\        if (b.args) |args| launch.addArgs(args);
+        \\        launch.addPassthruArgs();
         \\        launch.step.dependOn(&import_project.step);
         \\        launch.has_side_effects = true;
         \\        b.step(command, "Build, import, and launch Godot").dependOn(&launch.step);
@@ -208,9 +209,7 @@ pub fn main(init: std.process.Init) !void {
         \\    const watch_step = b.step("watch", "Watch for changes, clean stale artifacts, and rebuild");
         \\    _ = gdzig.addExportStep(b, .{{ .dependency = gdzig_dep, .target = target }});
         \\    const watch = gdzig.addWatchStep(b, .{{}});
-        \\    if (b.args) |args| for (args) |arg| {{
-        \\        watch.addArgs(&.{{ "--build-arg", arg }});
-        \\    }};
+        \\    watch.addPassthruArgs();
         \\    watch.addArg("--run");
         \\    watch.addFileArg(gdzig_dep.namedLazyPath("godot"));
         \\    watch.addArgs(&.{{ "--path", "." }});

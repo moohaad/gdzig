@@ -37,7 +37,7 @@ Build options are **one argument per line**, without shell quoting, for example:
 
 ```text
 -j2
--Doptimize=ReleaseSafe
+-Doptimize=safe
 ```
 
 Settings are stored locally in `.godot/gdzig-editor.cfg`, not in shared project

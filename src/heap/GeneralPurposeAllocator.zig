@@ -4,8 +4,8 @@
 //! | ------------------------------ | ------------------------- |
 //! | Testing                        | `std.heap.DebugAllocator` |
 //! | WebAssembly                    | `gdzig.engine_allocator`  |
-//! | `.ReleaseSafe`/`.Debug`        | `std.heap.DebugAllocator` |
-//! | `.ReleaseFast`/`.ReleaseSmall` | Passthrough               |
+//! | `.safe`/`.debug`        | `std.heap.DebugAllocator` |
+//! | `.fast`/`.small` | Passthrough               |
 //!
 //! ## Usage
 //!
@@ -23,8 +23,8 @@ const strategy: Strategy = if (builtin.is_test)
 else if (builtin.target.cpu.arch.isWasm())
     .wasm
 else switch (builtin.mode) {
-    .ReleaseSafe, .Debug => .safe,
-    .ReleaseFast, .ReleaseSmall => .fast,
+    .safe, .debug => .safe,
+    .fast, .small => .fast,
 };
 
 const Impl = switch (strategy) {

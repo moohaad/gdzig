@@ -126,7 +126,7 @@ fn build(comptime entries: []const Entry, comptime user_types: type) type {
     comptime {
         var names: [entries.len][]const u8 = undefined;
         var types: [entries.len]type = undefined;
-        var attrs: [entries.len]std.builtin.Type.StructField.Attributes = undefined;
+        var attrs: [entries.len]std.builtin.Type.Struct.FieldAttributes = undefined;
 
         for (entries, 0..) |entry, i| {
             const F = Child(Resolve(entry.type_name, user_types), entry.path);
@@ -448,13 +448,13 @@ test "the generated struct has a field per child" {
         \\
     ;
     const S = Scene(tscn);
-    const fields = @typeInfo(S).@"struct".fields;
+    const fields = @typeInfo(S).@"struct";
 
-    try std.testing.expectEqual(@as(usize, 2), fields.len);
-    try std.testing.expectEqualStrings("AnimatedSprite2D", fields[0].name);
+    try std.testing.expectEqual(@as(usize, 2), fields.field_names.len);
+    try std.testing.expectEqualStrings("AnimatedSprite2D", fields.field_names[0]);
     try std.testing.expectEqual(
         Child(gdzig.class.CollisionShape2d, "CollisionShape2D"),
-        fields[1].type,
+        fields.field_types[1],
     );
 
     // Every field defaults, so the whole thing is `= .{}` at the use site.

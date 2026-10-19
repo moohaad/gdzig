@@ -10,12 +10,12 @@ Run beside `build.zig` (Windows example):
 
 ```sh
 gdzig export -- --preset "Windows Desktop" --output ../exports/v1/Game.exe
-gdzig export -Doptimize=Debug -- --preset "Windows Desktop" --output ../exports/debug/Game.exe --debug
+gdzig export -Doptimize=debug -- --preset "Windows Desktop" --output ../exports/debug/Game.exe --debug
 ```
 
 Zig options go before `--`; export options go after it. The CLI defaults to
-`-Doptimize=ReleaseSafe` and a Godot release export. `--debug` selects the Godot
-debug template; use `-Doptimize=Debug` separately if desired. Engine options such
+`-Doptimize=safe` and a Godot release export. `--debug` selects the Godot
+debug template; use `-Doptimize=debug` separately if desired. Engine options such
 as `-Dgodot-path=/absolute/path/to/godot` or `-Dgodot-version=4.7` are forwarded.
 Godot is invoked directly, without a shell, so quoted preset names and paths work.
 
@@ -52,10 +52,10 @@ _ = gdzig.addExportStep(b, .{
 
 The helper depends on `b.getInstallStep()`. Ensure that step installs both the
 extension library and its descriptor into your Godot project. It forwards
-`b.args` to the export runner. The equivalent without the CLI is:
+arguments after `--` to the export runner using `addPassthruArgs`. The equivalent without the CLI is:
 
 ```sh
-zig build export -Doptimize=ReleaseSafe -- --preset "Windows Desktop" --output ../exports/v1/Game.exe
+zig build export -Doptimize=safe -- --preset "Windows Desktop" --output ../exports/v1/Game.exe
 ```
 
 `zig build test-export` checks argument/preset validation and fake-editor process

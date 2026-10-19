@@ -3,7 +3,7 @@
 If you just want to write some Zig code in Godot immediately, `gdzig` provides a CLI scaffolding tool that does all the heavy lifting for you.
 
 ## Requirements
-* Zig `0.16.0`
+* Zig `0.17.0`
 * Godot `4.7`
 
 ## The 30-Second Scaffold

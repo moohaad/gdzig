@@ -17,7 +17,6 @@
 //! child, which keeps the test free of the one part that genuinely cannot be
 //! made deterministic.
 
-
 pub fn main(init: std.process.Init) !void {
     var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena_state.deinit();
@@ -52,14 +51,14 @@ pub fn main(init: std.process.Init) !void {
     };
     defer dir.close(io);
 
-    const manifest = try dir.readFileAlloc(io, "build.zig.zon", arena, @enumFromInt(1 << 20));
+    const manifest = try dir.readFileAlloc(io, "build.zig.zon", arena, @fromBackingInt(@intCast(1 << 20)));
     const fingerprint = try between(manifest, ".fingerprint = ", ",");
     try dir.writeFile(io, .{ .sub_path = "build.zig.zon", .data = try std.fmt.allocPrint(arena,
         \\.{{
         \\    .name = .{s},
         \\    .version = "0.0.0",
         \\    .fingerprint = {s},
-        \\    .minimum_zig_version = "0.16.0",
+        \\    .minimum_zig_version = "0.17.0",
         \\    .dependencies = .{{
         \\        .gdzig = .{{ .path = "{s}" }},
         \\    }},
@@ -94,7 +93,7 @@ pub fn main(init: std.process.Init) !void {
     try dir.writeFile(io, .{ .sub_path = "lib/~afterchange.dll", .data = "not a real library" });
 
     const entry = try std.fmt.allocPrint(arena, "src/{s}.zig", .{name});
-    const source = try dir.readFileAlloc(io, entry, arena, @enumFromInt(1 << 20));
+    const source = try dir.readFileAlloc(io, entry, arena, @fromBackingInt(@intCast(1 << 20)));
     try dir.writeFile(io, .{ .sub_path = entry, .data = try std.fmt.allocPrint(
         arena,
         "{s}\n// touched by the watch test\n",

@@ -1,7 +1,7 @@
 pub const BuildOptions = struct {
     headers: Build.LazyPath,
     target: Build.ResolvedTarget,
-    optimize: OptimizeMode = .Debug,
+    optimize: OptimizeMode = .debug,
 };
 
 pub fn build(b: *Build, options: BuildOptions) *Build.Module {

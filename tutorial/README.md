@@ -4,7 +4,7 @@ Move the blue player with **WASD**, touch five yellow stars before twenty second
 run out, and press **R** to restart. This is a complete native desktop game with
 no downloaded art, fonts, or audio. The yellow circles stand in for star sprites.
 
-Use Zig 0.16 and Godot 4.7. Start from a checkout of gdzig: this project's package
+Use Zig 0.17 and Godot 4.7. Start from a checkout of gdzig: this project's package
 dependency points to its parent directory. If you copy the project elsewhere,
 replace that path dependency with your pinned gdzig dependency.
 

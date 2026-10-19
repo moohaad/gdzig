@@ -88,7 +88,7 @@ pub fn main(init: std.process.Init) !void {
 
 fn checkZig(io: std.Io, allocator: std.mem.Allocator, reporter: *Reporter) void {
     const output = commandOutput(io, allocator, &.{ "zig", "version" }) orelse {
-        reporter.fail("Zig was not found in PATH; install Zig 0.16.x", .{});
+        reporter.fail("Zig was not found in PATH; install Zig 0.17.x", .{});
         return;
     };
     const version = std.mem.trim(u8, output, " \t\r\n");
@@ -96,8 +96,8 @@ fn checkZig(io: std.Io, allocator: std.mem.Allocator, reporter: *Reporter) void 
         reporter.fail("could not understand `zig version` output: {s}", .{version});
         return;
     };
-    if (parsed.major != 0 or parsed.minor != 16) {
-        reporter.fail("Zig {s} is incompatible; gdzig requires Zig 0.16.x", .{version});
+    if (parsed.major != 0 or parsed.minor != 17) {
+        reporter.fail("Zig {s} is incompatible; gdzig requires Zig 0.17.x", .{version});
         return;
     }
     reporter.pass("Zig {s}", .{version});
@@ -371,7 +371,7 @@ fn hasTrimmedLine(body: []const u8, wanted: []const u8) bool {
 }
 
 fn readFile(dir: std.Io.Dir, io: std.Io, allocator: std.mem.Allocator, path: []const u8) ?[]const u8 {
-    return dir.readFileAlloc(io, path, allocator, @enumFromInt(max_file_size)) catch null;
+    return dir.readFileAlloc(io, path, allocator, @fromBackingInt(@intCast(max_file_size))) catch null;
 }
 
 fn fileExists(dir: std.Io.Dir, io: std.Io, path: []const u8) bool {
@@ -414,7 +414,7 @@ fn usageError(comptime format: []const u8, args: anytype) noreturn {
 }
 
 test "version parser accepts Zig and Godot version suffixes" {
-    try std.testing.expectEqual(Version{ .major = 0, .minor = 16 }, parseVersion("0.16.0-dev.123") orelse return error.TestUnexpectedResult);
+    try std.testing.expectEqual(Version{ .major = 0, .minor = 17 }, parseVersion("0.17.0-dev.123") orelse return error.TestUnexpectedResult);
     try std.testing.expectEqual(Version{ .major = 4, .minor = 7 }, parseVersion("4.7.1.stable.official") orelse return error.TestUnexpectedResult);
     try std.testing.expect(parseVersion("not-a-version") == null);
 }

@@ -28,11 +28,11 @@ pub fn fromClosure(p_instance: anytype, comptime p_function_ptr: anytype) Callab
     // the connection.
     const method_name: [:0]const u8 = comptime blk: {
         const wanted: *const anyopaque = @ptrCast(p_function_ptr);
-        for (std.meta.declarations(T)) |decl| {
-            const decl_value = @field(T, decl.name);
+        for (std.meta.declarations(T)) |decl_name| {
+            const decl_value = @field(T, decl_name);
             if (@typeInfo(@TypeOf(decl_value)) != .@"fn") continue;
             if (@as(*const anyopaque, @ptrCast(&decl_value)) != wanted) continue;
-            break :blk std.fmt.comptimePrint("{s}", .{casez.comptimeConvert(godot_case.method, decl.name)});
+            break :blk std.fmt.comptimePrint("{s}", .{casez.comptimeConvert(godot_case.method, decl_name)});
         }
         @compileError("'" ++ @typeName(T) ++ "' has no public method with that address. " ++
             "`fromClosure` matches the function pointer against public declarations, " ++

@@ -213,8 +213,8 @@ pub fn resolveOnReady(self: anytype) void {
     const onready = @field(ChildT, "onready");
     const info = @typeInfo(@TypeOf(onready));
     if (info == .@"struct" and info.@"struct".is_tuple) {
-        inline for (info.@"struct".fields) |field| {
-            const entry = @field(onready, field.name);
+        inline for (info.@"struct".field_names) |field_name| {
+            const entry = @field(onready, field_name);
             const prop_name = entry[0];
             const node_path = entry[1];
 

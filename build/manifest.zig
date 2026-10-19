@@ -35,12 +35,13 @@ pub fn add(b: *Build, options: Options) Output {
         );
 
     const trimmed_dir = std.mem.trimEnd(u8, options.library_dir, "/\\");
-    const raw_library_path = if (trimmed_dir.len == 0)
+    const library_path = if (trimmed_dir.len == 0)
         b.dupe(options.library_filename)
     else
         b.fmt("{s}/{s}", .{ trimmed_dir, options.library_filename });
     // A build may run on Windows, but `.gdextension` paths always use Godot's
     // resource-path separator.
+    const raw_library_path = b.allocator.dupe(u8, library_path) catch @panic("OOM");
     std.mem.replaceScalar(u8, raw_library_path, '\\', '/');
 
     // Both selectors deliberately point at the same artifact. `debug` and

@@ -68,7 +68,7 @@ test "render formats, and refuses to hand back uninitialised bytes" {
     // Too long to fit. The result must be the notice, not the buffer: returning
     // `buf[0..buf.len]` here is what the original did, and it leaks whatever was
     // on the stack.
-    const long = "x" ** 500;
+    const long: [500]u8 = @splat('x');
     const got = render(&buf, "{s}", .{long});
     try std.testing.expect(got.len < buf.len);
     try std.testing.expect(std.mem.startsWith(u8, got, "<gdzig.print:"));
@@ -76,11 +76,11 @@ test "render formats, and refuses to hand back uninitialised bytes" {
 }
 
 /// Creates a Godot Callable from an arbitrary Zig function.
-/// The context struct must be allocated on the heap (using the provided allocator) 
+/// The context struct must be allocated on the heap (using the provided allocator)
 /// because Godot takes ownership of its lifetime and will free it when the Callable is destroyed.
 pub fn callable(allocator: std.mem.Allocator, ctx: anytype, comptime func: anytype) Callable {
     const ContextType = @TypeOf(ctx);
-    
+
     const Wrapper = struct {
         allocator: std.mem.Allocator,
         user_ctx: ContextType,
@@ -95,12 +95,12 @@ pub fn callable(allocator: std.mem.Allocator, ctx: anytype, comptime func: anyty
             if (err) |e| e.* = .{ .@"error" = gdzig.c.GDEXTENSION_CALL_OK, .argument = 0, .expected = 0 };
 
             const self: *@This() = @ptrCast(@alignCast(userdata.?));
-            
+
             // Unpack arguments
             const FuncType = @TypeOf(func);
             const func_info = @typeInfo(FuncType).@"fn";
-            const params = func_info.params;
-            
+            const params = func_info.param_types;
+
             // Expected params: [0] context, [1..] args
             if (argc != params.len - 1) {
                 if (err) |e| e.* = .{ .@"error" = gdzig.c.GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT, .argument = 0, .expected = @intCast(params.len - 1) };
@@ -109,14 +109,14 @@ pub fn callable(allocator: std.mem.Allocator, ctx: anytype, comptime func: anyty
 
             var args: std.meta.ArgsTuple(FuncType) = undefined;
             args[0] = self.user_ctx;
-            
-            inline for (params[1..], 0..) |param, i| {
+
+            inline for (params[1..], 0..) |ParamType, i| {
                 const arg_variant: *const Variant = @ptrCast(@alignCast(argv[i]));
-                args[i + 1] = arg_variant.as(param.type orelse @compileError("missing arg type")) orelse return; // In case of failed cast, abort
+                args[i + 1] = arg_variant.as(ParamType orelse @compileError("missing arg type")) orelse return; // In case of failed cast, abort
             }
 
             const result = @call(.auto, func, args);
-            
+
             // `return_type` is `?type`: null for a generic function, which
             // cannot be wrapped because there is nothing to convert.
             const Ret = comptime func_info.return_type orelse
@@ -192,7 +192,7 @@ pub fn Pool(comptime T: type) type {
         const Self = @This();
         available: std.ArrayList(*T),
         allocator: std.mem.Allocator,
-        
+
         pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
             var available = try std.ArrayList(*T).initCapacity(allocator, capacity);
             var alloc = allocator;
@@ -210,7 +210,7 @@ pub fn Pool(comptime T: type) type {
                 .allocator = allocator,
             };
         }
-        
+
         pub fn acquire(self: *Self) !*T {
             if (self.available.pop()) |item| return item;
             if (comptime gdzig.class.isStructClass(T)) {
@@ -219,11 +219,11 @@ pub fn Pool(comptime T: type) type {
                 return T.init();
             }
         }
-        
+
         pub fn release(self: *Self, item: *T) void {
             self.available.append(self.allocator, item) catch {};
         }
-        
+
         pub fn deinit(self: *Self) void {
             // The pool owns what it holds: `init` built these and nothing else
             // has a reference, so releasing only the list would leak every one
@@ -241,19 +241,16 @@ pub fn EventBus(comptime SignalsTuple: anytype) type {
         const Self = @This();
         allocator: std.mem.Allocator,
         base: *gdzig.class.Node,
-        
+
         pub const signals = SignalsTuple;
-        
+
         pub fn create(allocator: *std.mem.Allocator) !*Self {
             const self = try allocator.create(Self);
-            self.* = .{ 
-                .allocator = allocator.*,
-                .base = gdzig.class.Node.init() 
-            };
+            self.* = .{ .allocator = allocator.*, .base = gdzig.class.Node.init() };
             self.base.setInstance(Self, self);
             return self;
         }
-        
+
         pub fn destroy(self: *Self, allocator: *std.mem.Allocator) void {
             self.base.destroy();
             allocator.destroy(self);
@@ -303,15 +300,15 @@ pub const TweenBuilder = struct {
 pub fn bindNodes(self: anytype) void {
     const Self = @TypeOf(self.*);
     if (!@hasDecl(Self, "bind_nodes")) return;
-    
+
     inline for (Self.bind_nodes) |node_def| {
         const field_name = node_def[0];
         const path = node_def[1];
-        
+
         const FieldType = @TypeOf(@field(self.*, field_name));
         const TargetType = if (@typeInfo(FieldType) == .optional) @typeInfo(FieldType).optional.child else FieldType;
         const StructType = if (@typeInfo(TargetType) == .pointer) @typeInfo(TargetType).pointer.child else TargetType;
-        
+
         // Null covers both "nothing at that path" and "there, but not a
         // `StructType`", so the warning names the type it wanted rather than
         // reporting the second case as the first.

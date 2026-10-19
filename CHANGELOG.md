@@ -1,5 +1,9 @@
 # HEAD
 
+- **Zig 0.17 support**: the build graph, bindgen, runtime reflection, scaffolds,
+  doctor checks, development environments, and dependency pins now target Zig
+  0.17. Zig 0.16 is no longer supported.
+
 - **Godot-backed node base chooser**: the editor class generator uses Godot's
   native searchable Create Node dialog, then validates the selected native
   Node class against the running editor's `ClassDB`. `gdzig add`
@@ -77,7 +81,7 @@
   failed migrations, incompatible results, and state from a newer library are
   retained instead of being partially restored, downgraded, or overwritten by
   the replacement instance on its next teardown.
-- **Coroutines run across native platforms on `zio.coro`**: the pinned Zig 0.16
+- **Coroutines run across native platforms on `zio.coro`**: the pinned Zig 0.17
   branch supplies context switching and guarded, grow-on-demand stacks while
   Godot remains the scheduler. Zio also preserves Windows TEB stack metadata;
   the same lifecycle, signal, join, cancellation, and deep-stack tests now run

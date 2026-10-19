@@ -197,9 +197,9 @@ pub fn Children(comptime T: type) type {
 /// user did not write one.
 pub fn hasAny(comptime T: type) bool {
     if (@typeInfo(T) != .@"struct") return false;
-    inline for (@typeInfo(T).@"struct".fields) |field| {
-        if (comptime isChild(field.type)) return true;
-        if (comptime isGroup(field.type)) return true;
+    inline for (@typeInfo(T).@"struct".field_types) |FieldType| {
+        if (comptime isChild(FieldType)) return true;
+        if (comptime isGroup(FieldType)) return true;
     }
     return false;
 }
@@ -214,12 +214,13 @@ pub fn resolveAll(comptime T: type, instance: *T) void {
 /// One level of the walk. Paths stay relative to `owner`, the node the class
 /// itself is, however deeply the field is nested.
 fn resolveInto(comptime S: type, comptime label: []const u8, target: *S, owner: *Node) void {
-    inline for (@typeInfo(S).@"struct".fields) |field| {
-        if (comptime isChild(field.type)) {
-            const Target = field.type.Resolves;
-            const found = lookup(Target, owner, field.type.node_path);
+    const fields = @typeInfo(S).@"struct";
+    inline for (fields.field_names, fields.field_types) |field_name, FieldType| {
+        if (comptime isChild(FieldType)) {
+            const Target = FieldType.Resolves;
+            const found = lookup(Target, owner, FieldType.node_path);
             if (found) |node| {
-                @field(target, field.name) = .{ .handle = .init(node) };
+                @field(target, field_name) = .{ .handle = .init(node) };
             } else {
                 // Godot's Debugger panel rather than the process's stderr,
                 // which the engine does not capture: an editor session is
@@ -228,14 +229,14 @@ fn resolveInto(comptime S: type, comptime label: []const u8, target: *S, owner: 
                 // same way, so the two spellings fail alike.
                 gdzig.pushWarning(
                     "{s}.{s}: no child '{s}' of type {s}",
-                    .{ label, field.name, field.type.node_path, @typeName(Target) },
+                    .{ label, field_name, FieldType.node_path, @typeName(Target) },
                 );
             }
-        } else if (comptime isGroup(field.type)) {
+        } else if (comptime isGroup(FieldType)) {
             resolveInto(
-                field.type,
-                label ++ "." ++ field.name,
-                &@field(target, field.name),
+                FieldType,
+                label ++ "." ++ field_name,
+                &@field(target, field_name),
                 owner,
             );
         }
@@ -252,10 +253,10 @@ fn isGroup(comptime F: type) bool {
     const info = @typeInfo(F);
     if (info != .@"struct") return false;
     if (info.@"struct".layout != .auto) return false;
-    if (info.@"struct".fields.len == 0) return false;
+    if (info.@"struct".field_names.len == 0) return false;
     if (isChild(F)) return false;
-    inline for (info.@"struct".fields) |field| {
-        if (!isChild(field.type)) return false;
+    inline for (info.@"struct".field_types) |FieldType| {
+        if (!isChild(FieldType)) return false;
     }
     return true;
 }

@@ -2,16 +2,16 @@
     .name = .godot,
     .version = "0.0.0-dev",
     .fingerprint = 0x74a61aa48e9841ab,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
 
     .dependencies = .{
         .bbcodez = .{
-            .url = "git+https://github.com/gdzig/bbcodez#7ca97c0738d274195bcb28ab5c789ee0579abbcf",
-            .hash = "bbcodez-0.0.1-dev-YlrOBmyhAQBdGQs5DI8s5xn5nlRg_KQP-aQfCa9eseZp",
+            .url = "git+https://github.com/gdzig/bbcodez#f1e5010323c48d42f3dc267d4d933584f71d9734",
+            .hash = "bbcodez-0.0.1-dev-YlrOBrGpAQBzoPrFNNohWdIP_ZhbhVuEndux7FfWFNlC",
         },
         .casez = .{
-            .url = "git+https://github.com/gdzig/casez#c5a826d3d7bbbb46b344f971d9caadc2595f521e",
-            .hash = "casez-0.0.1-aTb4GruMAAB_mjFKqes-KoN2jNXSLpB856W-8ZL22krx",
+            .url = "git+https://github.com/gdzig/casez#2dfa81e9a627baadf8d49951b0af0079b9e6333b",
+            .hash = "casez-0.0.1-aTb4Gn6PAAAguvkqPC1jFbSq3exvXXWIacNaeX0lTaMr",
         },
         .emsdk = .{
             .url = "https://github.com/emscripten-core/emsdk/archive/refs/tags/4.0.20.tar.gz",
@@ -19,18 +19,17 @@
             .lazy = true,
         },
         .oopz = .{
-            .url = "git+https://github.com/gdzig/oopz#e37ece30bdafc185e88a4bb5d9869115c8d8503f",
-            .hash = "oopz-0.0.0-pFJy_ddWAAABM-zKPi6ChgcCRYMOuWKbEFwEqsfNU-4U",
+            .url = "git+https://github.com/gdzig/oopz#e75514171779858dc4a0fd1e1accc85c16a396f2",
+            .hash = "oopz-0.0.0-pFJy_QxZAABRjZk6dXmOZYLL8qIS-6guAChEFOP9BqTf",
         },
-        .temp = .{
-            .url = "git+https://github.com/abhinav/temp.zig#b9ab01063f9b1ef9015b08c6cf62f681a946fafc",
-            .hash = "temp-0.4.0-Ogl1FVeIAAAz7NKVplohFzIpVJikGN3WMJzPBr7ZRzw6",
-        },
-        // zio's main branch targets Zig 0.16; its zig-0.17 branch follows
-        // compiler master. Pin the reviewed 0.16 commit rather than a branch.
+        // Pin the Zig 0.17 branch rather than following compiler master.
         .zio = .{
-            .url = "git+https://github.com/lalinsky/zio#9af2e66b3bb4f78bc153e9323cdf8fa9c89da9e4",
-            .hash = "zio-0.17.0-xHbVVMs7KQDQv6kgwE6sVhFoTWa0cyHnc9c3T07cN2aI",
+            .url = "git+https://github.com/lalinsky/zio#b3475afacc7674f01842a9b1e7499f0976972f22",
+            .hash = "zio-0.17.0-xHbVVC8rKQC-IaVNQvJWKA_ACKKh6BdQ1PZyS9zqJpq-",
+        },
+        .godot_versions = .{
+            .url = "git+https://github.com/gdzig/godot-versions#26f026b40ef8e8e821d45a71be265dee99d91a17",
+            .hash = "godot-0.0.0-Nast2nlfBwCwQaen9jtCdDUZ1rhsAXFp1kkmAWcpGrCW",
         },
     },
 

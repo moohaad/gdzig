@@ -375,7 +375,7 @@ if (godot.input.isActionJustPressed(Actions.jump)) {
 
 `Action` is generated from `[input]` in the configured `project.godot`, so a typo or an
 action renamed in the editor is a compile error. Pass
-`.godot_project = b.pathFromRoot("project")` to the gdzig dependency; the relative
+`.godot_project = b.root.joinString(b.allocator, "project") catch @panic("OOM")` to the gdzig dependency; the relative
 `.godot_project = "project"` on `addExtension` serves a different purpose. User-defined
 enums remain accepted when code intentionally needs a project-independent action set,
 including Godot's untouched built-in `ui_*` actions, which are not serialized in

@@ -15,8 +15,8 @@ runs:
     - name: Setup Zig
       uses: mlugg/setup-zig@v2
       with:
-        # Pinned rather than inferred: gdzig uses `std.Io`, which is 0.16-only.
-        version: 0.16.0
+        # Pinned rather than inferred: gdzig tracks one stable Zig release.
+        version: 0.17.0
         cache-key: ${{ inputs.cache-key }}
 
     - name: Cache Godot
@@ -29,7 +29,7 @@ runs:
     # Downloaded here rather than via `-Dgodot-version`, even though that now
     # works: this pins the exact build per platform and caches it under CI's own
     # key, and it keeps the test run independent of the downloader in
-    # `build/godot/`, which is itself part of what is being tested.
+    # the downloader package, which has its own test suite.
     - name: Download Godot
       if: steps.cache-godot.outputs.cache-hit != 'true'
       shell: bash
